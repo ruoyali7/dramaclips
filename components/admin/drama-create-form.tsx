@@ -28,7 +28,35 @@ export function DramaCreateForm() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<{ title: string; episodeCount: number } | null>(null);
   const [error, setError] = useState("");
+  const [rsLink, setRsLink] = useState("");
+  const [rsText, setRsText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [needsRsText, setNeedsRsText] = useState(false);
+  const [importNotice, setImportNotice] = useState("");
   const slugRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  async function importRs() {
+    if (!rsLink.trim() || importing) return;
+    setImporting(true); setError(""); setImportNotice("");
+    const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: rsLink.trim(), detailsText: rsText.trim() || undefined }) });
+    const result = await response.json();
+    setImporting(false);
+    if (!response.ok) {
+      if (result.code?.startsWith("RS_CONNECTION")) { setNeedsRsText(true); setError("RS Boost requires a signed-in connection. Copy the details page text and paste it below for this import."); return; }
+      setError(result.message || "Could not import RS details"); return;
+    }
+    const drama = result.drama as Record<string, unknown>;
+    for (const name of ["title", "slug", "publicCode", "promoCode", "language", "description", "coverUrl", "cpsUrl"] as const) {
+      const value = drama[name];
+      const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      if (field && typeof value === "string" && value) field.value = value;
+    }
+    const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
+    if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
+    setNeedsRsText(false);
+    setImportNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total chapters` : ""}. Review every field before saving.`);
+  }
 
   function patchEpisode(index: number, patch: Partial<EpisodeRow>) {
     setEpisodes((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
@@ -94,8 +122,10 @@ export function DramaCreateForm() {
     setResult(json.draft);
   }
 
-  return <form className="drama-create" onSubmit={submit}>
-    <section><span>01 · Drama details</span><div className="form-grid">
+  return <form ref={formRef} className="drama-create" onSubmit={submit}>
+    <section><span>01 · Drama details</span>
+      <div className="rs-import"><label><b>Import from RS Boost link</b><div><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /><button type="button" onClick={importRs} disabled={importing || !rsLink.trim()}>{importing ? "Importing…" : "Import details"}</button></div></label>{needsRsText && <label className="rs-paste"><b>Fallback · paste copied RS details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={5} placeholder="Open the RS page, copy its visible details, paste here, then click Import details again." /></label>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>
       <label><b>Public code</b><input name="publicCode" required inputMode="numeric" /></label>
