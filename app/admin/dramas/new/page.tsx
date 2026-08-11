@@ -1,0 +1,1 @@
+import { AdminShell } from "@/components/admin/admin-shell";import { DramaCreateForm } from "@/components/admin/drama-create-form";export default function Page(){return <AdminShell active="Dramas"><div className="admin-title"><div><p>Content onboarding</p><h1>Add drama</h1></div></div><DramaCreateForm/></AdminShell>}

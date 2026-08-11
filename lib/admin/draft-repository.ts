@@ -1,0 +1,4 @@
+import "server-only";
+import { mkdir,readFile,rename,writeFile } from "fs/promises";import path from "path";import { randomUUID } from "crypto";import type { DramaDraftInput } from "./drama-schema";import { encryptSensitive } from "./encryption";
+const file=path.join(process.cwd(),"data","drama-drafts.json");
+export async function saveDramaDraft(input:DramaDraftInput){await mkdir(path.dirname(file),{recursive:true});let rows:unknown[]=[];try{rows=JSON.parse(await readFile(file,"utf8"))}catch{}const record={id:randomUUID(),status:"draft",createdAt:new Date().toISOString(),...input,cpsUrlEncrypted:encryptSensitive(input.cpsUrl),cpsUrl:undefined};const temp=`${file}.tmp`;await writeFile(temp,JSON.stringify([...rows,record],null,2),{mode:0o600});await rename(temp,file);return{id:record.id,status:record.status,title:record.title,slug:record.slug,episodeCount:record.episodes.length,destinationHost:new URL(input.cpsUrl).hostname}}
