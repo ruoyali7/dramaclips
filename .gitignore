@@ -8,3 +8,4 @@ coverage
 *.swp
 supabase/.temp/
 data/*.json
+.vercel
