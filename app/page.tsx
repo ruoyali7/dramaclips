@@ -12,7 +12,7 @@ export default async function Home({searchParams}:{searchParams:Promise<Record<s
   const hero = dramas.find(d => d.slug === requested || d.publicCode === requested) || dramas[0];
   const attribution = trackingQuery(query);
   return <main className="dc-home">
-    <header className="dc-nav"><Brand dark/><nav><Link href="#trending">Trending</Link><Link href="/search">Find a drama</Link></nav><Link href="/search" aria-label="Search"><Search/></Link></header>
+    <header className="dc-nav"><Brand dark/><nav><Link href="/">Home</Link><Link href="#all-dramas">All dramas</Link><Link href="/search">Find by code</Link></nav><Link href="/search" aria-label="Search"><Search/></Link></header>
     <ContinueWatching dramas={dramas}/>
     <section className="dc-hero">
       <Image src={hero.coverUrl} alt="" fill priority sizes="100vw" className="dc-hero-image"/>
@@ -28,7 +28,7 @@ export default async function Home({searchParams}:{searchParams:Promise<Record<s
       </div>
     </section>
     <section className="dc-find"><div><strong>Looking for the drama from your video?</strong><span>Enter the code shown in the caption</span></div><form action="/search"><Search/><input name="q" inputMode="numeric" placeholder="Enter drama code" aria-label="Drama code"/><button>Find</button></form></section>
-    <section className="dc-trending" id="trending"><div className="dc-section-head"><div><span>Most watched</span><h2>Binge-worthy dramas</h2></div><Link href="/search">View all <ArrowRight/></Link></div><div className="dc-poster-grid">{dramas.map((drama,index)=><Link href={`/watch/${drama.slug}`} key={drama.id} className="dc-poster"><div><Image src={drama.coverUrl} alt="" fill sizes="(max-width:700px) 42vw, 220px"/><span>{index+1}</span><i><Play fill="currentColor"/></i></div><small>#{drama.publicCode} · {drama.tags[0]}</small><strong>{drama.title}</strong></Link>)}</div></section>
+    <section className="dc-trending" id="all-dramas"><div className="dc-section-head"><div><span>Browse the library</span><h2>All dramas</h2><p>Pick a story and watch the available free chapters here.</p></div><Link href="/search">Find by code <ArrowRight/></Link></div><div className="dc-poster-grid">{dramas.map((drama,index)=><Link href={`/watch/${drama.slug}`} key={drama.id} className="dc-poster"><div><Image src={drama.coverUrl} alt="" fill sizes="(max-width:700px) 42vw, 220px"/><span>{index+1}</span><i><Play fill="currentColor"/></i><b>{drama.id==="d1"?"5 free chapters":"Demo"}</b></div><small>#{drama.publicCode} · {drama.tags[0]}</small><strong>{drama.title}</strong></Link>)}</div></section>
     <section className="dc-explain"><h2>One tap back into the story.</h2><p>DramaClips matches each social video to its exact series. Use a clip link for an instant match, revisit your last drama, or search by code when needed.</p></section>
     <footer className="dc-footer"><Brand dark/><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms & affiliate disclosure</Link></div><p>DramaClips may earn a commission when you continue to a third-party app.</p></footer>
   </main>;
