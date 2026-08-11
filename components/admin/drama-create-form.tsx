@@ -34,12 +34,14 @@ export function DramaCreateForm() {
   const [importing, setImporting] = useState(false);
   const [needsRsText, setNeedsRsText] = useState(false);
   const [importNotice, setImportNotice] = useState("");
-  const [bookmarklet, setBookmarklet] = useState("#");
+  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
   const slugRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    setBookmarklet(rsBookmarklet(`${window.location.origin}/admin/dramas/new`));
+    // React intentionally blocks javascript: href props. Set the bookmarklet on
+    // the DOM node after mount so dragging it saves the intended browser tool.
+    bookmarkletRef.current?.setAttribute("href", rsBookmarklet(`${window.location.origin}/admin/dramas/new`));
     const transfer = readRsTransfer(window.name);
     if (!transfer) return;
     window.name = "";
@@ -140,7 +142,7 @@ export function DramaCreateForm() {
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <section><span>01 · Drama details</span>
-      <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a href={bookmarklet} onClick={(event) => bookmarklet === "#" && event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
+      <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a ref={bookmarkletRef} href="#" onClick={(event) => event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
       <div className="rs-import"><label className="rs-paste"><b>Or paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={() => void importRs()} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Use the one-click helper or paste the full page instead.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
