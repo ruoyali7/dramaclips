@@ -78,7 +78,9 @@ export function parseRsText(text: string): ImportedDrama {
   return { title, slug: title ? slugify(title) : undefined, publicCode: promoCode, promoCode, language: /中文|Chinese/i.test(languageLine || "") ? "zh" : "en", tags, description, cpsUrl, chapterCount, freeChapterCount };
 }
 
-export async function importFromRs(link: string, detailsText?: string) {
+export async function importFromRs(link?: string, detailsText?: string) {
+  if (detailsText?.trim() && !link?.trim()) return parseRsText(detailsText);
+  if (!link?.trim()) throw new Error("Paste the RS Boost page text or provide a detail link");
   const parsed = parseRsUrl(link);
   const token = process.env.RS_BOOST_API_TOKEN?.trim();
   if (!token) {

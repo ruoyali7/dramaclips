@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeRsPayload, parseRsText, parseRsUrl } from "@/lib/admin/rs-import";
+import { importFromRs, normalizeRsPayload, parseRsText, parseRsUrl } from "@/lib/admin/rs-import";
 
 describe("RS Boost import", () => {
   it("accepts only resource detail links", () => {
@@ -19,5 +19,9 @@ describe("RS Boost import", () => {
   it("skips explanatory text before the real RS promotion code", () => {
     const result = parseRsText(`RS Boost\n资源广场\n我的推广\n我的收益\nzh\navatar\ncover\nThe Cold CEO Who Spoiled Me Online\n英语\n扮猪吃虎\n上线时间: 2026-08-11\n共30章，前6章节免费\n收起\nI lied about my age and ghosted my clingy online boyfriend half a year ago. Staying at my best friend’s house for break, I froze—her cold, CEO older brother Rhys was exactly the man I dumped online. He recognized me just by my voice and kept testing me nonstop.\nApp推广链接\n用户点击此链接跳转到应用市场下载安装App后打开App跳转到首页\nhttps://reelslink.com/cps/g8BYMM\n资源推广链接\n用户点击此链接跳转到应用市场下载安装App后打开App跳转到本资源的阅读界面\nhttps://reelslink.com/cps/qzpbZl\n资源推广口令\n用户在App内搜索该口令可展示本资源及绑定归因关系\n3470108`);
     expect(result).toMatchObject({ title: "The Cold CEO Who Spoiled Me Online", slug: "the-cold-ceo-who-spoiled-me-online", publicCode: "3470108", promoCode: "3470108", tags: ["扮猪吃虎"], cpsUrl: "https://reelslink.com/cps/qzpbZl", chapterCount: 30, freeChapterCount: 6 });
+  });
+
+  it("imports copied text without requiring a resource link", async () => {
+    await expect(importFromRs(undefined, "cover\nText Only Drama\n英语\n资源推广口令\n1234567")).resolves.toMatchObject({ title: "Text Only Drama", promoCode: "1234567" });
   });
 });

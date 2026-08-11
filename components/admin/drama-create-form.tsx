@@ -37,13 +37,13 @@ export function DramaCreateForm() {
   const formRef = useRef<HTMLFormElement>(null);
 
   async function importRs() {
-    if (!rsLink.trim() || importing) return;
+    if ((!rsText.trim() && !rsLink.trim()) || importing) return;
     setImporting(true); setError(""); setImportNotice("");
     const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: rsLink.trim(), detailsText: rsText.trim() || undefined }) });
     const result = await response.json();
     setImporting(false);
     if (!response.ok) {
-      if (result.code?.startsWith("RS_CONNECTION")) { setNeedsRsText(true); setError("RS Boost requires a signed-in connection. Copy the details page text and paste it below for this import."); return; }
+      if (result.code?.startsWith("RS_CONNECTION")) { setNeedsRsText(true); setError("RS Boost requires sign-in for link-only import. Copy the full details page and paste it above instead."); return; }
       setError(result.message || "Could not import RS details"); return;
     }
     const drama = result.drama as Record<string, unknown>;
@@ -125,7 +125,7 @@ export function DramaCreateForm() {
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <section><span>01 · Drama details</span>
-      <div className="rs-import"><label><b>Import from RS Boost link</b><div><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /><button type="button" onClick={importRs} disabled={importing || !rsLink.trim()}>{importing ? "Importing…" : "Import details"}</button></div></label>{needsRsText && <label className="rs-paste"><b>Fallback · paste copied RS details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={5} placeholder="Open the RS page, copy its visible details, paste here, then click Import details again." /></label>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      <div className="rs-import"><label className="rs-paste"><b>Paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button className="rs-extract" type="button" onClick={importRs} disabled={importing || (!rsText.trim() && !rsLink.trim())}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Full-page text works without one.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>
