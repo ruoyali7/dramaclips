@@ -54,8 +54,9 @@ export function DramaCreateForm() {
     }
     const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
     if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
+    if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 10 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
     setNeedsRsText(false);
-    setImportNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total chapters` : ""}. Review every field before saving.`);
+    setImportNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total chapters` : ""}${drama.freeChapterCount ? ` · ${drama.freeChapterCount} free previews` : ""}. Review every field before saving.`);
   }
 
   function patchEpisode(index: number, patch: Partial<EpisodeRow>) {
