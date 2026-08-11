@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { importFromRs, normalizeRsPayload, parseRsText, parseRsUrl } from "@/lib/admin/rs-import";
+import { readRsTransfer, RS_TRANSFER_PREFIX, rsBookmarklet } from "@/lib/admin/rs-transfer";
 
 describe("RS Boost import", () => {
   it("accepts only resource detail links", () => {
@@ -23,5 +24,21 @@ describe("RS Boost import", () => {
 
   it("imports copied text without requiring a resource link", async () => {
     await expect(importFromRs(undefined, "cover\nText Only Drama\n英语\n资源推广口令\n1234567")).resolves.toMatchObject({ title: "Text Only Drama", promoCode: "1234567" });
+  });
+});
+
+describe("RS browser transfer", () => {
+  it("accepts transfers only from RS Boost", () => {
+    const valid = RS_TRANSFER_PREFIX + JSON.stringify({ version: 1, source: "https://cps.reelshort.com/resource-square/detail/abc?app=reelshort", text: "cover\nA Drama" });
+    expect(readRsTransfer(valid)).toMatchObject({ text: "cover\nA Drama" });
+    const invalid = RS_TRANSFER_PREFIX + JSON.stringify({ version: 1, source: "https://example.com/fake", text: "content" });
+    expect(readRsTransfer(invalid)).toBeNull();
+  });
+
+  it("builds a bookmarklet without embedding credentials", () => {
+    const result = rsBookmarklet("https://dramaclips.vercel.app/admin/dramas/new");
+    expect(result).toMatch(/^javascript:/);
+    expect(result).toContain("document.body.innerText");
+    expect(result).not.toMatch(/cookie|token|localStorage/i);
   });
 });

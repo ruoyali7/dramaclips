@@ -1,7 +1,8 @@
 "use client";
 
 import { CheckCircle2, CloudUpload, Plus, Trash2 } from "lucide-react";
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { readRsTransfer, rsBookmarklet } from "@/lib/admin/rs-transfer";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
 const initial: EpisodeRow[] = [1, 2, 3, 4, 5].map((episodeNumber) => ({ episodeNumber, videoUrl: "" }));
@@ -33,14 +34,27 @@ export function DramaCreateForm() {
   const [importing, setImporting] = useState(false);
   const [needsRsText, setNeedsRsText] = useState(false);
   const [importNotice, setImportNotice] = useState("");
+  const [bookmarklet, setBookmarklet] = useState("#");
   const slugRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  async function importRs() {
+  useEffect(() => {
+    setBookmarklet(rsBookmarklet(`${window.location.origin}/admin/dramas/new`));
+    const transfer = readRsTransfer(window.name);
+    if (!transfer) return;
+    window.name = "";
+    setRsText(transfer.text);
+    setRsLink(transfer.source);
+    void importRs(transfer.text, transfer.source);
+  // This must run once so a transferred page cannot be imported repeatedly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function importRs(detailsText = rsText, link = rsLink) {
     if (importing) return;
-    if (!rsText.trim() && !rsLink.trim()) { setError("Paste the full RS Boost details page before extracting."); return; }
+    if (!detailsText.trim() && !link.trim()) { setError("Paste the full RS Boost details page before extracting."); return; }
     setImporting(true); setError(""); setImportNotice("");
-    const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: rsLink.trim(), detailsText: rsText.trim() || undefined }) });
+    const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: link.trim() || undefined, detailsText: detailsText.trim() || undefined }) });
     const result = await response.json();
     setImporting(false);
     if (!response.ok) {
@@ -126,7 +140,8 @@ export function DramaCreateForm() {
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <section><span>01 · Drama details</span>
-      <div className="rs-import"><label className="rs-paste"><b>Paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={importRs} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Full-page text works without one.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a href={bookmarklet} onClick={(event) => bookmarklet === "#" && event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
+      <div className="rs-import"><label className="rs-paste"><b>Or paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={() => void importRs()} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Use the one-click helper or paste the full page instead.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>

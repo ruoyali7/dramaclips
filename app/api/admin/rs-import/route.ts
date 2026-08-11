@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { importFromRs } from "@/lib/admin/rs-import";
 
-const schema = z.object({ link: z.string().url().optional(), detailsText: z.string().max(20000).optional() }).refine((input) => Boolean(input.link || input.detailsText?.trim()), "Paste RS page text or a detail link");
+const schema = z.object({ link: z.string().url().optional(), detailsText: z.string().max(100000).optional() }).refine((input) => Boolean(input.link || input.detailsText?.trim()), "Paste RS page text or a detail link");
 export async function POST(request: NextRequest) {
   try { const input = schema.parse(await request.json()); return NextResponse.json({ drama: await importFromRs(input.link, input.detailsText) }); }
   catch (error) {
