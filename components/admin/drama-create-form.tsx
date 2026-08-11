@@ -64,11 +64,13 @@ export function DramaCreateForm() {
       setError(result.message || "Could not import RS details"); return;
     }
     const drama = result.drama as Record<string, unknown>;
-    for (const name of ["title", "slug", "publicCode", "promoCode", "language", "description", "coverUrl", "cpsUrl"] as const) {
+    for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl"] as const) {
       const value = drama[name];
       const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
       if (field && typeof value === "string" && value) field.value = value;
     }
+    const promoCode = formRef.current?.elements.namedItem("promoCode") as HTMLInputElement | null;
+    if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
     const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
     if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
     if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 10 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
@@ -128,7 +130,7 @@ export function DramaCreateForm() {
     setError("");
     const form = new FormData(event.currentTarget);
     const body = {
-      title: form.get("title"), slug: form.get("slug"), publicCode: form.get("publicCode"), promoCode: form.get("promoCode"),
+      title: form.get("title"), slug: form.get("slug"), publicCode: form.get("promoCode"), promoCode: form.get("promoCode"),
       language: form.get("language"), tags: String(form.get("tags") || "").split(",").map((item) => item.trim()).filter(Boolean),
       description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: form.get("cpsUrl"),
       episodes: episodes.map(({ episodeNumber, videoUrl }) => ({ episodeNumber, videoUrl })),
@@ -147,8 +149,7 @@ export function DramaCreateForm() {
       <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>
-      <label><b>Public code</b><input name="publicCode" required inputMode="numeric" /></label>
-      <label><b>RS promotion code</b><input name="promoCode" required /></label>
+      <label className="wide"><b>RS referral code</b><input name="promoCode" required inputMode="numeric" pattern="[0-9]{4,8}" placeholder="e.g. 3470108" /><small>Used for both DramaClips search and ReelShort attribution.</small></label>
       <label><b>Language</b><select name="language"><option value="en">English</option><option value="zh">Chinese</option></select></label>
       <label><b>Tags, comma separated</b><input name="tags" /></label>
       <label className="wide"><b>Description</b><textarea name="description" required rows={5} /></label>
@@ -159,7 +160,7 @@ export function DramaCreateForm() {
       <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small>{episode.name} · {episode.status} {episode.progress ?? 0}%</small>}{typeof episode.progress === "number" && <i style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" onClick={() => setEpisodes((rows) => rows.filter((_, rowIndex) => rowIndex !== index).map((row, rowIndex) => ({ ...row, episodeNumber: rowIndex + 1 })))}><Trash2 /></button>}</label>)}</div>
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: rows.length + 1, videoUrl: "" }])} disabled={episodes.length >= 10}><Plus /> Add URL manually</button>}
     </section>
-    <section><span>03 · ReelShort destination</span><label className="sensitive-field"><b>Resource promotion link</b><input name="cpsUrl" type="url" required placeholder="https://reelslink.com/cps/..." /><small>Encrypted server-side and never returned after saving.</small></label></section>
+    <section><span>03 · Watch Full destination</span><p>Use the RS <b>Content Promotion Link</b>, not the App Promotion Link. Viewers are sent here after the free previews.</p><label className="sensitive-field"><b>Content promotion link</b><input name="cpsUrl" type="url" required placeholder="https://reelslink.com/cps/..." /><small>Encrypted server-side and never returned after saving.</small></label></section>
     {error && <div className="form-error">{error}</div>}
     {result && <div className="form-success"><CheckCircle2 /><div><b>Draft saved: {result.title}</b><span>{result.episodeCount} preview episodes ready for review.</span></div></div>}
     <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & saving…" : "Save encrypted draft"}</button>

@@ -17,5 +17,5 @@ export function readRsTransfer(value: string): RsTransfer | null {
 export function rsBookmarklet(destination: string) {
   const target = JSON.stringify(destination);
   const prefix = JSON.stringify(RS_TRANSFER_PREFIX);
-  return `javascript:(()=>{try{window.name=${prefix}+JSON.stringify({version:1,source:location.href,text:document.body.innerText});location.href=${target}}catch(error){alert('DramaClips import failed: '+error.message)}})()`;
+  return `javascript:(()=>{try{const values=[...document.querySelectorAll('input,textarea')].map(e=>e.value).filter(Boolean);const links=[...document.querySelectorAll('a[href]')].map(e=>e.href).filter(Boolean);const images=[...document.images].map(e=>'DRAMACLIPS_IMAGE|'+(e.alt||'')+'|'+(e.currentSrc||e.src)+'|'+e.naturalWidth+'|'+e.naturalHeight);const text=[document.body.innerText,'DRAMACLIPS_CAPTURED_VALUES',...values,...links,...images].join('\\n');window.name=${prefix}+JSON.stringify({version:1,source:location.href,text});location.href=${target}}catch(error){alert('DramaClips import failed: '+error.message)}})()`;
 }

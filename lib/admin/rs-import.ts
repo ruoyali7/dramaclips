@@ -63,19 +63,24 @@ export function parseRsText(text: string): ImportedDrama {
   const index = (label: string) => lines.findIndex((line) => line.toLowerCase() === label.toLowerCase());
   const after = (labels: string[]) => { for (const label of labels) { const position = index(label); if (position >= 0 && lines[position + 1]) return lines[position + 1]; } };
   const matchingAfter = (labels: string[], pattern: RegExp) => { for (const label of labels) { const position = index(label); if (position >= 0) { const match = lines.slice(position + 1, position + 8).find((line) => pattern.test(line)); if (match) return match; } } };
-  const title = after(["cover"]) || lines.find((line, position) => position > 0 && /[A-Za-z]{3}/.test(line) && !/RS Boost|资源广场|我的推广|我的收益/.test(line));
-  const promoCode = matchingAfter(["资源推广口令", "Resource Promotion Code"], /^\d{4,8}$/);
-  const resourceLinkPosition = Math.max(index("资源推广链接"), index("Resource Promotion Link"));
-  const cpsUrl = resourceLinkPosition >= 0 ? lines.slice(resourceLinkPosition + 1).find((line) => /^https:\/\/reelslink\.com\/cps\//.test(line)) : undefined;
-  const languageLine = lines.find((line) => /^(英语|中文|English|Chinese)$/i.test(line));
-  const languagePosition = languageLine ? lines.indexOf(languageLine) : -1;
   const releasePosition = lines.findIndex((line) => /^(上线时间|Release date)/i.test(line));
-  const tags = languagePosition >= 0 && releasePosition > languagePosition ? lines.slice(languagePosition + 1, releasePosition).filter((line) => line.length <= 40 && !/^共\d+章/.test(line)).slice(0, 8) : [];
+  const languagePosition = releasePosition > 0 ? lines.slice(0, releasePosition).findLastIndex((line) => /^(英语|中文|English|Chinese)$/i.test(line)) : -1;
+  const titleBeforeLanguage = languagePosition > 0 ? lines[languagePosition - 1] : undefined;
+  const title = after(["cover"]) || titleBeforeLanguage || lines.find((line, position) => position > 0 && /[A-Za-z]{3}/.test(line) && !/RS Boost|Content Hub|My Referral|My Earnings|资源广场|我的推广|我的收益/.test(line));
+  const promoCode = matchingAfter(["资源推广口令", "Resource Promotion Code", "Content Referral Code"], /^\d{4,8}$/) || lines.find((line) => /^\d{6,8}$/.test(line));
+  const resourceLinkPosition = Math.max(index("资源推广链接"), index("Resource Promotion Link"));
+  const capturedPromotionLinks = lines.filter((line) => /^https:\/\/reelslink\.com\/cps\//.test(line));
+  const cpsUrl = (resourceLinkPosition >= 0 ? lines.slice(resourceLinkPosition + 1).find((line) => /^https:\/\/reelslink\.com\/cps\//.test(line)) : undefined) || capturedPromotionLinks.at(-1);
+  const languageLine = lines.find((line) => /^(英语|中文|English|Chinese)$/i.test(line));
+  const tagLanguagePosition = languageLine ? lines.indexOf(languageLine) : -1;
+  const tags = tagLanguagePosition >= 0 && releasePosition > tagLanguagePosition ? lines.slice(tagLanguagePosition + 1, releasePosition).filter((line) => line.length <= 40 && !/^共\d+章/.test(line)).slice(0, 8) : [];
   const description = lines.find((line) => line.length > 100 && !line.startsWith("http"));
-  const chapterLine = lines.find((line) => /共\s*\d+\s*章|\d+\s*chapters?/i.test(line));
+  const chapterLine = lines.find((line) => /共\s*\d+\s*章|\d+\s*(?:chapters?|episodes?)/i.test(line));
   const chapterCount = chapterLine ? Number(chapterLine.match(/\d+/)?.[0]) : undefined;
-  const freeChapterCount = chapterLine ? Number(chapterLine.match(/前\s*(\d+)\s*章节免费|first\s*(\d+)\s*(?:chapters?|episodes?)\s*free/i)?.slice(1).find(Boolean)) || undefined : undefined;
-  return { title, slug: title ? slugify(title) : undefined, publicCode: promoCode, promoCode, language: /中文|Chinese/i.test(languageLine || "") ? "zh" : "en", tags, description, cpsUrl, chapterCount, freeChapterCount };
+  const freeChapterCount = chapterLine ? Number(chapterLine.match(/前\s*(\d+)\s*章节免费|first\s*(\d+)\s*(?:(?:chapters?|episodes?)\s*)?free/i)?.slice(1).find(Boolean)) || undefined : undefined;
+  const capturedImages = lines.map((line) => line.match(/^DRAMACLIPS_IMAGE\|([^|]*)\|(https?:\/\/[^|]+)\|(\d+)\|(\d+)$/)).filter((match): match is RegExpMatchArray => Boolean(match));
+  const cover = capturedImages.find((match) => /cover/i.test(match[1]) && !/avatar/i.test(match[1])) || capturedImages.find((match) => Number(match[5]) > Number(match[4]) && Number(match[4]) >= 160);
+  return { title, slug: title ? slugify(title) : undefined, publicCode: promoCode, promoCode, language: /中文|Chinese/i.test(languageLine || "") ? "zh" : "en", tags, description, coverUrl: cover?.[2], cpsUrl, chapterCount, freeChapterCount };
 }
 
 export async function importFromRs(link?: string, detailsText?: string) {

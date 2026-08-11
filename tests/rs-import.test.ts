@@ -25,6 +25,11 @@ describe("RS Boost import", () => {
   it("imports copied text without requiring a resource link", async () => {
     await expect(importFromRs(undefined, "cover\nText Only Drama\n英语\n资源推广口令\n1234567")).resolves.toMatchObject({ title: "Text Only Drama", promoCode: "1234567" });
   });
+
+  it("parses an English page captured by the browser helper", () => {
+    const result = parseRsText(`Content Hub\nMy Referral\nMy Earnings\nEN\nThe Cold CEO Who Spoiled Me Online\nEnglish\nPlaying Dumb\nRelease Date: 2026-08-11\n30 Episodes, First 6 Free\nI lied about my age and ghosted my clingy online boyfriend half a year ago. Staying at my best friend’s house for break, I froze—her cold, CEO older brother Rhys was exactly the man I dumped online. He recognized me just by my voice and kept testing me nonstop.\nApp Promotion Link\nCopy\nContent Promotion Link\nCopy\nContent Referral Code\nCopy\nDRAMACLIPS_CAPTURED_VALUES\nhttps://reelslink.com/cps/g8BYMM\nhttps://reelslink.com/cps/qzpbZl\n3470108\nDRAMACLIPS_IMAGE|cover|https://cdn.example.com/cold-ceo.jpg|360|480`);
+    expect(result).toMatchObject({ title: "The Cold CEO Who Spoiled Me Online", slug: "the-cold-ceo-who-spoiled-me-online", promoCode: "3470108", cpsUrl: "https://reelslink.com/cps/qzpbZl", coverUrl: "https://cdn.example.com/cold-ceo.jpg", chapterCount: 30, freeChapterCount: 6, tags: ["Playing Dumb"] });
+  });
 });
 
 describe("RS browser transfer", () => {
