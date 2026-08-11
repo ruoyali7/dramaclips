@@ -1,0 +1,1 @@
+import Link from "next/link";import { Brand } from "@/components/brand";export default function NotFound(){return <main className="not-found"><Brand/><span>404</span><h1>That chapter<br/>isn't here.</h1><p>The story may have moved, paused, or never existed.</p><Link href="/">Return to the collection</Link></main>}

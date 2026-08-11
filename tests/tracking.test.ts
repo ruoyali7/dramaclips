@@ -1,0 +1,2 @@
+import { describe,expect,it } from "vitest";import { normalize,parseTracking } from "@/lib/tracking";
+describe("tracking",()=>{it("prefers short params and preserves leading zero strings",()=>{const t=parseTracking(new URLSearchParams("s=TikTok&utm_source=instagram&cl=0042"));expect(t.source).toBe("tiktok");expect(t.clip).toBe("0042")});it("normalizes unsafe and long values",()=>{expect(normalize("Hello<script>世界")).toBe("hello_script___") ;expect(normalize("x".repeat(140))).toHaveLength(100)})});
