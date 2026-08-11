@@ -37,7 +37,8 @@ export function DramaCreateForm() {
   const formRef = useRef<HTMLFormElement>(null);
 
   async function importRs() {
-    if ((!rsText.trim() && !rsLink.trim()) || importing) return;
+    if (importing) return;
+    if (!rsText.trim() && !rsLink.trim()) { setError("Paste the full RS Boost details page before extracting."); return; }
     setImporting(true); setError(""); setImportNotice("");
     const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: rsLink.trim(), detailsText: rsText.trim() || undefined }) });
     const result = await response.json();
@@ -125,7 +126,7 @@ export function DramaCreateForm() {
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <section><span>01 · Drama details</span>
-      <div className="rs-import"><label className="rs-paste"><b>Paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button className="rs-extract" type="button" onClick={importRs} disabled={importing || (!rsText.trim() && !rsLink.trim())}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Full-page text works without one.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      <div className="rs-import"><label className="rs-paste"><b>Paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={importRs} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Full-page text works without one.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>
