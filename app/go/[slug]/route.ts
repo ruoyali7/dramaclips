@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { destinations, dramas } from "@/lib/demo-data";
+import { getRedirectConfig } from "@/lib/catalog";
 import { detectDevice, selectDestination } from "@/lib/redirect";
 import { parseTracking } from "@/lib/tracking";
 
@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const started = Date.now();
   const { slug } = await params;
-  const drama = dramas.find((item) => item.routeSlug === slug && item.status === "published");
+  const config = await getRedirectConfig(slug);
+  const drama = config?.drama;
   const responseHeaders = { "Cache-Control": "no-store, max-age=0", "X-Robots-Tag": "noindex, nofollow" };
 
   if (!drama) {
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const sessionId = request.cookies.get("db_session")?.value || randomUUID();
   const device = detectDevice(request.headers.get("user-agent") || "");
-  const destination = selectDestination(destinations.filter((item) => item.routeSlug === slug), {
+  const destination = selectDestination(config?.destinations || [], {
     device,
     sessionId,
     country: request.headers.get("x-vercel-ip-country") || undefined,
