@@ -3,3 +3,7 @@ export const saveDramaDraft=(input:DramaDraftInput)=>repositoryMode()==="supabas
 export const listDramaDrafts=()=>repositoryMode()==="supabase"?remote.listSupabaseDrafts():local.listDramaDrafts();
 export const publishDramaDraft=(id:string)=>repositoryMode()==="supabase"?remote.publishSupabaseDraft(id):local.publishDramaDraft(id);
 export const getPublishedDramaDrafts=()=>repositoryMode()==="supabase"?remote.getSupabasePublished():local.getPublishedDramaDrafts();
+export async function listVizardSources(){
+  const rows=await getPublishedDramaDrafts();
+  return rows.map(row=>({id:row.id,title:row.title,slug:row.slug,language:row.language,episodes:row.episodes.map(episode=>({episodeNumber:episode.episodeNumber,videoUrl:episode.videoUrl}))}));
+}
