@@ -1,0 +1,1 @@
+.publish-intro{display:flex;justify-content:space-between;align-items:center;gap:20px}.publish-intro>a{background:#d96b43;color:#fff;padding:10px 13px;font-size:9px;display:flex;align-items:center;gap:6px;white-space:nowrap}.publish-intro>a svg{width:13px}@media(max-width:650px){.publish-intro{align-items:flex-start;flex-direction:column}}

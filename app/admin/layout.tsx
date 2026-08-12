@@ -4,6 +4,7 @@ import "./catalog.css";
 import "./settings.css";
 import "./unified.css";
 import "./publish.css";
+import "./metricool-export.css";
 import "./rs-import.css";
 
 export const metadata = { title: "Admin", robots: { index: false, follow: false } };

@@ -36,3 +36,4 @@ export async function createPublishPackage(input:{dramaSlug:string;title:string;
   return safe(rows[0]);
 }
 export async function listPublishPackages(){const rows=await request("publish_packages?select=*&order=created_at.desc&limit=50") as Row[];return rows.map(safe)}
+export async function getLatestPublishPackage(){const rows=await request("publish_packages?select=*&order=created_at.desc&limit=1") as Row[];return rows[0]?safe(rows[0]):null}
