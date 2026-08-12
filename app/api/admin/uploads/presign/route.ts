@@ -7,7 +7,7 @@ const schema = z.object({
   contentType: z.string().trim().min(1).max(100),
   size: z.number().int().positive(),
   slug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  kind: z.enum(["episode", "cover"]).optional(),
+  kind: z.enum(["episode", "cover", "social"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
