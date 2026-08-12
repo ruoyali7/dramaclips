@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copyRsVideoToR2, createR2Upload } from "@/lib/admin/r2";
+import { copyRemoteVideoToR2, createR2Upload } from "@/lib/admin/r2";
 
 describe("R2 upload validation", () => {
   it("rejects video files submitted as covers", () => {
@@ -14,11 +14,11 @@ describe("R2 upload validation", () => {
     expect(() => createR2Upload({ fileName: "episode.jpg", contentType: "image/jpeg", size: 1024, slug: "test-drama", kind: "episode" })).toThrow("MP4, MOV, AVI, or 3GP");
   });
 
-  it("rejects non-Aliyun sources before attempting an R2 upload", async () => {
-    await expect(copyRsVideoToR2({ url: "https://example.com/episode.mp4", slug: "test-drama", episodeNumber: 1 })).rejects.toThrow("host is not allowed");
+  it("rejects unapproved remote sources before attempting an R2 upload", async () => {
+    await expect(copyRemoteVideoToR2({ url: "https://example.com/episode.mp4", slug: "test-drama", episodeNumber: 1 })).rejects.toThrow("URL is not allowed");
   });
 
-  it("rejects insecure Aliyun source URLs", async () => {
-    await expect(copyRsVideoToR2({ url: "http://series.oss-accelerate.aliyuncs.com/episode.mp4", slug: "test-drama", episodeNumber: 1 })).rejects.toThrow("host is not allowed");
+  it("rejects insecure Crazy Maple source URLs", async () => {
+    await expect(copyRemoteVideoToR2({ url: "http://v-mps.crazymaplestudios.com/episode.mp4", slug: "test-drama", episodeNumber: 1 })).rejects.toThrow("URL is not allowed");
   });
 });

@@ -1,18 +1,19 @@
 export const RS_TRANSFER_PREFIX = "__DRAMACLIPS_RS_IMPORT__";
-export type RsTransfer = { version: 1 | 2; source: string; text: string; book?: Record<string, unknown>; chapters?: Array<Record<string, unknown>> };
+
+export type RsTransfer = { version: 1; source: string; text: string };
 
 export function readRsTransfer(value: string): RsTransfer | null {
   if (!value.startsWith(RS_TRANSFER_PREFIX)) return null;
   try {
     const payload = JSON.parse(value.slice(RS_TRANSFER_PREFIX.length)) as Partial<RsTransfer>;
     const source = new URL(payload.source || "");
-    if (![1, 2].includes(Number(payload.version)) || source.hostname !== "cps.reelshort.com" || typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 100000) return null;
-    return { version: payload.version as 1 | 2, source: source.toString(), text: payload.text, book: payload.book, chapters: Array.isArray(payload.chapters) ? payload.chapters.slice(0, 100) : undefined };
+    if (payload.version !== 1 || source.hostname !== "cps.reelshort.com" || typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 100000) return null;
+    return { version: 1, source: source.toString(), text: payload.text };
   } catch { return null; }
 }
 
 export function rsBookmarklet(destination: string) {
   const target = JSON.stringify(destination);
   const prefix = JSON.stringify(RS_TRANSFER_PREFIX);
-  return `javascript:(async()=>{try{const m=location.pathname.match(/\\/resource-square\\/detail\\/([a-f0-9]+)/i);if(!m)throw Error('Open an RS Boost resource detail page first');const values=[...document.querySelectorAll('input,textarea')].map(e=>e.value).filter(Boolean);const links=[...document.querySelectorAll('a[href]')].map(e=>e.href).filter(Boolean);const images=[...document.images].map(e=>'DRAMACLIPS_IMAGE|'+(e.alt||'')+'|'+(e.currentSrc||e.src)+'|'+e.naturalWidth+'|'+e.naturalHeight);const text=[document.body.innerText,'DRAMACLIPS_CAPTURED_VALUES',...values,...links,...images].join('\\n');const u=new URL(location.href),app=u.searchParams.get('app')||'reelshort',book_type=Number(u.searchParams.get('book_type')||0);const r=await fetch('/api/v1/book/book-detail',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({app,book_id:m[1],book_type})});if(!r.ok)throw Error('RS detail API returned '+r.status);const j=await r.json(),d=j.data||j;const chapters=(d.chapters||[]).map((c,i)=>({chapter_id:String(c.chapter_id||''),t_chapter_id:String(c.t_chapter_id||''),episode_number:i+1,play_url:String(c.play_url||'')})).filter(c=>c.play_url).slice(0,100);const book={book_id:m[1],app,book_type,chapter_count:Number(d.chapter_count||d.total_chapter_num||0),pay_start:Number(d.pay_start||chapters.length),book_name:String(d.book_name||d.title||''),description:String(d.description||d.book_desc||''),cover_url:String(d.cover_url||d.cover||''),promotion_code:String(d.promotion_code||d.promo_code||d.resource_code||d.code||''),resource_promotion_link:String(d.book_promotion_link||d.resource_promotion_link||d.promotion_url||d.promote_url||d.cps_url||'')};window.name=${prefix}+JSON.stringify({version:2,source:location.href,text,book,chapters});location.href=${target}}catch(error){alert('DramaClips import failed: '+error.message)}})()`;
+  return `javascript:(()=>{try{const values=[...document.querySelectorAll('input,textarea')].map(e=>e.value).filter(Boolean);const links=[...document.querySelectorAll('a[href]')].map(e=>e.href).filter(Boolean);const images=[...document.images].map(e=>'DRAMACLIPS_IMAGE|'+(e.alt||'')+'|'+(e.currentSrc||e.src)+'|'+e.naturalWidth+'|'+e.naturalHeight);const text=[document.body.innerText,'DRAMACLIPS_CAPTURED_VALUES',...values,...links,...images].join('\\n');window.name=${prefix}+JSON.stringify({version:1,source:location.href,text});location.href=${target}}catch(error){alert('DramaClips import failed: '+error.message)}})()`;
 }

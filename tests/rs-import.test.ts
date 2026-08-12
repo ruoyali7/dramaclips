@@ -40,34 +40,12 @@ describe("RS browser transfer", () => {
     expect(readRsTransfer(invalid)).toBeNull();
   });
 
-  it("keeps the authorized episode payload", () => {
-    const chapters = Array.from({ length: 12 }, (_, index) => ({
-      chapter_id: `chapter-${index + 1}`,
-      play_url: `https://series.oss-accelerate.aliyuncs.com/${index + 1}.mp4`,
-    }));
-    const value = RS_TRANSFER_PREFIX + JSON.stringify({
-      version: 2,
-      source: "https://cps.reelshort.com/resource-square/detail/6a754311338f32d80c0fc293?app=reelshort&book_type=0",
-      text: "cover\nMy Fireplace Ships to Dragon Realm",
-      book: { book_id: "6a754311338f32d80c0fc293", chapter_count: 40, pay_start: 9 },
-      chapters,
-    });
-
-    const transfer = readRsTransfer(value);
-    expect(transfer?.version).toBe(2);
-    expect(transfer?.chapters).toHaveLength(12);
-    expect(transfer?.chapters?.[0]).toMatchObject({ chapter_id: "chapter-1" });
-  });
-
-  it("builds a bookmarklet without embedding credentials", () => {
+  it("builds a metadata-only bookmarklet without API calls or credentials", () => {
     const result = rsBookmarklet("https://dramaclips.vercel.app/admin/dramas/new");
     expect(result).toMatch(/^javascript:/);
     expect(result).toContain("document.body.innerText");
-    expect(result).toContain("/api/v1/book/book-detail");
-    expect(result).toContain("credentials:'include'");
-    expect(result).toContain("play_url");
-    expect(result).toContain("promotion_code");
-    expect(result).toContain("resource_promotion_link");
+    expect(result).not.toContain("/api/v1/book/book-detail");
+    expect(result).not.toContain("credentials:'include'");
     expect(result).not.toMatch(/cookie|token|localStorage/i);
   });
 });
