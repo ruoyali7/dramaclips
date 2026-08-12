@@ -25,6 +25,7 @@ function uploadFile(file: File, uploadUrl: string, onProgress: (value: number) =
 
 export function DramaCreateForm() {
   const [episodes, setEpisodes] = useState<EpisodeRow[]>(initial);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<{ title: string; episodeCount: number } | null>(null);
@@ -82,13 +83,8 @@ export function DramaCreateForm() {
     setEpisodes((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
   }
 
-  async function upload(filesInput: FileList | null) {
+  function selectFiles(filesInput: FileList | null) {
     if (!filesInput?.length || uploading) return;
-    const slug = slugRef.current?.value.trim() || "";
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-      setError("Enter a valid slug before selecting episode files.");
-      return;
-    }
     const files = naturalFiles(Array.from(filesInput));
     const invalid = files.find((file) => !acceptedTypes.has(file.type) || file.size <= 0 || file.size > 10 * 1024 ** 3);
     if (invalid) {
@@ -100,11 +96,26 @@ export function DramaCreateForm() {
       return;
     }
     setError("");
+    setSelectedFiles(files);
+    setEpisodes(files.map((file, index) => ({ episodeNumber: index + 1, videoUrl: "", name: file.name, progress: 0, status: "Queued" })));
+  }
+
+  async function uploadSelected() {
+    if (!selectedFiles.length || uploading) return;
+    const slug = slugRef.current?.value.trim() || "";
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      setError("Enter a valid slug before uploading episode files.");
+      slugRef.current?.focus();
+      return;
+    }
+    setError("");
     setUploading(true);
-    setEpisodes(files.map((file, index) => ({ episodeNumber: index + 1, videoUrl: "", name: file.name, progress: 0, status: "Preparing" })));
-    try {
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
+    const failures: string[] = [];
+    for (let index = 0; index < selectedFiles.length; index += 1) {
+      if (episodes[index]?.status === "Ready") continue;
+      const file = selectedFiles[index];
+      try {
+        patchEpisode(index, { status: "Preparing", progress: 0 });
         const response = await fetch("/api/admin/uploads/presign", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -115,12 +126,19 @@ export function DramaCreateForm() {
         patchEpisode(index, { status: "Uploading" });
         await uploadFile(file, prepared.uploadUrl, (progress) => patchEpisode(index, { progress }));
         patchEpisode(index, { videoUrl: prepared.publicUrl, progress: 100, status: "Ready" });
+      } catch (uploadError) {
+        failures.push(file.name);
+        patchEpisode(index, { status: "Failed" });
       }
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Upload failed");
-    } finally {
-      setUploading(false);
     }
+    setUploading(false);
+    if (failures.length) setError(`${failures.length} upload${failures.length > 1 ? "s" : ""} failed. Check R2/CORS and click Retry failed uploads.`);
+    else setSelectedFiles([]);
+  }
+
+  function removeEpisode(index: number) {
+    setEpisodes((rows) => rows.filter((_, rowIndex) => rowIndex !== index).map((row, rowIndex) => ({ ...row, episodeNumber: rowIndex + 1 })));
+    setSelectedFiles((files) => files.filter((_, fileIndex) => fileIndex !== index));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -156,8 +174,9 @@ export function DramaCreateForm() {
       <label className="wide"><b>Cover URL or path</b><input name="coverUrl" required /></label>
     </div></section>
     <section><span>02 · Upload preview episodes</span><p>Select up to 10 authorized files. They upload directly from this browser to R2 and are ordered by filename.</p>
-      <label className={`upload-drop ${uploading ? "busy" : ""}`}><CloudUpload /><b>{uploading ? "Uploading episodes…" : "Choose videos or a folder"}</b><small>MP4, MOV, AVI, or 3GP · 10 GB max each</small><input type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/3gpp" multiple onChange={(event) => upload(event.target.files)} disabled={uploading} /></label>
-      <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small>{episode.name} · {episode.status} {episode.progress ?? 0}%</small>}{typeof episode.progress === "number" && <i style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" onClick={() => setEpisodes((rows) => rows.filter((_, rowIndex) => rowIndex !== index).map((row, rowIndex) => ({ ...row, episodeNumber: rowIndex + 1 })))}><Trash2 /></button>}</label>)}</div>
+      <label className={`upload-drop ${uploading ? "busy" : ""}`}><CloudUpload /><b>{selectedFiles.length ? `${selectedFiles.length} episode files selected` : "Choose videos or a folder"}</b><small>{selectedFiles.length ? "Review the queue below, then start the R2 upload." : "MP4, MOV, AVI, or 3GP · 10 GB max each"}</small><input type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/3gpp" multiple onChange={(event) => selectFiles(event.target.files)} disabled={uploading} /></label>
+      {selectedFiles.length > 0 && <button className="upload-selected" type="button" onClick={() => void uploadSelected()} disabled={uploading}>{uploading ? "Uploading to R2…" : episodes.some((episode) => episode.status === "Failed") ? "Retry failed uploads" : `Upload ${selectedFiles.length} episodes to R2`}</button>}
+      <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small><span>{episode.name}</span><strong>{episode.status}{episode.status === "Uploading" ? ` · ${episode.progress ?? 0}%` : ""}</strong></small>}{typeof episode.progress === "number" && <i className={episode.status?.toLowerCase()} style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" aria-label={`Remove episode ${episode.episodeNumber}`} onClick={() => removeEpisode(index)}><Trash2 /></button>}</label>)}</div>
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: rows.length + 1, videoUrl: "" }])} disabled={episodes.length >= 10}><Plus /> Add URL manually</button>}
     </section>
     <section><span>03 · Watch Full destination</span><p>Use the RS <b>Content Promotion Link</b>, not the App Promotion Link. Viewers are sent here after the free previews.</p><label className="sensitive-field"><b>Content promotion link</b><input name="cpsUrl" type="url" required placeholder="https://reelslink.com/cps/..." /><small>Encrypted server-side and never returned after saving.</small></label></section>
