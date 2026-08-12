@@ -81,7 +81,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
     const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
     if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
-    if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 10 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
+    if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 100 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
     setNeedsRsText(false);
     setImportNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total chapters` : ""}${drama.freeChapterCount ? ` · ${drama.freeChapterCount} free previews` : ""}. Review every field before saving.`);
   }
