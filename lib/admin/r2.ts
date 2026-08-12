@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 
 const MAX_FILE_BYTES = 10 * 1024 ** 3;
 const VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/x-msvideo", "video/3gpp"]);
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_COVER_BYTES = 20 * 1024 ** 2;
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -24,9 +26,15 @@ function cleanName(value: string) {
   return `${stem}${extension}`;
 }
 
-export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string }) {
-  if (!Number.isFinite(input.size) || input.size <= 0 || input.size > MAX_FILE_BYTES) throw new Error("Video must be between 1 byte and 10 GB");
-  if (!VIDEO_TYPES.has(input.contentType)) throw new Error("Use MP4, MOV, AVI, or 3GP video files");
+export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string; kind?: "episode" | "cover" }) {
+  const kind = input.kind || "episode";
+  if (kind === "cover") {
+    if (!Number.isFinite(input.size) || input.size <= 0 || input.size > MAX_COVER_BYTES) throw new Error("Cover must be between 1 byte and 20 MB");
+    if (!IMAGE_TYPES.has(input.contentType)) throw new Error("Use a JPG, PNG, or WebP cover image");
+  } else {
+    if (!Number.isFinite(input.size) || input.size <= 0 || input.size > MAX_FILE_BYTES) throw new Error("Video must be between 1 byte and 10 GB");
+    if (!VIDEO_TYPES.has(input.contentType)) throw new Error("Use MP4, MOV, AVI, or 3GP video files");
+  }
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.slug)) throw new Error("Add a valid drama slug before uploading");
 
   const accountId = required("R2_ACCOUNT_ID");
@@ -35,7 +43,7 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
   const bucket = required("R2_BUCKET_NAME");
   const publicBase = required("R2_PUBLIC_BASE_URL").replace(/\/$/, "");
   const host = `${accountId}.r2.cloudflarestorage.com`;
-  const objectKey = `dramas/${input.slug}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${cleanName(input.fileName)}`;
+  const objectKey = `dramas/${input.slug}/${kind === "cover" ? "cover-" : ""}${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${cleanName(input.fileName)}`;
   const canonicalUri = `/${encode(bucket)}/${objectKey.split("/").map(encode).join("/")}`;
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
