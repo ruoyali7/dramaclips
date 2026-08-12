@@ -2,10 +2,11 @@
 
 import { CheckCircle2, CloudUpload, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { readRsTransfer, rsBookmarklet } from "@/lib/admin/rs-transfer";
+import { readRsTransfer, rsBookmarklet, type RsTransfer } from "@/lib/admin/rs-transfer";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
 type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean };
+type RsPreview={drama:{title:string;chapterCount:number};availableCount:number;existing:null|{title:string;episodeCount:number}};type RsJob={id:string;status:string;chapters:Array<{episodeNumber:number;videoUrl:string;status:string;error?:string}>};
 const initial: EpisodeRow[] = [1, 2, 3, 4, 5].map((episodeNumber) => ({ episodeNumber, videoUrl: "" }));
 const acceptedTypes = new Set(["video/mp4", "video/quicktime", "video/x-msvideo", "video/3gpp"]);
 
@@ -40,6 +41,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
   const [importing, setImporting] = useState(false);
   const [needsRsText, setNeedsRsText] = useState(false);
   const [importNotice, setImportNotice] = useState("");
+  const [rsTransfer,setRsTransfer]=useState<RsTransfer|null>(null);const [rsPreview,setRsPreview]=useState<RsPreview|null>(null);const [rsJob,setRsJob]=useState<RsJob|null>(null);const [rsRunning,setRsRunning]=useState(false);
   const bookmarkletRef = useRef<HTMLAnchorElement>(null);
   const slugRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
@@ -52,12 +54,18 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     const transfer = readRsTransfer(window.name);
     if (!transfer) return;
     window.name = "";
+    setRsTransfer(transfer);
     setRsText(transfer.text);
     setRsLink(transfer.source);
     void importRs(transfer.text, transfer.source);
+    if(transfer.version===2&&transfer.book&&transfer.chapters?.length)void previewRemoteImport(transfer);
   // This must run once so a transferred page cannot be imported repeatedly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function previewRemoteImport(transfer:RsTransfer){const response=await fetch("/api/admin/rs-import/jobs/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(transfer)});const json=await response.json();if(response.ok)setRsPreview(json.preview);else setError(json.message||"Could not preview RS episode import")}
+  async function startRemoteImport(){if(!rsTransfer||rsRunning)return;setRsRunning(true);setError("");try{const response=await fetch("/api/admin/rs-import/jobs",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(rsTransfer)});const json=await response.json();if(!response.ok)throw new Error(json.message||"Could not start RS import");let job=json.job as RsJob;setRsJob(job);const pending=[...job.chapters.filter(chapter=>chapter.status!=="succeeded")];const worker=async()=>{while(pending.length){const chapter=pending.shift()!;setRsJob(current=>current?{...current,status:"running",chapters:current.chapters.map(item=>item.episodeNumber===chapter.episodeNumber?{...item,status:"running"}:item)}:current);const transferred=await fetch(`/api/admin/rs-import/jobs/${job.id}/episodes/${chapter.episodeNumber}`,{method:"POST"});const result=await transferred.json();if(!transferred.ok){setRsJob(current=>current?{...current,status:"failed",chapters:current.chapters.map(item=>item.episodeNumber===chapter.episodeNumber?{...item,status:"failed",error:result.message}:item)}:current);continue}job=result.job;setRsJob(job)}};await Promise.all([worker(),worker()]);const latest=await fetch(`/api/admin/rs-import/jobs/${job.id}`).then(result=>result.json());job=latest.job;setRsJob(job);setEpisodes(job.chapters.map(chapter=>({episodeNumber:chapter.episodeNumber,videoUrl:chapter.videoUrl,name:`RS Boost EP ${chapter.episodeNumber}`,progress:chapter.status==="succeeded"?100:0,status:chapter.status==="succeeded"?"Ready":chapter.status==="failed"?"Failed":"Queued"})));if(job.status==="succeeded")setImportNotice(`Imported ${job.chapters.length} authorized free episodes to R2 and saved the drama draft.`)}catch(reason){setError(reason instanceof Error?reason.message:"RS import failed")}finally{setRsRunning(false)}}
+  async function retryRemoteImport(){if(!rsJob||rsRunning)return;setRsRunning(true);for(const chapter of rsJob.chapters.filter(item=>item.status==="failed")){const response=await fetch(`/api/admin/rs-import/jobs/${rsJob.id}/episodes/${chapter.episodeNumber}`,{method:"POST"});const result=await response.json();if(response.ok)setRsJob(result.job)}setRsRunning(false)}
 
   async function importRs(detailsText = rsText, link = rsLink) {
     if (importing) return;
@@ -208,6 +216,8 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     <section><span>01 · Drama details</span>
       <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a ref={bookmarkletRef} href="#" onClick={(event) => event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
       <div className="rs-import"><label className="rs-paste"><b>Or paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={() => void importRs()} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Use the one-click helper or paste the full page instead.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      {rsPreview&&<div className="rs-batch-confirm"><div><b>{rsPreview.drama.title}</b><span>{rsPreview.drama.chapterCount} total episodes · {rsPreview.availableCount} currently authorized free episodes</span><small>{rsPreview.existing?`Existing drama found with ${rsPreview.existing.episodeCount} episodes; it will be updated.`:"A new drama draft will be created."} Only episodes returned by your signed-in RS account are imported.</small></div><button type="button" onClick={()=>void startRemoteImport()} disabled={rsRunning||rsJob?.status==="succeeded"}>{rsRunning?"Importing to R2…":rsJob?"Resume import":"Confirm & import all free episodes"}</button></div>}
+      {rsJob&&<div className="rs-job"><div><b>R2 import · {rsJob.status}</b><span>{rsJob.chapters.filter(item=>item.status==="succeeded").length}/{rsJob.chapters.length} episodes</span></div>{rsJob.chapters.map(chapter=><div className={chapter.status} key={chapter.episodeNumber}><b>EP {chapter.episodeNumber}</b><span>{chapter.status}</span><small>{chapter.error}</small></div>)}{rsJob.chapters.some(chapter=>chapter.status==="failed")&&!rsRunning&&<button type="button" onClick={()=>void retryRemoteImport()}>Retry failed episodes</button>}</div>}
       <div className="form-grid">
       <label><b>Title</b><input name="title" required defaultValue={initialDrama?.title} /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" defaultValue={initialDrama?.slug} /></label>

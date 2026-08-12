@@ -73,3 +73,19 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
     expiresIn: 900,
   };
 }
+
+const RS_VIDEO_HOST=/^[a-z0-9.-]+\.oss-accelerate\.aliyuncs\.com$/i;
+export async function copyRsVideoToR2(input:{url:string;slug:string;episodeNumber:number}){
+  const source=new URL(input.url);if(source.protocol!=="https:"||!RS_VIDEO_HOST.test(source.hostname))throw new Error("RS video host is not allowed");
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5*60*1000);
+  try{
+    const response=await fetch(source,{redirect:"manual",signal:controller.signal,headers:{Accept:"video/mp4,application/octet-stream"}});
+    if(response.status>=300&&response.status<400)throw new Error("RS video redirected to an unapproved host");
+    if(!response.ok||!response.body)throw new Error(`RS video returned ${response.status}`);
+    const type=(response.headers.get("content-type")||"application/octet-stream").split(";")[0].trim();if(!["video/mp4","application/octet-stream","binary/octet-stream"].includes(type))throw new Error(`Unexpected RS content type: ${type}`);
+    const size=Number(response.headers.get("content-length"));if(!Number.isFinite(size)||size<=0||size>MAX_FILE_BYTES)throw new Error("RS video has an invalid or oversized Content-Length");
+    const prepared=createR2Upload({fileName:`${String(input.episodeNumber).padStart(3,"0")}.mp4`,contentType:"video/mp4",size,slug:input.slug,kind:"episode"});
+    const uploaded=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Content-Length":String(size)},body:response.body,duplex:"half"} as RequestInit & {duplex:"half"});
+    if(!uploaded.ok)throw new Error(`R2 upload returned ${uploaded.status}`);return{publicUrl:prepared.publicUrl,size};
+  }finally{clearTimeout(timeout)}
+}

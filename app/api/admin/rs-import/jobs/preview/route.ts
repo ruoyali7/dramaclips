@@ -1,0 +1,3 @@
+import {NextRequest,NextResponse} from "next/server";import {z,ZodError} from "zod";import {previewRsImport} from "@/lib/admin/rs-import-jobs";
+const schema=z.object({source:z.string().url(),text:z.string().min(1).max(100000),book:z.record(z.unknown()),chapters:z.array(z.record(z.unknown())).min(1).max(100)});
+export async function POST(request:NextRequest){try{return NextResponse.json({preview:await previewRsImport(schema.parse(await request.json()))})}catch(error){return NextResponse.json({message:error instanceof ZodError?"Invalid RS transfer":error instanceof Error?error.message:"Could not preview import"},{status:error instanceof ZodError?400:502})}}
