@@ -2,9 +2,20 @@ import { NextResponse } from "next/server";
 import { getDramaBySlug } from "@/lib/catalog";
 import { getLatestPublishPackage } from "@/lib/admin/publish-repository";
 
-function cell(value: string | boolean) {
-  const text = typeof value === "boolean" ? (value ? "true" : "false") : value;
-  return `"${text.replace(/"/g, '""')}"`;
+const blankColumns = new Set([
+  "Alt text picture 1", "Pinterest Board", "Pinterest Pin Title", "Pinterest Pin Link", "Pinterest Pin New Format",
+  "Youtube AI generated content", "TikTok Branded Content", "TikTok Your Brand", "TikTok Auto Add Music",
+  "TikTok musicId", "TikTok music title", "TikTok music author", "TikTok music previewUrl", "TikTok music thumbnailUrl",
+  "TikTok music soundVolume", "TikTok music originalVolume", "TikTok music startMillis", "TikTok music endMillis",
+  "LinkedIn Show link preview", "LinkedIn Images as Carousel",
+]);
+
+function cell(header: string, value: string | boolean | number | undefined) {
+  if (value === undefined) return blankColumns.has(header) ? "" : '""';
+  if (typeof value === "boolean" || typeof value === "number") return String(value);
+  // Metricool's own template represents this enum as an unquoted token.
+  if (header === "TikTok Post Privacy") return value;
+  return `"${value.replace(/"/g, '""')}"`;
 }
 function pacificParts(date:Date){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(date);const get=(type:string)=>parts.find(part=>part.type===type)?.value||"";return{date:`${get("year")}-${get("month")}-${get("day")}`,time:`${get("hour")}:${get("minute")}`}}
 
@@ -26,7 +37,7 @@ export async function GET() {
       "LinkedIn Type", "LinkedIn Poll Question", "LinkedIn Poll Option 1", "LinkedIn Poll Option 2", "LinkedIn Poll Option 3", "LinkedIn Poll Option 4", "LinkedIn Poll Duration", "LinkedIn Show link preview", "LinkedIn Images as Carousel", "Threads Reply Control", "Threads Is Spoiler", "Threads Post Type",
     ];
     const rows = item.platforms.map((pack) => {
-      const values: Record<string, string | boolean> = {
+      const values: Record<string, string | boolean | number> = {
         Text: pack.caption,
         Date: local?.date || "",
         Time: local?.time || "",
@@ -34,16 +45,16 @@ export async function GET() {
         Facebook: pack.source === "facebook", "Twitter/X": pack.source === "x", LinkedIn: false, GBP: false,
         Instagram: pack.source === "instagram", Pinterest: false, TikTok: pack.source === "tiktok", Youtube: pack.source === "youtube", Threads: false, Bluesky: false,
         "Picture Url 1": item.videoUrl, Shortener: false,
-        "Instagram Post Type": "REEL", "Instagram Show Reel On Feed": true,
-        "Youtube Video Title": `${title} · EP ${item.episodeNumber}`.slice(0, 100), "Youtube Video Type": "SHORT", "Youtube Video Privacy": "PUBLIC", "Youtube video for kids": false, "Youtube AI generated content": false,
-        "Facebook Post Type": "REEL", "Facebook Title": `${title} · EP ${item.episodeNumber}`,
+        ...(pack.source === "instagram" ? { "Instagram Post Type": "REEL", "Instagram Show Reel On Feed": true } : {}),
+        ...(pack.source === "youtube" ? { "Youtube Video Title": `${title} · EP ${item.episodeNumber}`.slice(0, 100), "Youtube Video Type": "SHORT", "Youtube Video Privacy": "PUBLIC", "Youtube video for kids": false } : {}),
+        ...(pack.source === "facebook" ? { "Facebook Post Type": "REEL", "Facebook Title": `${title} · EP ${item.episodeNumber}` } : {}),
         "TikTok disable comments": false, "TikTok disable duet": false, "TikTok disable stitch": false,
-        "TikTok Post Privacy": "PUBLIC_TO_EVERYONE", "TikTok Photo Cover Index": "0", "TikTok is AI generated content": false,
+        ...(pack.source === "tiktok" ? { "TikTok Post Privacy": "PUBLIC_TO_EVERYONE", "TikTok Photo Cover Index": 0 } : {}), "TikTok is AI generated content": false,
         "Twitter/X Type": "POST", "LinkedIn Type": "POST", "Threads Is Spoiler": false,
       };
-      return headers.map((header) => cell(values[header] ?? "")).join(",");
+      return headers.map((header) => cell(header, values[header])).join(",");
     });
-    const csv = `\uFEFF${headers.map(cell).join(",")}\n${rows.join("\n")}`;
+    const csv = `${headers.join(",")}\n${rows.join("\n")}`;
     return new NextResponse(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="metricool-${item.dramaSlug}-ep-${item.episodeNumber}.csv"` } });
   } catch (error) {
     return NextResponse.json({ message: error instanceof Error ? error.message : "Could not export Metricool CSV" }, { status: 503 });
