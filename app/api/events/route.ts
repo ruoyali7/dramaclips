@@ -1,4 +1,8 @@
 import { NextRequest,NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
-const schema=z.object({name:z.enum(["episode_start","episode_complete","next_episode","promo_code_copy","watch_full_click"]),schemaVersion:z.literal(1),occurredAt:z.string().datetime(),dramaId:z.string().max(80)}).passthrough();
-export async function POST(request:NextRequest){try{const event=schema.parse(await request.json());if(process.env.NODE_ENV==="development")console.info("[event]",event.name,event.dramaId);return new NextResponse(null,{status:202})}catch{return NextResponse.json({code:"INVALID_EVENT",message:"Invalid event payload"},{status:400})}}
+import { recordTrackingEvent } from "@/lib/admin/analytics-repository";
+import { detectDevice } from "@/lib/redirect";
+import { normalize } from "@/lib/tracking";
+const schema=z.object({name:z.enum(["episode_start","episode_complete","next_episode","promo_code_copy","watch_full_click"]),schemaVersion:z.literal(1),occurredAt:z.string().datetime(),dramaId:z.string().max(80),dramaSlug:z.string().max(120).optional(),episodeId:z.string().max(100).optional(),episodeNumber:z.number().optional(),position:z.string().max(50).optional(),tracking:z.record(z.string()).optional()}).passthrough();
+export async function POST(request:NextRequest){try{const event=schema.parse(await request.json());const tracking=event.tracking||{};await recordTrackingEvent({name:event.name,sessionId:request.cookies.get("db_session")?.value||randomUUID(),dramaId:event.dramaId,dramaSlug:event.dramaSlug,shortCode:tracking.sl,source:normalize(tracking.s,"direct"),account:normalize(tracking.a),campaign:normalize(tracking.c),clip:normalize(tracking.cl),device:detectDevice(request.headers.get("user-agent")||""),metadata:{episodeId:event.episodeId,episodeNumber:event.episodeNumber,position:event.position}});return new NextResponse(null,{status:202})}catch(error){if(String(error).includes("tracking_events"))return NextResponse.json({code:"ANALYTICS_NOT_READY",message:"Run the analytics migration"},{status:503});return NextResponse.json({code:"INVALID_EVENT",message:"Invalid event payload"},{status:400})}}
