@@ -66,6 +66,8 @@ describe("RS browser transfer", () => {
     expect(result).toContain("/api/v1/book/book-detail");
     expect(result).toContain("credentials:'include'");
     expect(result).toContain("play_url");
+    expect(result).toContain("promotion_code");
+    expect(result).toContain("resource_promotion_link");
     expect(result).not.toMatch(/cookie|token|localStorage/i);
   });
 });

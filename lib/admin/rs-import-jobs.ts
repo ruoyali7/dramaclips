@@ -1,7 +1,7 @@
 import "server-only";
 import { copyRsVideoToR2 } from "./r2";
 import { encryptSensitive } from "./encryption";
-import { parseRsText } from "./rs-import";
+import { normalizeRsPayload, parseRsText } from "./rs-import";
 import { getSupabaseConfig } from "./supabase-config";
 
 type Chapter = {
@@ -38,11 +38,13 @@ export async function previewRsImport(input: Transfer) {
   const source = new URL(input.source);
   if (source.protocol !== "https:" || source.hostname !== "cps.reelshort.com") throw new Error("Invalid RS source page");
   const parsed = parseRsText(input.text);
+  const api = normalizeRsPayload(input.book);
   const bookId = text(input.book.book_id);
   if (!/^[a-f0-9]{16,40}$/i.test(bookId)) throw new Error("Invalid RS book id");
   const chapters = transferChapters(input);
   if (!chapters.length) throw new Error("RS returned no authorized free episodes");
-  const drama: Drama = { bookId, title: text(input.book.book_name) || parsed.title || "", slug: parsed.slug || "", publicCode: parsed.publicCode || "", promoCode: parsed.promoCode || parsed.publicCode || "", language: parsed.language || "en", tags: parsed.tags || [], description: text(input.book.description) || parsed.description || "", coverUrl: text(input.book.cover_url) || parsed.coverUrl || "", cpsUrl: parsed.cpsUrl || "", chapterCount: num(input.book.chapter_count), availableCount: chapters.length };
+  const title = api.title || parsed.title || "";
+  const drama: Drama = { bookId, title, slug: api.slug || parsed.slug || "", publicCode: api.publicCode || parsed.publicCode || "", promoCode: api.promoCode || parsed.promoCode || parsed.publicCode || "", language: api.language || parsed.language || "en", tags: api.tags?.length ? api.tags : parsed.tags || [], description: api.description || parsed.description || "", coverUrl: api.coverUrl || parsed.coverUrl || "", cpsUrl: api.cpsUrl || parsed.cpsUrl || "", chapterCount: api.chapterCount || num(input.book.chapter_count), availableCount: chapters.length };
   if (!drama.title || !drama.slug) throw new Error("RS metadata is missing title");
   if (!/^\d{4,8}$/.test(drama.publicCode) || !drama.cpsUrl) throw new Error("RS page is missing the referral code or Content Promotion Link");
   const existing = await request(`drama_bundles?or=(rs_book_id.eq.${encodeURIComponent(bookId)},slug.eq.${encodeURIComponent(drama.slug)})&select=id,title,slug,episodes&limit=1`) as Array<{ id: string; title: string; slug: string; episodes: unknown[] }>;
@@ -52,11 +54,13 @@ export async function previewRsImport(input: Transfer) {
 export async function createRsImportJob(input: Transfer) {
   await previewRsImport(input);
   const parsed = parseRsText(input.text);
+  const api = normalizeRsPayload(input.book);
   const bookId = text(input.book.book_id);
-  const existing = await request(`drama_bundles?or=(rs_book_id.eq.${encodeURIComponent(bookId)},slug.eq.${encodeURIComponent(parsed.slug || "")})&select=episodes&limit=1`) as Array<{ episodes: Array<{ episodeNumber: number; videoUrl: string }> }>;
+  const slug = api.slug || parsed.slug || "";
+  const existing = await request(`drama_bundles?or=(rs_book_id.eq.${encodeURIComponent(bookId)},slug.eq.${encodeURIComponent(slug)})&select=episodes&limit=1`) as Array<{ episodes: Array<{ episodeNumber: number; videoUrl: string }> }>;
   const existingEpisodes = new Map((existing[0]?.episodes || []).map((episode) => [Number(episode.episodeNumber), text(episode.videoUrl)]));
   const chapters: Chapter[] = transferChapters(input).map((chapter) => { const videoUrl = existingEpisodes.get(chapter.episodeNumber) || ""; return { ...chapter, playUrl: videoUrl ? "" : chapter.playUrl, videoUrl, status: videoUrl ? "succeeded" : "queued" }; });
-  const drama: Drama = { bookId, title: text(input.book.book_name) || parsed.title || "", slug: parsed.slug || "", publicCode: parsed.publicCode || "", promoCode: parsed.promoCode || parsed.publicCode || "", language: parsed.language || "en", tags: parsed.tags || [], description: text(input.book.description) || parsed.description || "", coverUrl: text(input.book.cover_url) || parsed.coverUrl || "", cpsUrl: parsed.cpsUrl || "", chapterCount: num(input.book.chapter_count), availableCount: chapters.length };
+  const drama: Drama = { bookId, title: api.title || parsed.title || "", slug, publicCode: api.publicCode || parsed.publicCode || "", promoCode: api.promoCode || parsed.promoCode || parsed.publicCode || "", language: api.language || parsed.language || "en", tags: api.tags?.length ? api.tags : parsed.tags || [], description: api.description || parsed.description || "", coverUrl: api.coverUrl || parsed.coverUrl || "", cpsUrl: api.cpsUrl || parsed.cpsUrl || "", chapterCount: api.chapterCount || num(input.book.chapter_count), availableCount: chapters.length };
   const complete = chapters.every((chapter) => chapter.status === "succeeded");
   const rows = await request("rs_import_jobs", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ rs_book_id: bookId, status: complete ? "succeeded" : "queued", drama, chapters }) }) as Row[];
   return safe(rows[0]);
