@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CloudUpload, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, CloudUpload, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { readRsTransfer, rsBookmarklet } from "@/lib/admin/rs-transfer";
 
@@ -23,7 +23,7 @@ function uploadFile(file: File, uploadUrl: string, onProgress: (value: number) =
   });
 }
 
-export function DramaCreateForm() {
+export function DramaCreateForm({ r2DashboardUrl }: { r2DashboardUrl: string }) {
   const [episodes, setEpisodes] = useState<EpisodeRow[]>(initial);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
@@ -173,7 +173,7 @@ export function DramaCreateForm() {
       <label className="wide"><b>Description</b><textarea name="description" required rows={5} /></label>
       <label className="wide"><b>Cover URL or path</b><input name="coverUrl" required /></label>
     </div></section>
-    <section><span>02 · Upload preview episodes</span><p>Select up to 10 authorized files. Successful uploads automatically fill each editable R2 HTTPS URL below.</p>
+    <section><div className="section-heading"><span>02 · Upload preview episodes</span><a href={r2DashboardUrl} target="_blank" rel="noreferrer">Open R2 bucket <ExternalLink /></a></div><p>Select up to 10 authorized files. Successful uploads automatically fill each editable R2 HTTPS URL below.</p>
       <label className={`upload-drop ${uploading ? "busy" : ""}`}><CloudUpload /><b>{selectedFiles.length ? `${selectedFiles.length} episode files selected` : "Choose videos or a folder"}</b><small>{selectedFiles.length ? "Review the queue below, then start the R2 upload." : "MP4, MOV, AVI, or 3GP · 10 GB max each"}</small><input type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/3gpp" multiple onChange={(event) => selectFiles(event.target.files)} disabled={uploading} /></label>
       {selectedFiles.length > 0 && <button className="upload-selected" type="button" onClick={() => void uploadSelected()} disabled={uploading}>{uploading ? "Uploading to R2…" : episodes.some((episode) => episode.status === "Failed") ? "Retry failed uploads" : `Upload ${selectedFiles.length} episodes to R2`}</button>}
       <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input className={episode.status === "Ready" ? "ready-url" : ""} type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small><span>{episode.name}</span><strong>{episode.status === "Ready" ? "Ready · editable" : episode.status === "Uploading" ? `Uploading · ${episode.progress ?? 0}%` : episode.status}</strong></small>}{typeof episode.progress === "number" && <i className={episode.status?.toLowerCase()} style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" aria-label={`Remove episode ${episode.episodeNumber}`} onClick={() => removeEpisode(index)}><Trash2 /></button>}</label>)}</div>
