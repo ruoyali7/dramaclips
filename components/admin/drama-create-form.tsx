@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { readRsTransfer, rsBookmarklet } from "@/lib/admin/rs-transfer";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
+type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean };
 const initial: EpisodeRow[] = [1, 2, 3, 4, 5].map((episodeNumber) => ({ episodeNumber, videoUrl: "" }));
 const acceptedTypes = new Set(["video/mp4", "video/quicktime", "video/x-msvideo", "video/3gpp"]);
 
@@ -24,8 +25,8 @@ function uploadFile(file: File, uploadUrl: string, onProgress: (value: number) =
   });
 }
 
-export function DramaCreateForm({ r2DashboardUrl }: { r2DashboardUrl: string }) {
-  const [episodes, setEpisodes] = useState<EpisodeRow[]>(initial);
+export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardUrl: string; initialDrama?: EditableDrama }) {
+  const [episodes, setEpisodes] = useState<EpisodeRow[]>(initialDrama?.episodes || initial);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverStatus, setCoverStatus] = useState("");
@@ -189,13 +190,14 @@ export function DramaCreateForm({ r2DashboardUrl }: { r2DashboardUrl: string }) 
     setSaving(true);
     setError("");
     const form = new FormData(event.currentTarget);
+    const cpsUrl = String(form.get("cpsUrl") || "").trim();
     const body = {
       title: form.get("title"), slug: form.get("slug"), publicCode: form.get("promoCode"), promoCode: form.get("promoCode"),
       language: form.get("language"), tags: String(form.get("tags") || "").split(",").map((item) => item.trim()).filter(Boolean),
-      description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: form.get("cpsUrl"),
+      description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: cpsUrl || undefined,
       episodes: episodes.map(({ episodeNumber, videoUrl }) => ({ episodeNumber, videoUrl })),
     };
-    const response = await fetch("/api/admin/dramas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const response = await fetch(initialDrama ? `/api/admin/dramas/${initialDrama.id}` : "/api/admin/dramas", { method: initialDrama ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const json = await response.json();
     setSaving(false);
     if (!response.ok) { setError(json.message || "Unable to save draft"); return; }
@@ -207,13 +209,13 @@ export function DramaCreateForm({ r2DashboardUrl }: { r2DashboardUrl: string }) 
       <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a ref={bookmarkletRef} href="#" onClick={(event) => event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
       <div className="rs-import"><label className="rs-paste"><b>Or paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={() => void importRs()} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Use the one-click helper or paste the full page instead.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
       <div className="form-grid">
-      <label><b>Title</b><input name="title" required /></label>
-      <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" /></label>
-      <label className="wide"><b>RS referral code</b><input name="promoCode" required inputMode="numeric" pattern="[0-9]{4,8}" placeholder="e.g. 3470108" /><small>Used for both DramaClips search and ReelShort attribution.</small></label>
-      <label><b>Language</b><select name="language"><option value="en">English</option><option value="zh">Chinese</option></select></label>
-      <label><b>Tags, comma separated</b><input name="tags" /></label>
-      <label className="wide"><b>Description</b><textarea name="description" required rows={5} /></label>
-      <label className="wide"><b>Cover URL or path</b><input ref={coverRef} className={coverStatus.startsWith("Ready") ? "ready-url" : ""} name="coverUrl" required placeholder="Automatically filled after R2 upload, or paste a URL" /></label>
+      <label><b>Title</b><input name="title" required defaultValue={initialDrama?.title} /></label>
+      <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" defaultValue={initialDrama?.slug} /></label>
+      <label className="wide"><b>RS referral code</b><input name="promoCode" required inputMode="numeric" pattern="[0-9]{4,8}" placeholder="e.g. 3470108" defaultValue={initialDrama?.promoCode || initialDrama?.publicCode} /><small>Used for both DramaClips search and ReelShort attribution.</small></label>
+      <label><b>Language</b><select name="language" defaultValue={initialDrama?.language || "en"}><option value="en">English</option><option value="zh">Chinese</option></select></label>
+      <label><b>Tags, comma separated</b><input name="tags" defaultValue={initialDrama?.tags.join(", ")} /></label>
+      <label className="wide"><b>Description</b><textarea name="description" required rows={5} defaultValue={initialDrama?.description} /></label>
+      <label className="wide"><b>Cover URL or path</b><input ref={coverRef} className={coverStatus.startsWith("Ready") ? "ready-url" : ""} name="coverUrl" required placeholder="Automatically filled after R2 upload, or paste a URL" defaultValue={initialDrama?.coverUrl} /></label>
       <div className="cover-upload wide"><label><span>{coverFile ? coverFile.name : "Choose cover image"}</span><small>JPG, PNG, or WebP · 20 MB max</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectCover(event.target.files?.[0])} disabled={uploading} /></label>{coverFile && <button type="button" onClick={() => void uploadCover()} disabled={uploading}>{coverStatus === "Failed" ? "Retry cover upload" : "Upload cover to R2"}</button>}{coverStatus && <div><span>{coverStatus}</span><strong>{coverProgress}%</strong><i className={coverStatus.startsWith("Ready") ? "ready" : coverStatus === "Failed" ? "failed" : ""} style={{width:`${coverProgress}%`}}/></div>}</div>
     </div></section>
     <section><div className="section-heading"><span>02 · Upload preview episodes</span><a href={r2DashboardUrl} target="_blank" rel="noreferrer">Open R2 bucket <ExternalLink /></a></div><p>Select up to 10 authorized files. Successful uploads automatically fill each editable R2 HTTPS URL below.</p>
@@ -222,9 +224,9 @@ export function DramaCreateForm({ r2DashboardUrl }: { r2DashboardUrl: string }) 
       <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input className={episode.status === "Ready" ? "ready-url" : ""} type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small><span>{episode.name}</span><strong>{episode.status === "Ready" ? "Ready · editable" : episode.status === "Uploading" ? `Uploading · ${episode.progress ?? 0}%` : episode.status}</strong></small>}{typeof episode.progress === "number" && <i className={episode.status?.toLowerCase()} style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" aria-label={`Remove episode ${episode.episodeNumber}`} onClick={() => removeEpisode(index)}><Trash2 /></button>}</label>)}</div>
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: rows.length + 1, videoUrl: "" }])} disabled={episodes.length >= 10}><Plus /> Add URL manually</button>}
     </section>
-    <section><span>03 · Watch Full destination</span><p>Use the RS <b>Content Promotion Link</b>, not the App Promotion Link. Viewers are sent here after the free previews.</p><label className="sensitive-field"><b>Content promotion link</b><input name="cpsUrl" type="url" required placeholder="https://reelslink.com/cps/..." /><small>Encrypted server-side and never returned after saving.</small></label></section>
+    <section><span>03 · Watch Full destination</span><p>Use the RS <b>Content Promotion Link</b>, not the App Promotion Link. Viewers are sent here after the free previews.</p><label className="sensitive-field"><b>Content promotion link</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>{initialDrama?.hasCpsUrl ? "An encrypted destination is saved. Enter a new link only to replace it." : "Encrypted server-side and never returned after saving."}</small></label></section>
     {error && <div className="form-error">{error}</div>}
-    {result && <div className="form-success"><CheckCircle2 /><div><b>Draft saved: {result.title}</b><span>{result.episodeCount} preview episodes ready for review.</span></div></div>}
-    <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & saving…" : "Save encrypted draft"}</button>
+    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Draft saved"}: {result.title}</b><span>{result.episodeCount} preview episodes ready.</span></div></div>}
+    <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & saving…" : initialDrama ? "Save changes" : "Save encrypted draft"}</button>
   </form>;
 }
