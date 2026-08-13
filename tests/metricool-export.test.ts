@@ -43,6 +43,8 @@ describe("Metricool CSV export", () => {
     const rows = records.map((record) => Object.fromEntries(headers.map((header, i) => [header, record[i]])));
 
     expect(text.charCodeAt(0)).not.toBe(0xfeff);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("content-disposition")).toContain("attachment");
     expect(text.startsWith("Text,Date,Time,Draft,")).toBe(true);
     expect(rows.every((row) => row.Draft === "false")).toBe(true);
     expect(rows.every((row) => row.Date === "2026-08-12" && row.Time === "15:00:00")).toBe(true);

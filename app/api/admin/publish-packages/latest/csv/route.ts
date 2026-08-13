@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getDramaBySlug } from "@/lib/catalog";
 import { getLatestPublishPackage } from "@/lib/admin/publish-repository";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const blankColumns = new Set([
   "Alt text picture 1", "Pinterest Board", "Pinterest Pin Title", "Pinterest Pin Link", "Pinterest Pin New Format",
   "Youtube AI generated content", "TikTok Branded Content", "TikTok Your Brand", "TikTok Auto Add Music",
@@ -55,7 +58,7 @@ export async function GET() {
       return headers.map((header) => cell(header, values[header])).join(",");
     });
     const csv = `${headers.join(",")}\n${rows.join("\n")}`;
-    return new NextResponse(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="metricool-${item.dramaSlug}-ep-${item.episodeNumber}.csv"` } });
+    return new NextResponse(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="metricool-${item.dramaSlug}-ep-${item.episodeNumber}.csv"`, "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate", Pragma: "no-cache", Expires: "0" } });
   } catch (error) {
     return NextResponse.json({ message: error instanceof Error ? error.message : "Could not export Metricool CSV" }, { status: 503 });
   }
