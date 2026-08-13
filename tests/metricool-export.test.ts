@@ -45,6 +45,7 @@ describe("Metricool CSV export", () => {
     expect(text.charCodeAt(0)).not.toBe(0xfeff);
     expect(text.startsWith("Text,Date,Time,Draft,")).toBe(true);
     expect(rows.every((row) => row.Draft === "false")).toBe(true);
+    expect(rows.every((row) => row.Date === "2026-08-12" && row.Time === "15:00:00")).toBe(true);
     expect(rows[0]["TikTok Post Privacy"]).toBe("PUBLIC_TO_EVERYONE");
     expect(rows[0]["Instagram Post Type"]).toBe("");
     expect(rows[0]["Youtube Video Title"]).toBe("");

@@ -17,7 +17,7 @@ function cell(header: string, value: string | boolean | number | undefined) {
   if (header === "TikTok Post Privacy") return value;
   return `"${value.replace(/"/g, '""')}"`;
 }
-function pacificParts(date:Date){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(date);const get=(type:string)=>parts.find(part=>part.type===type)?.value||"";return{date:`${get("year")}-${get("month")}-${get("day")}`,time:`${get("hour")}:${get("minute")}`}}
+function pacificParts(date:Date){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(date);const get=(type:string)=>parts.find(part=>part.type===type)?.value||"";return{date:`${get("year")}-${get("month")}-${get("day")}`,time:`${get("hour")}:${get("minute")}:00`}}
 
 export async function GET() {
   try {
