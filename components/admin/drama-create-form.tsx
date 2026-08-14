@@ -2,7 +2,6 @@
 
 import { CheckCircle2, CloudUpload, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { readRsTransfer, rsBookmarklet } from "@/lib/admin/rs-transfer";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
 type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean };
@@ -36,54 +35,58 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
   const [result, setResult] = useState<{ title: string; episodeCount: number } | null>(null);
   const [error, setError] = useState("");
   const [rsLink, setRsLink] = useState("");
-  const [rsText, setRsText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [needsRsText, setNeedsRsText] = useState(false);
-  const [importNotice, setImportNotice] = useState("");
+  const [rsImporting, setRsImporting] = useState(false);
+  const [rsExtensionReady, setRsExtensionReady] = useState(false);
+  const [rsNotice, setRsNotice] = useState("");
   const [remoteLinks, setRemoteLinks] = useState("");
-  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
   const slugRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    // React intentionally blocks javascript: href props. Set the bookmarklet on
-    // the DOM node after mount so dragging it saves the intended browser tool.
-    bookmarkletRef.current?.setAttribute("href", rsBookmarklet(`${window.location.origin}/admin/dramas/new`));
-    const transfer = readRsTransfer(window.name);
-    if (!transfer) return;
-    window.name = "";
-    setRsText(transfer.text);
-    setRsLink(transfer.source);
-    void importRs(transfer.text, transfer.source);
-  // This must run once so a transferred page cannot be imported repeatedly.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    function receive(event: MessageEvent) {
+      if (event.source !== window || !event.data || event.data.source !== "dramaclips-rs-extension") return;
+      if (event.data.type === "RS_EXTENSION_READY") { setRsExtensionReady(true); return; }
+      if (event.data.type === "RS_IMPORT_ERROR") { setRsImporting(false); setError(String(event.data.message || "RS Boost import failed")); return; }
+      if (event.data.type !== "RS_IMPORT_RESULT" || typeof event.data.text !== "string" || typeof event.data.url !== "string") return;
+      void importCapturedRs(event.data.url, event.data.text);
+    }
+    window.addEventListener("message", receive);
+    window.postMessage({ source: "dramaclips", type: "RS_EXTENSION_PING" }, window.location.origin);
+    return () => window.removeEventListener("message", receive);
   }, []);
 
-  async function importRs(detailsText = rsText, link = rsLink) {
-    if (importing) return;
-    if (!detailsText.trim() && !link.trim()) { setError("Paste the full RS Boost details page before extracting."); return; }
-    setImporting(true); setError(""); setImportNotice("");
-    const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link: link.trim() || undefined, detailsText: detailsText.trim() || undefined }) });
-    const result = await response.json();
-    setImporting(false);
-    if (!response.ok) {
-      if (result.code?.startsWith("RS_CONNECTION")) { setNeedsRsText(true); setError("RS Boost requires sign-in for link-only import. Copy the full details page and paste it above instead."); return; }
-      setError(result.message || "Could not import RS details"); return;
-    }
-    const drama = result.drama as Record<string, unknown>;
-    for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl"] as const) {
-      const value = drama[name];
-      const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
-      if (field && typeof value === "string" && value) field.value = value;
-    }
-    const promoCode = formRef.current?.elements.namedItem("promoCode") as HTMLInputElement | null;
-    if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
-    const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
-    if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
-    if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 100 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
-    setNeedsRsText(false);
-    setImportNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total chapters` : ""}${drama.freeChapterCount ? ` · ${drama.freeChapterCount} free previews` : ""}. Review every field before saving.`);
+  async function importCapturedRs(link: string, detailsText: string) {
+    setError(""); setRsNotice("Reading captured drama details…");
+    try {
+      const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link, detailsText }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Could not read RS Boost details");
+      const drama = result.drama as Record<string, unknown>;
+      for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl"] as const) {
+        const value = drama[name];
+        const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+        if (field && typeof value === "string" && value) field.value = value;
+      }
+      const promoCode = formRef.current?.elements.namedItem("promoCode") as HTMLInputElement | null;
+      if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
+      const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
+      if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
+      if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 100 && episodes.every((episode) => !episode.videoUrl)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
+      setRsLink(link); setRsNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total episodes` : ""}${drama.freeChapterCount ? ` · ${drama.freeChapterCount} free previews` : ""}. Review before saving.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "RS Boost import failed"); setRsNotice("");
+    } finally { setRsImporting(false); }
+  }
+
+  function startRsImport() {
+    try {
+      const url = new URL(rsLink.trim());
+      if (url.protocol !== "https:" || url.hostname !== "cps.reelshort.com" || !/^\/resource-square\/detail\/[a-f0-9]+$/i.test(url.pathname)) throw new Error();
+      if (!rsExtensionReady) { setError("Install or enable the DramaClips RS Importer Chrome extension, then refresh this page."); return; }
+      setError(""); setRsNotice("Opening the signed-in RS Boost page…"); setRsImporting(true);
+      window.postMessage({ source: "dramaclips", type: "RS_IMPORT_REQUEST", url: url.toString() }, window.location.origin);
+    } catch { setError("Paste a valid cps.reelshort.com resource detail link."); }
   }
 
   function patchEpisode(index: number, patch: Partial<EpisodeRow>) {
@@ -253,8 +256,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <section><span>01 · Drama details</span>
-      <div className="rs-helper"><div><b>One-click import from RS Boost</b><p>Drag this button to your bookmarks bar. On any signed-in RS resource page, click the bookmark to return here with the visible details filled in.</p></div><a ref={bookmarkletRef} href="#" onClick={(event) => event.preventDefault()}>Import to DramaClips</a><small>The helper transfers visible page text and its URL only. It never reads your RS password, cookies, or login token.</small></div>
-      <div className="rs-import"><label className="rs-paste"><b>Or paste full RS Boost details page</b><textarea value={rsText} onChange={(event) => setRsText(event.target.value)} rows={7} placeholder="Open the RS resource page, Select All, Copy, then paste the full page text here." /></label><label className="rs-link-optional"><b>Resource link · optional</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="Not required when page text is pasted" /></label><button className="rs-extract" type="button" onClick={() => void importRs()} disabled={importing}>{importing ? "Extracting…" : "Extract drama details"}</button>{needsRsText && <small className="rs-hint">Link-only import requires an RS API connection. Use the one-click helper or paste the full page instead.</small>}{importNotice && <small className="rs-imported">✓ {importNotice}</small>}</div>
+      <div className="rs-extension-import"><div className="rs-extension-heading"><div><b>Import from RS Boost</b><p>Paste one drama detail link. The Chrome extension opens your signed-in RS page and fills the available fields below.</p></div><span className={rsExtensionReady ? "ready" : "missing"}>{rsExtensionReady ? "Extension connected" : "Extension not detected"}</span></div><div className="rs-extension-row"><label><b>RS Boost detail link</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button type="button" onClick={startRsImport} disabled={rsImporting}>{rsImporting ? "Importing…" : "Import & autofill"}</button></div>{rsNotice && <small className="rs-extension-notice">✓ {rsNotice}</small>}{!rsExtensionReady && <small>Install the unpacked extension from <code>chrome-extension/dramaclips-rs-importer</code>, then refresh. It reads only the single RS page you request.</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required defaultValue={initialDrama?.title} /></label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required pattern="[a-z0-9-]+" placeholder="lowercase-title" defaultValue={initialDrama?.slug} /></label>

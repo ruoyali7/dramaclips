@@ -66,16 +66,19 @@ export function parseRsText(text: string): ImportedDrama {
   const releasePosition = lines.findIndex((line) => /^(上线时间|Release date)/i.test(line));
   const languagePosition = releasePosition > 0 ? lines.slice(0, releasePosition).findLastIndex((line) => /^(英语|中文|English|Chinese)$/i.test(line)) : -1;
   const titleBeforeLanguage = languagePosition > 0 ? lines[languagePosition - 1] : undefined;
-  const title = after(["cover"]) || titleBeforeLanguage || lines.find((line, position) => position > 0 && /[A-Za-z]{3}/.test(line) && !/RS Boost|Content Hub|My Referral|My Earnings|资源广场|我的推广|我的收益/.test(line));
+  const title = titleBeforeLanguage || after(["cover"]) || lines.find((line, position) => position > 0 && /[A-Za-z]{3}/.test(line) && !/RS Boost|Content Hub|My Referral|My Earnings|App Promotion Link|Content Promotion Link|Content Referral Code|资源广场|我的推广|我的收益|推广链接|推广口令/.test(line));
   const promoCode = matchingAfter(["资源推广口令", "Resource Promotion Code", "Content Referral Code"], /^\d{4,8}$/) || lines.find((line) => /^\d{6,8}$/.test(line));
-  const resourceLinkPosition = Math.max(index("资源推广链接"), index("Resource Promotion Link"));
   const capturedPromotionLinks = lines.filter((line) => /^https:\/\/reelslink\.com\/cps\//.test(line));
-  const cpsUrl = (resourceLinkPosition >= 0 ? lines.slice(resourceLinkPosition + 1).find((line) => /^https:\/\/reelslink\.com\/cps\//.test(line)) : undefined) || capturedPromotionLinks.at(-1);
+  // RS exposes the App Promotion Link first and the content-specific link last.
+  const cpsUrl = capturedPromotionLinks.at(-1);
   const languageLine = lines.find((line) => /^(英语|中文|English|Chinese)$/i.test(line));
   const tagLanguagePosition = languageLine ? lines.indexOf(languageLine) : -1;
-  const tags = tagLanguagePosition >= 0 && releasePosition > tagLanguagePosition ? lines.slice(tagLanguagePosition + 1, releasePosition).filter((line) => line.length <= 40 && !/^共\d+章/.test(line)).slice(0, 8) : [];
-  const description = lines.find((line) => line.length > 100 && !line.startsWith("http"));
+  const tags = tagLanguagePosition >= 0 && releasePosition > tagLanguagePosition ? lines.slice(tagLanguagePosition + 1, releasePosition).filter((line) => line.length <= 40 && !/^(All|Series)$/i.test(line) && !/^共\d+章/.test(line)).slice(0, 8) : [];
   const chapterLine = lines.find((line) => /共\s*\d+\s*章|\d+\s*(?:chapters?|episodes?)/i.test(line));
+  const chapterPosition = chapterLine ? lines.indexOf(chapterLine) : -1;
+  const promotionPosition = lines.findIndex((line) => /^(App Promotion Link|App推广链接|Content Promotion Link|资源推广链接)$/i.test(line));
+  const descriptionCandidates = lines.slice(chapterPosition >= 0 ? chapterPosition + 1 : 0, promotionPosition > 0 ? promotionPosition : lines.length).filter((line) => line.length > 100 && !line.startsWith("http") && !/^Directs users|^用户点击此链接/i.test(line));
+  const description = descriptionCandidates.sort((a, b) => b.length - a.length)[0];
   const chapterCount = chapterLine ? Number(chapterLine.match(/\d+/)?.[0]) : undefined;
   const freeChapterCount = chapterLine ? Number(chapterLine.match(/前\s*(\d+)\s*章节免费|first\s*(\d+)\s*(?:(?:chapters?|episodes?)\s*)?free/i)?.slice(1).find(Boolean)) || undefined : undefined;
   const capturedImages = lines.map((line) => line.match(/^DRAMACLIPS_IMAGE\|([^|]*)\|(https?:\/\/[^|]+)\|(\d+)\|(\d+)$/)).filter((match): match is RegExpMatchArray => Boolean(match));

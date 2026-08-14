@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "DramaClips RS Importer",
+  "version": "1.0.0",
+  "description": "Imports one user-requested RS Boost drama page into the private DramaClips admin form.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": [
+    "https://cps.reelshort.com/resource-square/detail/*",
+    "https://dramaclips.vercel.app/admin/dramas/*",
+    "http://localhost:3000/admin/dramas/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://dramaclips.vercel.app/admin/dramas/*", "http://localhost:3000/admin/dramas/*"],
+      "js": ["dramaclips-content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://cps.reelshort.com/resource-square/detail/*"],
+      "js": ["rs-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "DramaClips RS Importer" }
+}

@@ -8,4 +8,8 @@ coverage
 *.swp
 supabase/.temp/
 data/*.json
+.data/hook-drafts/
+work/
+worker/**/__pycache__/
+worker/**/*.pyc
 .vercel

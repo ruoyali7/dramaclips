@@ -1,0 +1,3 @@
+import {NextRequest,NextResponse} from "next/server";import {z,ZodError} from "zod";import {setHookJobAction} from "@/lib/admin/hook-job-repository";
+const schema=z.object({action:z.enum(["cancel","retry"])});
+export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){try{const {id}=await params;const {action}=schema.parse(await request.json());return NextResponse.json({job:await setHookJobAction(id,action)})}catch(error){if(error instanceof ZodError)return NextResponse.json({message:"Invalid job action"},{status:400});return NextResponse.json({message:error instanceof Error?error.message:"Could not update job"},{status:409})}}

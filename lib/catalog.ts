@@ -18,7 +18,7 @@ function toDrama(row: Awaited<ReturnType<typeof getPublishedDramaDrafts>>[number
 export async function getCatalog() {
   const rows = await getPublishedDramaDrafts();
   const dynamicDramas = rows.map(toDrama);
-  const dynamicEpisodes: Episode[] = rows.flatMap((row) => row.episodes.map((item) => ({ id: `${row.id}-e${item.episodeNumber}`, dramaId: row.id, episodeNumber: item.episodeNumber, title: `Chapter ${item.episodeNumber}`, videoUrl: item.videoUrl, isPreview: true })));
+  const dynamicEpisodes: Episode[] = rows.flatMap((row) => row.episodes.filter((item) => item.episodeNumber <= 3).map((item) => ({ id: `${row.id}-e${item.episodeNumber}`, dramaId: row.id, episodeNumber: item.episodeNumber, title: `Chapter ${item.episodeNumber}`, videoUrl: item.videoUrl, isPreview: true })));
   const fallbackSeeds = seedDramas.filter((seed) => !dynamicDramas.some((drama) => isSameDrama(drama, seed)));
   const fallbackIds = new Set(fallbackSeeds.map((seed) => seed.id));
   return { dramas: [...dynamicDramas, ...fallbackSeeds], episodes: [...dynamicEpisodes, ...seedEpisodes.filter((episode) => fallbackIds.has(episode.dramaId))] };

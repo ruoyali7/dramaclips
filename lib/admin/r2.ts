@@ -74,6 +74,13 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
   };
 }
 
+export async function uploadSocialVideo(input:{fileName:string;slug:string;bytes:Buffer}){
+  const prepared=createR2Upload({fileName:input.fileName,contentType:"video/mp4",size:input.bytes.byteLength,slug:input.slug,kind:"social"});
+  const response=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Content-Length":String(input.bytes.byteLength)},body:new Uint8Array(input.bytes)});
+  if(!response.ok)throw new Error(`R2 upload returned ${response.status}`);
+  return prepared.publicUrl;
+}
+
 const REMOTE_VIDEO_HOST="v-mps.crazymaplestudios.com";
 export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeNumber:number}){
   const source=new URL(input.url);if(source.protocol!=="https:"||source.hostname!==REMOTE_VIDEO_HOST||!source.pathname.toLowerCase().endsWith(".mp4"))throw new Error("Remote video URL is not allowed");

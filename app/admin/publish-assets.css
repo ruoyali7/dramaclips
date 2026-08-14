@@ -1,0 +1,1 @@
+.asset-kind{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:14px}.asset-kind button{border:1px solid #dad8d1;background:#fff;padding:10px 6px;font-size:9px}.asset-kind button.selected{background:#171717;color:#fff;border-color:#171717}.publish-preview{width:100%;max-height:430px;background:#000;margin-bottom:14px}

@@ -1,0 +1,4 @@
+import {NextRequest,NextResponse} from "next/server";import {z} from "zod";import {leaseNextHookJob} from "@/lib/admin/hook-job-repository";
+const schema=z.object({workerId:z.string().min(3).max(120),leaseSeconds:z.number().int().min(30).max(600).default(120)});
+function authorized(request:NextRequest){const token=process.env.HOOK_WORKER_TOKEN;return Boolean(token&&request.headers.get("authorization")===`Bearer ${token}`)}
+export async function POST(request:NextRequest){if(!authorized(request))return NextResponse.json({message:"Unauthorized"},{status:401});try{const input=schema.parse(await request.json());return NextResponse.json({job:await leaseNextHookJob(input.workerId,input.leaseSeconds)})}catch(error){return NextResponse.json({message:error instanceof Error?error.message:"Could not lease job"},{status:503})}}
