@@ -74,11 +74,11 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
   };
 }
 
-export async function promoteHookDraft(input:{sourceKey:string;slug:string;fileName:string}){
+export async function promoteHookDraft(input:{sourceKey:string;slug:string;fileName:string;stableId?:string}){
   if(!input.sourceKey.startsWith(`dramas/${input.slug}/social/drafts/`))throw new Error("Draft object does not belong to this drama");
   const accountId=required("R2_ACCOUNT_ID"),accessKey=required("R2_ACCESS_KEY_ID"),secret=required("R2_SECRET_ACCESS_KEY"),bucket=required("R2_BUCKET_NAME");
   const publicBase=required("R2_PUBLIC_BASE_URL").replace(/\/$/,"");const host=`${accountId}.r2.cloudflarestorage.com`;
-  const safe=cleanName(input.fileName);const targetKey=`dramas/${input.slug}/social/hooks/${Date.now()}-${crypto.randomUUID().slice(0,8)}-${safe}`;
+  const safe=cleanName(input.fileName);const stable=input.stableId?.replace(/[^a-zA-Z0-9-]/g,"")||`${Date.now()}-${crypto.randomUUID().slice(0,8)}`;const targetKey=`dramas/${input.slug}/social/hooks/${stable}-${safe}`;
   const targetUri=`/${encode(bucket)}/${targetKey.split("/").map(encode).join("/")}`;const copySource=`/${bucket}/${input.sourceKey}`;
   const now=new Date(),amzDate=now.toISOString().replace(/[:-]|\.\d{3}/g,""),date=amzDate.slice(0,8),scope=`${date}/auto/s3/aws4_request`;
   const payloadHash=crypto.createHash("sha256").update("").digest("hex");const canonicalHeaders=`host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-copy-source:${copySource}\nx-amz-date:${amzDate}\n`;
