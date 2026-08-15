@@ -5,7 +5,9 @@ from faster_whisper import WhisperModel
 from scenedetect import detect,ContentDetector
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
-HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; MODEL=os.getenv("WHISPER_MODEL","small.en")
+HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
+if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
+MODEL=os.getenv("WHISPER_MODEL","small.en")
 def call(path,payload):
  r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=30);r.raise_for_status();return r.json()
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
