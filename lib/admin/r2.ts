@@ -26,7 +26,7 @@ function cleanName(value: string) {
   return `${stem}${extension}`;
 }
 
-export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string; kind?: "episode" | "cover" | "social" }) {
+export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string; kind?: "episode" | "cover" | "social" | "hook-draft" }) {
   const kind = input.kind || "episode";
   if (kind === "cover") {
     if (!Number.isFinite(input.size) || input.size <= 0 || input.size > MAX_COVER_BYTES) throw new Error("Cover must be between 1 byte and 20 MB");
@@ -43,7 +43,7 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
   const bucket = required("R2_BUCKET_NAME");
   const publicBase = required("R2_PUBLIC_BASE_URL").replace(/\/$/, "");
   const host = `${accountId}.r2.cloudflarestorage.com`;
-  const folder = kind === "social" ? "social/" : "";
+  const folder = kind === "social" ? "social/" : kind === "hook-draft" ? "social/drafts/" : "";
   const objectKey = `dramas/${input.slug}/${folder}${kind === "cover" ? "cover-" : ""}${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${cleanName(input.fileName)}`;
   const canonicalUri = `/${encode(bucket)}/${objectKey.split("/").map(encode).join("/")}`;
   const now = new Date();
@@ -72,6 +72,21 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
     objectKey,
     expiresIn: 900,
   };
+}
+
+export async function promoteHookDraft(input:{sourceKey:string;slug:string;fileName:string}){
+  if(!input.sourceKey.startsWith(`dramas/${input.slug}/social/drafts/`))throw new Error("Draft object does not belong to this drama");
+  const accountId=required("R2_ACCOUNT_ID"),accessKey=required("R2_ACCESS_KEY_ID"),secret=required("R2_SECRET_ACCESS_KEY"),bucket=required("R2_BUCKET_NAME");
+  const publicBase=required("R2_PUBLIC_BASE_URL").replace(/\/$/,"");const host=`${accountId}.r2.cloudflarestorage.com`;
+  const safe=cleanName(input.fileName);const targetKey=`dramas/${input.slug}/social/hooks/${Date.now()}-${crypto.randomUUID().slice(0,8)}-${safe}`;
+  const targetUri=`/${encode(bucket)}/${targetKey.split("/").map(encode).join("/")}`;const copySource=`/${bucket}/${input.sourceKey}`;
+  const now=new Date(),amzDate=now.toISOString().replace(/[:-]|\.\d{3}/g,""),date=amzDate.slice(0,8),scope=`${date}/auto/s3/aws4_request`;
+  const payloadHash=crypto.createHash("sha256").update("").digest("hex");const canonicalHeaders=`host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-copy-source:${copySource}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders="host;x-amz-content-sha256;x-amz-copy-source;x-amz-date";const canonicalRequest=["PUT",targetUri,"",canonicalHeaders,signedHeaders,payloadHash].join("\n");
+  const stringToSign=["AWS4-HMAC-SHA256",amzDate,scope,crypto.createHash("sha256").update(canonicalRequest).digest("hex")].join("\n");
+  const signingKey=sign(sign(sign(sign(`AWS4${secret}`,date),"auto"),"s3"),"aws4_request");const signature=crypto.createHmac("sha256",signingKey).update(stringToSign).digest("hex");
+  const response=await fetch(`https://${host}${targetUri}`,{method:"PUT",headers:{"x-amz-date":amzDate,"x-amz-content-sha256":payloadHash,"x-amz-copy-source":copySource,Authorization:`AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`}});
+  if(!response.ok)throw new Error(`R2 copy returned ${response.status}`);return{objectKey:targetKey,publicUrl:`${publicBase}/${targetKey.split("/").map(encode).join("/")}`};
 }
 
 export async function uploadSocialVideo(input:{fileName:string;slug:string;bytes:Buffer}){
