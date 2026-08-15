@@ -36,11 +36,14 @@ def candidates(assets,words,bounds):
  raw=[]
  for asset in assets:
   episode=asset["episodeNumber"];duration=float(probe(asset["path"])["format"]["duration"])
+  episode_raw=[]
   for start,end in snap_windows(words[episode],bounds[episode],duration):
    tokens=normalized_words(words[episode],start,end)
    if len(tokens)<10:continue
-   parts,risk=lexical_components(tokens,end-start,end,duration);visual=visual_stats(asset["path"],start,end);parts["visual"]=visual["score"];score=total_score(parts)
-   raw.append({"episodeNumber":episode,"start":start,"end":end,"text":" ".join(tokens),"score":score,"parts":parts,"risk":risk,"visual":visual})
+   parts,risk=lexical_components(tokens,end-start,end,duration);parts["visual"]=0;episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":" ".join(tokens),"score":total_score(parts),"parts":parts,"risk":risk,"path":asset["path"]})
+  raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
+ for item in raw:
+  visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])
  ranked=select_ranked(raw,2,42);out=[]
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
