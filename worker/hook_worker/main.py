@@ -21,12 +21,14 @@ def transcribe(path):
  return [{"start":w.start,"end":w.end,"word":w.word} for s in segments for w in (s.words or [])]
 def scenes(path): return [{"start":a.get_seconds(),"end":b.get_seconds()} for a,b in detect(str(path),ContentDetector(threshold=27.0))]
 def visual_stats(path,start,end):
- cap=cv2.VideoCapture(str(path));cascade=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml");samples=[]
+ cap=cv2.VideoCapture(str(path));cascade=None;samples=[]
+ if hasattr(cv2,"CascadeClassifier") and hasattr(cv2,"data"):
+  candidate=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml");cascade=None if candidate.empty() else candidate
  for stamp in [start+1.0,start+(end-start)*.35,start+(end-start)*.62,max(start,end-1.0)]:
   cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
   if not ok:continue
-  gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);sharp=min(100,cv2.Laplacian(gray,cv2.CV_64F).var()/4);brightness=float(gray.mean());exposure=max(0,100-abs(brightness-125)*1.15);faces=cascade.detectMultiScale(gray,1.15,5,minSize=(48,48));face=min(100,len(faces)*55)
-  score=sharp*.42+exposure*.23+face*.35;samples.append((score,stamp,{"sharpness":sharp,"exposure":exposure,"faces":len(faces)}))
+  gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);sharp=min(100,cv2.Laplacian(gray,cv2.CV_64F).var()/4);brightness=float(gray.mean());exposure=max(0,100-abs(brightness-125)*1.15);faces=[] if cascade is None else cascade.detectMultiScale(gray,1.15,5,minSize=(48,48));face=min(100,len(faces)*55)
+  score=sharp*.55+exposure*.30+face*.15;samples.append((score,stamp,{"sharpness":round(sharp,2),"exposure":round(exposure,2),"faces":len(faces),"faceDetectorAvailable":cascade is not None}))
  cap.release()
  if not samples:return {"score":0,"cover":max(start,end-1),"details":{}}
  best=max(samples,key=lambda item:item[0]);return {"score":round(sum(item[0] for item in samples)/len(samples),2),"cover":round(best[1],3),"details":best[2]}
