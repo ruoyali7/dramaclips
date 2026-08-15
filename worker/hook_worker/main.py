@@ -39,8 +39,12 @@ def candidates(assets,words,bounds):
   episode_raw=[]
   for start,end in snap_windows(words[episode],bounds[episode],duration):
    tokens=normalized_words(words[episode],start,end)
-   if len(tokens)<10:continue
-   parts,risk=lexical_components(tokens,end-start,end,duration);parts["visual"]=0;episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":" ".join(tokens),"score":total_score(parts),"parts":parts,"risk":risk,"path":asset["path"]})
+   if len(tokens)>=10:
+    parts,risk=lexical_components(tokens,end-start,end,duration);text=" ".join(tokens)
+   else:
+    tail=max(0,1-(duration-end)/20)
+    parts={"dialogue":35,"conflict":0,"reversal":0,"tension":0,"danger":0,"identity":0,"cliffhanger":55+45*tail,"context":60};risk="low";text=f"visual-scene-episode-{episode}-{start}-{end}"
+   parts["visual"]=0;episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":text,"score":total_score(parts),"parts":parts,"risk":risk,"path":asset["path"]})
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
   visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])
