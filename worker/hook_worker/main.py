@@ -1,8 +1,10 @@
 import json,os,random,subprocess,tempfile,time,traceback
 from pathlib import Path
 import requests
+import cv2
 from faster_whisper import WhisperModel
 from scenedetect import detect,ContentDetector
+from .scoring import lexical_components,normalized_words,select_ranked,snap_windows,total_score
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -18,12 +20,29 @@ def transcribe(path):
  model=WhisperModel(MODEL,device="cpu",compute_type="int8");segments,_=model.transcribe(str(path),word_timestamps=True,vad_filter=True)
  return [{"start":w.start,"end":w.end,"word":w.word} for s in segments for w in (s.words or [])]
 def scenes(path): return [{"start":a.get_seconds(),"end":b.get_seconds()} for a,b in detect(str(path),ContentDetector(threshold=27.0))]
+def visual_stats(path,start,end):
+ cap=cv2.VideoCapture(str(path));cascade=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml");samples=[]
+ for stamp in [start+1.0,start+(end-start)*.35,start+(end-start)*.62,max(start,end-1.0)]:
+  cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
+  if not ok:continue
+  gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);sharp=min(100,cv2.Laplacian(gray,cv2.CV_64F).var()/4);brightness=float(gray.mean());exposure=max(0,100-abs(brightness-125)*1.15);faces=cascade.detectMultiScale(gray,1.15,5,minSize=(48,48));face=min(100,len(faces)*55)
+  score=sharp*.42+exposure*.23+face*.35;samples.append((score,stamp,{"sharpness":sharp,"exposure":exposure,"faces":len(faces)}))
+ cap.release()
+ if not samples:return {"score":0,"cover":max(start,end-1),"details":{}}
+ best=max(samples,key=lambda item:item[0]);return {"score":round(sum(item[0] for item in samples)/len(samples),2),"cover":round(best[1],3),"details":best[2]}
 def candidates(assets,words,bounds):
- out=[]
- for rank,asset in enumerate(assets[:2],1):
-  duration=float(probe(asset["path"])["format"]["duration"]);end=max(1,duration-.5);start=max(0,end-min(38,end));score=min(95,62+len([w for w in words[asset["episodeNumber"]] if start<=w["start"]<=end])*.15)
-  if score<65:continue
-  out.append({"id":f"{asset['episodeNumber']}-{rank}","rank":rank,"title":"Grounded cliffhanger","hookType":"cliffhanger","sourceRanges":[{"episodeNumber":asset["episodeNumber"],"start":start,"end":end}],"renderedRanges":[{"start":0,"end":end-start}],"score":round(score,2),"scoreComponents":{"dialogue":round(score,2)},"rationale":"Dense late-episode dialogue ending on an unresolved story beat.","riskLevel":"low","riskAssessment":{},"coverSourceTimestamp":max(start,end-1.5),"reviewState":"pending"})
+ raw=[]
+ for asset in assets:
+  episode=asset["episodeNumber"];duration=float(probe(asset["path"])["format"]["duration"])
+  for start,end in snap_windows(words[episode],bounds[episode],duration):
+   tokens=normalized_words(words[episode],start,end)
+   if len(tokens)<10:continue
+   parts,risk=lexical_components(tokens,end-start,end,duration);visual=visual_stats(asset["path"],start,end);parts["visual"]=visual["score"];score=total_score(parts)
+   raw.append({"episodeNumber":episode,"start":start,"end":end,"text":" ".join(tokens),"score":score,"parts":parts,"risk":risk,"visual":visual})
+ ranked=select_ranked(raw,2,42);out=[]
+ for rank,item in enumerate(ranked,1):
+  dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
+  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":labels[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,cover_duration=.2):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")

@@ -4,7 +4,7 @@ import {mkdir,readFile,rename,writeFile} from "fs/promises";
 import path from "path";
 import {getSupabaseConfig} from "./supabase-config";
 import type {HookCandidate,HookJob,HookJobStatus,HookSourceAsset} from "./hook-job-types";
-const pipelineVersion="hook-worker-v2-render-r2";
+const pipelineVersion="hook-worker-v3-grounded-visual";
 function filePath(){return process.env.HOOK_JOB_FILE||path.join(process.cwd(),"data","hook-jobs.json")}
 async function localRows():Promise<HookJob[]>{try{const rows=JSON.parse(await readFile(filePath(),"utf8"));return Array.isArray(rows)?rows:[]}catch{return[]}}
 async function writeLocal(rows:HookJob[]){const file=filePath();await mkdir(path.dirname(file),{recursive:true});const temp=`${file}.tmp`;await writeFile(temp,JSON.stringify(rows,null,2),{mode:0o600});await rename(temp,file)}
