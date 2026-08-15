@@ -35,7 +35,7 @@ def total_score(parts):
 def jaccard(a,b):
  aa=set(re.findall(r"[a-z0-9']+",a.lower()));bb=set(re.findall(r"[a-z0-9']+",b.lower()));return len(aa&bb)/max(1,len(aa|bb))
 
-def select_ranked(raw,limit=2,threshold=42):
+def select_ranked(raw,limit=2,threshold=27):
  chosen=[]
  for item in sorted(raw,key=lambda x:x["score"],reverse=True):
   if item["score"]<threshold:continue

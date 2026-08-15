@@ -12,5 +12,9 @@ class ScoringTests(unittest.TestCase):
   base={"episodeNumber":1,"text":"you lied to me and now I know the truth","score":80}
   ranked=select_ranked([{**base,"start":0,"end":30},{**base,"start":5,"end":34,"score":79},{**base,"episodeNumber":2,"text":"kiss me before your brother learns my secret","start":0,"end":30,"score":70}],2)
   self.assertEqual(len(ranked),2);self.assertEqual(ranked[1]["episodeNumber"],2)
+ def test_quality_gate_matches_weighted_score_scale(self):
+  raw=[{"episodeNumber":1,"text":"ordinary dialogue","start":0,"end":30,"score":26.9},{"episodeNumber":2,"text":"the truth is I love you","start":0,"end":30,"score":27.0}]
+  ranked=select_ranked(raw,2)
+  self.assertEqual([item["episodeNumber"] for item in ranked],[2])
 
 if __name__=="__main__":unittest.main()
