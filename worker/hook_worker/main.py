@@ -5,6 +5,7 @@ import cv2
 from faster_whisper import WhisperModel
 from scenedetect import detect,ContentDetector
 from .scoring import lexical_components,normalized_words,select_ranked,snap_windows,total_score
+from .direction import parse_direction,score_direction
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -32,7 +33,7 @@ def visual_stats(path,start,end):
  cap.release()
  if not samples:return {"score":0,"cover":max(start,end-1),"details":{}}
  best=max(samples,key=lambda item:item[0]);return {"score":round(sum(item[0] for item in samples)/len(samples),2),"cover":round(best[1],3),"details":best[2]}
-def candidates(assets,words,bounds):
+def candidates(assets,words,bounds,direction_schema):
  raw=[]
  for asset in assets:
   episode=asset["episodeNumber"];duration=float(probe(asset["path"])["format"]["duration"])
@@ -44,19 +45,22 @@ def candidates(assets,words,bounds):
    else:
     tail=max(0,1-(duration-end)/20)
     parts={"dialogue":35,"conflict":0,"reversal":0,"tension":0,"danger":0,"identity":0,"cliffhanger":55+45*tail,"context":60};risk="low";text=f"visual-scene-episode-{episode}-{start}-{end}"
-   parts["visual"]=0;episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":text,"score":total_score(parts),"parts":parts,"risk":risk,"path":asset["path"]})
+   direction=score_direction(direction_schema,text,parts);parts["visual"]=0;parts["directionMatch"]=direction["score"] or 0;score=total_score(parts)+(direction["score"] or 0)*.28-direction["penalty"]
+   if direction["eligible"] or not direction_schema.get("original"):episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":text,"score":score,"parts":parts,"risk":risk,"path":asset["path"],"direction":direction})
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
-  visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])
+  visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])+(item["direction"]["score"] or 0)*.28-item["direction"]["penalty"]
  ranked=select_ranked(raw,2);out=[]
  if not ranked:
   for asset in assets[:2]:
    duration=float(probe(asset["path"])["format"]["duration"]);end=max(1,duration-.35);start=max(0,end-min(38,end));visual=visual_stats(asset["path"],start,end)
    parts={"dialogue":35,"conflict":0,"reversal":0,"tension":0,"danger":0,"identity":0,"cliffhanger":100,"context":60,"visual":visual["score"]}
-   ranked.append({"episodeNumber":asset["episodeNumber"],"start":start,"end":end,"text":f"last-scene-{asset['episodeNumber']}","score":total_score(parts),"parts":parts,"risk":"low","visual":visual})
+   direction=score_direction(direction_schema,f"last-scene-{asset['episodeNumber']}",parts)
+   if direction["eligible"] or not direction_schema.get("original"):ranked.append({"episodeNumber":asset["episodeNumber"],"start":start,"end":end,"text":f"last-scene-{asset['episodeNumber']}","score":total_score(parts)+(direction["score"] or 0)*.28-direction["penalty"],"parts":parts,"risk":"low","visual":visual,"direction":direction})
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
-  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":labels[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
+  direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
+  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":labels[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,cover_duration=.2):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
@@ -82,7 +86,7 @@ def run(job):
  for a in assets:words[a["episodeNumber"]]=transcribe(a["path"])
  update(job,"analyzing",55)
  for a in assets:bounds[a["episodeNumber"]]=scenes(a["path"])
- found=candidates(assets,words,bounds)
+ direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));found=candidates(assets,words,bounds,direction_schema)
  if found:
   update(job,"rendering",70)
   by_episode={a["episodeNumber"]:a for a in assets}
@@ -90,7 +94,7 @@ def run(job):
    output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,float(job.get("settings",{}).get("coverDuration",.2)))
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",80+index*10)
- update(job,"no_result" if not found else "review_ready",100,candidates=found)
+ update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
 def main():
  while True:
   try:

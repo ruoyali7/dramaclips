@@ -8,7 +8,7 @@
 
 The operator workflow is:
 
-`Select R2 drama → select first 1–5 episodes → create hook job → review up to two finished hooks → save approved hooks to R2 → select original/hook/upload in Publish Center → publish now or schedule → track status`
+`Select R2 drama → select first 1–5 episodes → optionally describe the creative direction → create hook job → review up to two finished hooks → save approved hooks to R2 → select original/hook/upload in Publish Center → publish now or schedule → track status`
 
 The system must not mechanically return two clips. It returns one when only one candidate meets the quality threshold and returns an honest no-result state when none do.
 
@@ -51,12 +51,38 @@ The admin interface must allow the operator to:
 
 - select a published drama whose episodes already exist in R2;
 - select the first 1–5 episodes;
+- optionally enter a plain-language creative direction describing the theme, emotion, relationship, reveal, character, visual moment, ending, required elements, or exclusions to emphasize;
 - create one asynchronous analysis/render job;
 - see queued, downloading, transcribing, analyzing, rendering, review-ready, failed, and canceled states;
 - preview each returned hook;
 - see its source episode/timecodes, hook type, score, rationale, cover frame, and platform-risk assessment;
 - rename, reject, regenerate, or save a draft;
 - save only explicitly approved drafts to `dramas/{slug}/social/hooks/` in R2.
+
+#### 4.1.1 Creative direction editor
+
+Hook Studio must provide one prominent free-text field labeled **Hook direction / 想突出的重点**. It is the primary creative control and must not be replaced by a large collection of style presets.
+
+Example input:
+
+> Focus on forbidden tutor/student chemistry and embarrassing misunderstandings. Prefer close physical proximity, jealous reactions, and dialogue with double meaning. Keep it suggestive but platform-safe. Do not reveal the resolution. End immediately before an intimate moment is completed.
+
+Required behavior:
+
+- leaving the field empty uses the current default grounded ranking style;
+- entering a direction keeps the same Railway worker pipeline but makes direction match the leading ranking signal;
+- the direction must travel with the durable job and survive browser closure, retry, and historical-job restoration;
+- each returned candidate must explain how it matches the requested direction and which requested or excluded elements were detected;
+- the worker must return an honest no-result when no grounded source segment sufficiently matches the direction;
+- the interface may retain a small number of advanced controls—maximum hooks, target duration, multi-segment permission, platform-safety level, and optional opening text—but free text remains the primary control.
+
+Product responsibility is deliberately split: **the direction says what to look for; the grounded scorer decides whether the located material is good enough to cut.** A direction may reweight or reject grounded candidates, but it may not lower the base quality threshold, invent story facts, or force the system to return a clip.
+
+For the rule-weighted MVP, the editor accepts natural prose rather than a special command syntax. The parser may recognize supported themes and explicit phrases such as `must include`, `avoid`, `do not`, `不要`, `必须`, and `结尾停在`, while preserving the operator's exact original text. Unsupported abstract requests remain visible in the stored direction and must not be reported as matched without transcript/frame evidence.
+
+This is one combined pipeline, not a separate manual-editing path:
+
+`Creative direction → direction parsing/embedding → grounded candidate generation → direction-aware scoring → quality and safety gate → FFmpeg render → human review`
 
 ### 4.2 Hook analysis
 
@@ -75,6 +101,25 @@ Candidate scoring must include:
 - dialogue/subtitle density and pacing;
 - similarity to other candidates;
 - platform safety and likely restriction risk.
+
+When a creative direction is present, candidate ranking must additionally include:
+
+- semantic or rule-based match to the requested theme, emotion, relationship, character, action, and ending;
+- satisfaction of explicit `must include` concepts;
+- penalties or rejection for explicit `avoid` concepts;
+- consistency with the requested content-intensity/platform-safety level;
+- a grounded explanation of the match based on transcript words, scene timestamps, and inspected frames.
+
+The direction-aware score is conceptually:
+
+`final score = direction match + story tension + cliffhanger + dialogue/context + visual quality − exclusion penalties − safety penalties − duplication penalty`
+
+Direction match must not override timestamp grounding, minimum comprehensibility, render QA, or platform-safety rejection. The worker must never invent a matching scene merely because the direction requests one.
+
+Implementation is staged:
+
+1. **Rule-weighted direction MVP:** extract supported signals such as conflict, reversal, romantic tension, danger, identity, cliffhanger, `must include`, and `avoid`; dynamically adjust the existing scorer.
+2. **Semantic direction matching:** compare the full creative direction with transcript-grounded candidate summaries so the worker can understand concepts such as forbidden attraction, misunderstanding, jealousy, reluctance, or concealed feelings. This stage may use an approved semantic model, but final cuts remain constrained by Whisper timestamps and scene boundaries.
 
 The model must return grounded episode numbers and timestamps. Whisper word timestamps and scene boundaries constrain all final cuts; invented timestamps must be rejected.
 
@@ -137,6 +182,16 @@ Required behavior:
 - no browser dependency after job acceptance;
 - no synchronous FFmpeg/Whisper work inside a Vercel request;
 - SSRF protection by resolving source URLs only from the selected drama’s stored R2 assets.
+
+Each job must persist direction-related settings equivalent to:
+
+- `creative_direction` — the operator’s original text, stored without silent rewriting;
+- `direction_schema` — parsed themes, preferred moments, ending intent, `must_include`, and `avoid` values;
+- `direction_parser_version` and `direction_model_version`;
+- `direction_match_score` and match evidence for each candidate;
+- content-intensity/safety preference and multi-segment permission when enabled.
+
+The original direction and parsed representation must be included in the job idempotency/version inputs so materially different directions cannot reuse an unrelated previous result.
 
 ## 6. Publish Center
 
@@ -213,6 +268,15 @@ Support:
 - Add Whisper, scene detection, grounded multimodal candidate selection, deduplication, FFmpeg render, first-frame cover, ending cleanup, and QA.
 - Deliver Hook Studio job progress, review, and Save to R2.
 
+### Phase 3B.1 — Direction-aware Hook Studio
+
+- Add the free-text Hook direction editor and persist its original value on durable jobs.
+- Implement rule-weighted parsing for supported default signals, `must include`, and `avoid` concepts.
+- Make direction match the leading ranking input while retaining grounded quality, safety, and deduplication gates.
+- Display direction-match rationale and evidence during review.
+- Preserve default automatic behavior when the direction is empty.
+- Add semantic direction matching only after the rule-weighted path is measured and its model/provider, cost, latency, privacy, and fallback behavior are documented.
+
 ### Phase 3C — Publish asset selection
 
 - Add Original/Saved Hook/Manual Upload selection.
@@ -239,6 +303,9 @@ Support:
 - Selecting a drama and its first five episodes creates a durable job that survives browser closure.
 - The worker returns no more than two non-duplicate hooks and may return fewer below threshold.
 - Every hook reports grounded source episode/timecodes and a selection rationale.
+- A blank creative direction reproduces the default automatic selection path without requiring style choices.
+- A supplied creative direction is persisted, affects candidate ranking, and produces per-candidate match evidence or an honest no-result.
+- Retrying or restoring a job preserves the exact creative direction and parser/model versions.
 - Frame zero is the intended cover, is a keyframe, and remains visible long enough for uploader thumbnail extraction.
 - Rendered files contain no accidental ending sting, end card, or abrupt audio click.
 - A reviewed hook is absent from R2 and Publish Center until Save to R2 succeeds.
@@ -251,6 +318,8 @@ Support:
 ## 10. Required test coverage
 
 - hook candidate scoring thresholds and deduplication;
+- creative-direction persistence, idempotency, parsing, weighting, exclusions, blank-direction fallback, and match rationale;
+- semantic-direction matching fixtures must verify grounded evidence and rejection of unsupported requested moments;
 - timestamp grounding and boundary snapping;
 - first-frame insertion and frame-zero extraction;
 - ending video/audio cleanup;
