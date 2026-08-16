@@ -141,7 +141,7 @@ Each output must:
 
 - Select a sharp, platform-safe frame with a readable face/reaction, intimate spatial tension, or immediately understandable action.
 - Reject motion blur, obstructed faces, platform-unsafe nudity, subtitle collisions, and ambiguous frames.
-- Encode the frame as the true first video frame and keyframe for a configurable 0.15–0.30 seconds.
+- Encode the frame as the true first video frame and keyframe for a configurable 0.10–0.30 seconds. The production default is 0.10 seconds (three frames at 30 fps); operators may increase it when a destination's thumbnail extractor needs a longer hold.
 - Do not add a separate thumbnail dependency.
 - Audio begins with the narrative clip, not with an accidental duplicated syllable.
 - Automated QA must extract and verify frame zero.

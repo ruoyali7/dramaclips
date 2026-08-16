@@ -62,7 +62,7 @@ def candidates(assets,words,bounds,direction_schema):
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
   out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":labels[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
-def render(asset,candidate,target,cover_duration=.2):
+def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
  subprocess.check_call(["ffmpeg","-y","-ss",str(candidate["coverSourceTimestamp"]),"-i",str(source),"-frames:v","1","-q:v","2",str(cover)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  duration=rng["end"]-rng["start"];total=duration+cover_duration
@@ -91,7 +91,7 @@ def run(job):
   update(job,"rendering",70)
   by_episode={a["episodeNumber"]:a for a in assets}
   for index,candidate in enumerate(found):
-   output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,float(job.get("settings",{}).get("coverDuration",.2)))
+   output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,float(job.get("settings",{}).get("coverDuration",.1)))
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
