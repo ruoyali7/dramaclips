@@ -18,7 +18,7 @@ The system must not mechanically return two clips. It returns one when only one 
 2. **Human approval before durable storage or publishing.** Generated drafts remain temporary until the operator saves them to R2. Nothing publishes without final confirmation.
 3. **First frame is the thumbnail.** Because some uploaders cannot supply a separate thumbnail, the strongest safe frame must be encoded at the actual beginning of the MP4.
 4. **Long-running work is asynchronous.** Vercel request handlers create and inspect jobs; an independent worker performs downloads, transcription, analysis, and FFmpeg rendering.
-5. **Provider abstraction, not lock-in.** Metricool CSV remains a fallback. Direct publishing providers are replaceable adapters.
+5. **Pragmatic provider evolution.** Yixiaoer is the current production provider and Metricool CSV remains a fallback. A provider-neutral refactor is deliberately deferred until a second provider is selected or current coupling materially blocks product work.
 6. **Official platform access only.** Do not use browser-session automation or scraping to upload. Use approved OAuth and official/provider APIs.
 7. **Open-source license boundaries matter.** MIT components may be selectively adapted with attribution. AGPL systems such as Postiz/OpenPost must remain separate services accessed through APIs unless the project deliberately accepts AGPL obligations.
 
@@ -207,7 +207,11 @@ The selected video must be previewable and its immutable asset ID, URL, kind, an
 
 ### 6.2 Provider interface
 
-Implement a server-side provider boundary equivalent to:
+**Current decision (August 2026): Yixiaoer remains the only active direct-publishing provider. Do not perform a provider-neutral refactor yet.** The current Yixiaoer-specific schema, Railway queue, upload/validation flow, account routing, progress UI, and scheduled-release behavior remain the production path while they are being stabilized and measured.
+
+The provider interface below describes the intended future boundary, not an instruction to replace the working Yixiaoer integration during the current phase.
+
+When the deferred refactor is triggered, implement a server-side provider boundary equivalent to:
 
 ```ts
 interface PublishingProvider {
@@ -220,11 +224,34 @@ interface PublishingProvider {
 
 Adapters:
 
-1. `MetricoolCsvProvider` — preserve the current CSV workflow as fallback.
-2. `UploadPostProvider` or `ZernioProvider` — first direct-publishing implementation, selected after a small credential/account feasibility spike.
-3. `PostizProvider` — planned adapter for a separately deployed Postiz instance.
+1. `YixiaoerProvider` — current production implementation, initially extracted from the working integration only when the deferred refactor is triggered.
+2. `MetricoolCsvProvider` — preserve the CSV workflow as fallback/export rather than the primary live-publishing path.
+3. `BufferProvider` — possible future adapter; do not implement until Buffer is selected and its actual account/media/scheduling capabilities are verified.
+4. `UploadPostProvider`, `ZernioProvider`, or `PostizProvider` — evaluation-only alternatives. Postiz must remain a separately deployed service.
 
 Do not embed Postiz or OpenPost code into this repository. If used, deploy separately and call its API.
+
+#### 6.2.1 Deferred provider-neutral refactor
+
+The refactor is triggered only when at least one of the following is true:
+
+- the operator selects and authorizes a second live provider such as Buffer;
+- Yixiaoer can no longer satisfy a required platform, reliability, scheduling, or account-management need;
+- provider-specific fields cause repeated changes across Publish Center rather than remaining isolated to integration code;
+- automated tests cannot cover publishing behavior without invoking Yixiaoer-specific concepts.
+
+When triggered, the migration must:
+
+- keep Publish Center responsible only for asset, copy, account, schedule, confirmation, and status;
+- define provider capabilities such as account listing, media/cover upload, validation, dry-run, immediate publish, native scheduling, cancellation, and status lookup;
+- move Yixiaoer behavior behind a `YixiaoerProvider` adapter before adding another adapter;
+- introduce neutral persistence such as `provider`, `provider_asset`, `provider_accounts`, `provider_payloads`, `provider_results`, `provider_action`, `provider_status`, and provider request/post IDs;
+- backfill neutral fields from existing `yixiaoer_*` fields, run both representations during a bounded compatibility period, and remove legacy fields only after reconciliation;
+- preserve Railway-controlled scheduling for providers without reliable native scheduling while allowing an adapter to use native scheduling when supported;
+- drive UI labels and controls from provider capabilities instead of hard-coded provider names;
+- retain publish confirmation, idempotency, cancellation, history, audit data, and Metricool CSV fallback throughout the migration.
+
+Until a trigger occurs, new Yixiaoer work may continue in the existing production path, but new product-level concepts should use neutral names where doing so is low-cost. Do not add speculative Buffer credentials, database tables, UI selectors, or adapter code.
 
 ### 6.3 Publishing controls
 
@@ -284,12 +311,18 @@ Support:
 - Ensure only approved hooks appear.
 - Preserve current caption and Metricool CSV generation.
 
-### Phase 3D — Direct publishing spike and adapter
+### Phase 3D — Yixiaoer direct publishing stabilization
 
-- Time-box a feasibility spike comparing Upload-Post/Zernio and a separate Postiz deployment.
+- Keep Yixiaoer as the active provider and stabilize upload metadata, cover upload, validation, cloud publishing, scheduling, cancellation, recovery, and status reporting.
 - Verify TikTok, Instagram Reels, YouTube Shorts, and Facebook video publishing with the operator’s actual account types.
-- Implement one provider behind the interface with mocked automated tests and manual sandbox/draft validation.
+- Record provider-specific limitations and production evidence without starting a speculative second-provider implementation.
 - Keep CSV fallback.
+
+### Phase 3D.1 — Deferred provider-neutral migration
+
+- Start only when a trigger in §6.2.1 is met and the operator confirms the second provider direction.
+- Extract the proven Yixiaoer path behind the neutral interface before implementing Buffer or another provider.
+- Migrate data and UI incrementally with compatibility reads, reconciliation, and rollback coverage.
 
 ### Phase 3E — Performance learning loop
 
