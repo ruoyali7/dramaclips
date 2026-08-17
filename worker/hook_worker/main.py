@@ -128,13 +128,13 @@ def yixer_video(data):
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
  if not candidate.get("key"):raise RuntimeError("Yixiaoer upload returned no resource key")
  return candidate
-def yixer_payload(job,pack,video):
+def yixer_payload(job,pack,video,cover):
  platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=pack["caption"];title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
  if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramaClips","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
  if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
- return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"contentPublishForm":content}]}}
+ return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
 def yixer_file(job,payload,platform,command,dry=False,heartbeat=None):
  root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
@@ -152,24 +152,32 @@ def download_publish_video(job,status,results):
     if cancel_requested(publish_update(job,status,min(25,progress),results={**results,"_operation":operation})):raise PublishCanceled("Canceled by user")
  return target
 def run_publish(job):
- action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";video=job.get("yixiaoerVideo") or {};results=job.get("yixiaoerResults") or {}
- if not video:
-  local_video=download_publish_video(job,status,results);started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+ action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};video=stored.get("video") or (stored if stored.get("key") else {});cover=stored.get("cover") or {};results=job.get("yixiaoerResults") or {};local_video=None
+ if not video.get("duration") or not cover:
+  local_video=download_publish_video(job,status,results)
+ if not video.get("duration"):
+  started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
   def upload_heartbeat():
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
    return cancel_requested(publish_update(job,status,30,results={**results,"_operation":operation}))
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
-  video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish"],upload_heartbeat));publish_update(job,status,35,video=video,results={**results,"_operation":{"stage":"preparing_platform_validation","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}})
- payloads={pack["source"]:yixer_payload(job,pack,video) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
+  video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat))
+ if not cover:
+  cover_path=local_video.with_name("publish-cover.jpg");subprocess.check_call(["ffmpeg","-y","-ss","0","-i",str(local_video),"-frames:v","1","-q:v","2",str(cover_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  def cover_heartbeat():return cancel_requested(publish_update(job,status,33,results={**results,"_operation":{"stage":"uploading_cover_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  if cover_heartbeat():raise PublishCanceled("Canceled by user")
+  cover=yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat))
+ assets={"video":video,"cover":cover};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+ payloads={pack["source"]:yixer_payload(job,pack,video,cover) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
-  def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=video,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
   checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat)}
   if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish",heartbeat=platform_heartbeat)
-  results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=video,payloads=payloads,results=results)
- publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=video,payloads=payloads,results=results)
+  results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
+ publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  while True:
   try:

@@ -9,7 +9,7 @@ type Package={id:string;dramaSlug:string;episodeNumber:number;videoUrl:string;vi
 type YAccount={id:string;name:string;platform:string;status:number};
 const options=[["tiktok","TikTok"],["instagram","Instagram"],["youtube","YouTube"],["facebook","Facebook"],["x","X (CSV fallback)"]] as const;
 const yNames:Record<string,string>={tiktok:"TikTok",instagram:"Instagram",youtube:"Youtube",facebook:"Facebook"};
-const stageNames:Record<string,string>={downloading_from_r2:"Downloading video from R2",uploading_to_yixiaoer:"Uploading video to Yixiaoer",preparing_platform_validation:"Preparing platform validation",validating_platform:"Validating platform"};
+const stageNames:Record<string,string>={downloading_from_r2:"Downloading video from R2",uploading_to_yixiaoer:"Uploading video to Yixiaoer",uploading_cover_to_yixiaoer:"Uploading cover to Yixiaoer",preparing_platform_validation:"Preparing platform validation",validating_platform:"Validating platform"};
 function operationOf(value:Package){const operation=value.yixiaoerResults?._operation;return operation&&typeof operation==="object"?operation as Record<string,unknown>:null}
 function durationLabel(seconds:number){const minutes=Math.floor(seconds/60);return minutes?`${minutes}m ${seconds%60}s`:`${seconds}s`}
 function localTime(value:unknown,timeZone?:string){if(typeof value!=="string")return "Waiting for heartbeat";return new Intl.DateTimeFormat(undefined,{hour:"2-digit",minute:"2-digit",second:"2-digit",timeZone,timeZoneName:"short"}).format(new Date(value))}
