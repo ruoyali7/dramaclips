@@ -1,4 +1,4 @@
-import json,os,random,subprocess,tempfile,time,traceback
+import json,os,random,subprocess,tempfile,time,traceback,threading
 from pathlib import Path
 import requests
 import cv2
@@ -95,14 +95,23 @@ def run(job):
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
-def yxer(job,args):
+def yxer(job,args,heartbeat=None):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
+ stop=threading.Event()
+ def pulse():
+  while not stop.wait(10):
+   try:
+    if heartbeat:heartbeat()
+   except Exception:traceback.print_exc()
+ thread=threading.Thread(target=pulse,daemon=True);thread.start()
  try:
   subprocess.check_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env=env,stderr=subprocess.STDOUT,timeout=60)
   raw=subprocess.check_output(["yxer",*args,"--json"],env=env,stderr=subprocess.STDOUT,timeout=900)
  except subprocess.CalledProcessError as exc:
   detail=(exc.output or b"").decode("utf-8","replace").replace(job["apiKey"],"[REDACTED]").strip()
   raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}") from None
+ finally:
+  stop.set();thread.join(timeout=1)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
@@ -127,12 +136,16 @@ def yixer_file(job,payload,platform,command,dry=False):
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";video=job.get("yixiaoerVideo") or {};results=job.get("yixiaoerResults") or {}
  if not video:
-  publish_update(job,status,10,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
-  video=yixer_video(yxer(job,["upload","--url",job["videoUrl"],"--bucket","cloud-publish"]));publish_update(job,status,35,video=video,results=results)
+  started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+  def upload_heartbeat():
+   operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
+   publish_update(job,status,10,results={**results,"_operation":operation})
+  upload_heartbeat()
+  video=yixer_video(yxer(job,["upload","--url",job["videoUrl"],"--bucket","cloud-publish"],upload_heartbeat));publish_update(job,status,35,video=video,results={**results,"_operation":{"stage":"preparing_platform_validation","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}})
  payloads={pack["source"]:yixer_payload(job,pack,video) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
  for index,pack in enumerate(pending):
-  source=pack["source"];checked={"validation":yixer_file(job,payloads[source],source,"validate"),"preview":yixer_file(job,payloads[source],source,"publish",True)}
+  source=pack["source"];publish_update(job,status,40+int(index/max(1,len(pending))*45),video=video,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}});checked={"validation":yixer_file(job,payloads[source],source,"validate"),"preview":yixer_file(job,payloads[source],source,"publish",True)}
   if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish")
   results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=video,payloads=payloads,results=results)
  publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=video,payloads=payloads,results=results)
