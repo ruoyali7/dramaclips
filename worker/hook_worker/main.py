@@ -96,9 +96,13 @@ def run(job):
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
 def yxer(job,args):
- env={**os.environ,"YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
- subprocess.check_output(["yxer","config","set-api-key",job["apiKey"]],env=env,stderr=subprocess.STDOUT,timeout=60)
- raw=subprocess.check_output(["yxer",*args,"--json"],env=env,stderr=subprocess.STDOUT,timeout=900)
+ env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
+ try:
+  subprocess.check_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env=env,stderr=subprocess.STDOUT,timeout=60)
+  raw=subprocess.check_output(["yxer",*args,"--json"],env=env,stderr=subprocess.STDOUT,timeout=900)
+ except subprocess.CalledProcessError as exc:
+  detail=(exc.output or b"").decode("utf-8","replace").replace(job["apiKey"],"[REDACTED]").strip()
+  raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}") from None
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")

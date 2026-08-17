@@ -6,5 +6,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN useradd -m worker && mkdir -p /work && chown -R worker:worker /work /app
 USER worker
-ENV WORK_DIR=/work PYTHONUNBUFFERED=1
+ENV HOME=/home/worker WORK_DIR=/work PYTHONUNBUFFERED=1
 CMD ["python","-m","hook_worker.main"]
