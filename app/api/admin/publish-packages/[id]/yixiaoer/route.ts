@@ -14,6 +14,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
   for(const pack of selected)if(!input.accounts[pack.source])return NextResponse.json({message:`Choose a Yixiaoer account for ${pack.source}`},{status:400});
   const pending=input.action==="publish"?selected.filter(pack=>!Boolean((item.yixiaoerResults[pack.source] as Record<string,unknown>|undefined)?.publish)):selected;
   if(input.action==="publish"&&!pending.length)return NextResponse.json({message:"All selected Yixiaoer platforms are already published"},{status:409});
+  if(input.action==="validate"&&!Object.keys(item.yixiaoerVideo).length)item=await updatePublishPackageYixiaoer(id,{status:"validating",results:{...item.yixiaoerResults,_operation:{stage:"uploading_to_yixiaoer",startedAt:new Date().toISOString()}}});
   const video=Object.keys(item.yixiaoerVideo).length?item.yixiaoerVideo:await uploadYixiaoerVideo(item.videoUrl);
   const payloads=Object.fromEntries(selected.map(pack=>[pack.source,buildYixiaoerPayload(pack.source,input.accounts[pack.source],video,pack,`${drama.title} · EP ${item.episodeNumber}`)]));
   const results:Record<string,unknown>={...item.yixiaoerResults};
