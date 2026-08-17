@@ -1,0 +1,19 @@
+.hook-library { grid-column: 1 / -1; }
+.hook-library-head,
+.hook-library-row { display: grid; grid-template-columns: minmax(220px, 1.6fr) 110px 110px minmax(220px, 1fr); gap: 14px; align-items: center; }
+.hook-library-head { padding: 10px 0; border-bottom: 1px solid #ddd; color: #888; text-transform: uppercase; font-size: 8px; }
+.hook-library-row { padding: 14px 0; border-bottom: 1px solid #eee; }
+.hook-library-row > div:first-child b,
+.hook-library-row > div:first-child small { display: block; }
+.hook-library-row small { color: #888; font-size: 9px; margin-top: 3px; }
+.hook-library-row > span { font-size: 10px; }
+.hook-library-row > div:last-child { display: flex; justify-content: flex-end; gap: 8px; }
+.hook-library-row button { display: flex; align-items: center; gap: 5px; border: 1px solid #d4d0c7; background: #fff; padding: 8px 10px; font-size: 9px; }
+.hook-library-row button:first-child { background: #171717; color: #fff; border-color: #171717; }
+.hook-library-row button svg { width: 13px; }
+.hook-library-row button:disabled { opacity: .45; }
+@media (max-width: 700px) {
+  .hook-library { overflow-x: auto; }
+  .hook-library-head,
+  .hook-library-row { min-width: 700px; }
+}
