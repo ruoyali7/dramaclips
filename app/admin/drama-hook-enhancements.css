@@ -1,0 +1,20 @@
+.draft-panel{overflow-x:auto}
+.draft-panel table{min-width:940px}
+.draft-panel td:first-child{min-width:250px}
+.drama-cover{width:38px;height:50px;border-radius:3px;background-color:#ece9e2;box-shadow:0 1px 4px #0002}
+.upload-date{color:#77746d;white-space:nowrap;font-size:10px}
+.hook-link{display:inline-flex;padding:6px 9px;border-radius:18px;background:#f0ede7;color:#625d54;text-transform:capitalize;font-size:9px;white-space:nowrap}
+.hook-link.review_ready{background:#e8f2ff;color:#35648d}
+.hook-link.failed,.hook-link.canceled{background:#fff0ec;color:#a34430}
+.no-hooks{color:#aaa}
+.additional-tool{margin:0 35px 50px;border:1px solid #d9d6cf;background:#ebe9e3}
+.additional-tool>summary{list-style:none;cursor:pointer;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.additional-tool>summary::-webkit-details-marker{display:none}
+.additional-tool>summary span,.additional-tool>summary span b{display:block}
+.additional-tool>summary span{font-family:Georgia,serif;font-size:18px}
+.additional-tool>summary span b{font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:.12em;font-size:8px;color:#a06048;margin-bottom:5px}
+.additional-tool>summary small{color:#77746d;font-size:9px}
+.additional-tool[open]>summary{border-bottom:1px solid #d9d6cf}
+.additional-tool .vizard-studio{margin:20px}
+.additional-tool .vizard-studio>section{border-color:#d9d6cf}
+@media(max-width:900px){.additional-tool{margin-left:18px;margin-right:18px}.additional-tool>summary{align-items:flex-start;flex-direction:column}.additional-tool .vizard-studio{margin:12px}}

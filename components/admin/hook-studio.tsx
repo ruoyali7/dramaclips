@@ -9,8 +9,8 @@ type Candidate={id:string;rank:number;title:string;hookType:string;sourceRanges:
 type Job={id:string;sourceEpisodes:number[];creativeDirection?:string;createdAt:string;status:"queued"|"downloading"|"transcribing"|"analyzing"|"rendering"|"review_ready"|"no_result"|"failed"|"canceled";progress:number;errorMessage?:string;retryCount:number;maxRetries:number;candidates:Candidate[]};
 const terminal=new Set(["review_ready","no_result","failed","canceled"]);
 
-export function HookStudio({sources}:{sources:Source[]}){
- const [sourceId,setSourceId]=useState(sources[0]?.id||"");
+export function HookStudio({sources,initialSourceId}:{sources:Source[];initialSourceId?:string}){
+ const [sourceId,setSourceId]=useState(sources.some(item=>item.id===initialSourceId)?initialSourceId!:sources[0]?.id||"");
  const source=sources.find(item=>item.id===sourceId);
  const [count,setCount]=useState(Math.min(5,source?.episodes.length||1));
  const [direction,setDirection]=useState("");
