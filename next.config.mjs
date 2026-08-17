@@ -14,6 +14,9 @@ try {
 const nextConfig = {
   images: { remotePatterns },
   poweredByHeader: false,
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/@yixiaoermail/cli/**/*"]
+  },
   async headers() {
     return [{ source: "/:path*", headers: [
       { key: "X-Content-Type-Options", value: "nosniff" },
