@@ -133,15 +133,26 @@ def yixer_file(job,payload,platform,command,dry=False):
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
  if dry:args.append("--dry-run")
  return yxer(job,args)
+def download_publish_video(job,status,results):
+ root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+ with requests.get(job["videoUrl"],stream=True,timeout=(30,120)) as response:
+  response.raise_for_status();total=int(response.headers.get("content-length") or 0);received=0
+  with target.open("wb") as output:
+   for chunk in response.iter_content(chunk_size=1024*1024):
+    if not chunk:continue
+    output.write(chunk);received+=len(chunk);progress=5+int(received/max(1,total)*20) if total else 10
+    operation={"stage":"downloading_from_r2","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesReceived":received,"bytesTotal":total}
+    publish_update(job,status,min(25,progress),results={**results,"_operation":operation})
+ return target
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";video=job.get("yixiaoerVideo") or {};results=job.get("yixiaoerResults") or {}
  if not video:
-  started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+  local_video=download_publish_video(job,status,results);started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
   def upload_heartbeat():
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
-   publish_update(job,status,10,results={**results,"_operation":operation})
+   publish_update(job,status,30,results={**results,"_operation":operation})
   upload_heartbeat()
-  video=yixer_video(yxer(job,["upload","--url",job["videoUrl"],"--bucket","cloud-publish"],upload_heartbeat));publish_update(job,status,35,video=video,results={**results,"_operation":{"stage":"preparing_platform_validation","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}})
+  video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish"],upload_heartbeat));publish_update(job,status,35,video=video,results={**results,"_operation":{"stage":"preparing_platform_validation","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}})
  payloads={pack["source"]:yixer_payload(job,pack,video) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
  for index,pack in enumerate(pending):
