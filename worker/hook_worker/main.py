@@ -1,4 +1,4 @@
-import json,os,random,subprocess,tempfile,time,traceback,threading
+import json,os,random,subprocess,tempfile,time,traceback
 from pathlib import Path
 import requests
 import cv2
@@ -95,27 +95,34 @@ def run(job):
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
+class PublishCanceled(Exception):pass
+def cancel_requested(response):
+ package=(response or {}).get("package") or {};control=((package.get("yixiaoerResults") or {}).get("_control") or {})
+ return bool(control.get("cancelRequested"))
+def cli_output(command,env,timeout,secret,heartbeat=None):
+ process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);deadline=time.time()+timeout
+ while True:
+  try:
+   raw,_=process.communicate(timeout=min(10,max(1,deadline-time.time())))
+   if process.returncode:
+    detail=(raw or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip();raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}")
+   return raw
+  except subprocess.TimeoutExpired:
+   if time.time()>=deadline:
+    process.kill();process.communicate();raise RuntimeError("Yixiaoer CLI timed out")
+   if heartbeat and heartbeat():
+    process.terminate()
+    try:process.wait(timeout=5)
+    except subprocess.TimeoutExpired:process.kill();process.wait()
+    raise PublishCanceled("Canceled by user")
 def yxer(job,args,heartbeat=None):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
- stop=threading.Event()
- def pulse():
-  while not stop.wait(10):
-   try:
-    if heartbeat:heartbeat()
-   except Exception:traceback.print_exc()
- thread=threading.Thread(target=pulse,daemon=True);thread.start()
- try:
-  subprocess.check_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env=env,stderr=subprocess.STDOUT,timeout=60)
-  raw=subprocess.check_output(["yxer",*args,"--json"],env=env,stderr=subprocess.STDOUT,timeout=900)
- except subprocess.CalledProcessError as exc:
-  detail=(exc.output or b"").decode("utf-8","replace").replace(job["apiKey"],"[REDACTED]").strip()
-  raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}") from None
- finally:
-  stop.set();thread.join(timeout=1)
+ cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
+ raw=cli_output(["yxer",*args,"--json"],env,900,job["apiKey"],heartbeat)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
-def publish_update(job,status,progress,terminal=False,**extra):call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
+def publish_update(job,status,progress,terminal=False,**extra):return call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
 def yixer_video(data):
  if not isinstance(data,dict):raise RuntimeError("Yixiaoer upload returned no resource")
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
@@ -128,11 +135,11 @@ def yixer_payload(job,pack,video):
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
  return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"contentPublishForm":content}]}}
-def yixer_file(job,payload,platform,command,dry=False):
+def yixer_file(job,payload,platform,command,dry=False,heartbeat=None):
  root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
  if dry:args.append("--dry-run")
- return yxer(job,args)
+ return yxer(job,args,heartbeat)
 def download_publish_video(job,status,results):
  root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
  with requests.get(job["videoUrl"],stream=True,timeout=(30,120)) as response:
@@ -142,7 +149,7 @@ def download_publish_video(job,status,results):
     if not chunk:continue
     output.write(chunk);received+=len(chunk);progress=5+int(received/max(1,total)*20) if total else 10
     operation={"stage":"downloading_from_r2","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesReceived":received,"bytesTotal":total}
-    publish_update(job,status,min(25,progress),results={**results,"_operation":operation})
+    if cancel_requested(publish_update(job,status,min(25,progress),results={**results,"_operation":operation})):raise PublishCanceled("Canceled by user")
  return target
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";video=job.get("yixiaoerVideo") or {};results=job.get("yixiaoerResults") or {}
@@ -150,14 +157,17 @@ def run_publish(job):
   local_video=download_publish_video(job,status,results);started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
   def upload_heartbeat():
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
-   publish_update(job,status,30,results={**results,"_operation":operation})
-  upload_heartbeat()
+   return cancel_requested(publish_update(job,status,30,results={**results,"_operation":operation}))
+  if upload_heartbeat():raise PublishCanceled("Canceled by user")
   video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish"],upload_heartbeat));publish_update(job,status,35,video=video,results={**results,"_operation":{"stage":"preparing_platform_validation","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}})
  payloads={pack["source"]:yixer_payload(job,pack,video) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
  for index,pack in enumerate(pending):
-  source=pack["source"];publish_update(job,status,40+int(index/max(1,len(pending))*45),video=video,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}});checked={"validation":yixer_file(job,payloads[source],source,"validate"),"preview":yixer_file(job,payloads[source],source,"publish",True)}
-  if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish")
+  source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
+  def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=video,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  if platform_heartbeat():raise PublishCanceled("Canceled by user")
+  checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat)}
+  if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish",heartbeat=platform_heartbeat)
   results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=video,payloads=payloads,results=results)
  publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=video,payloads=payloads,results=results)
 def main():
