@@ -1,4 +1,4 @@
-import json,os,random,subprocess,tempfile,time,traceback
+import json,os,random,shutil,subprocess,tempfile,time,traceback
 from pathlib import Path
 import requests
 import cv2
@@ -11,6 +11,13 @@ API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_T
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 MODEL=os.getenv("WHISPER_MODEL","small.en")
+def cleanup_worker_temps(max_age=3600):
+ root=Path(os.getenv("WORK_DIR","/tmp"));cutoff=time.time()-max_age
+ for prefix in ("drama-hook-","drama-publish-","drama-yixer-"):
+  for path in root.glob(f"{prefix}*"):
+   try:
+    if path.is_dir() and path.stat().st_mtime<cutoff:shutil.rmtree(path)
+   except OSError:pass
 def call(path,payload):
  r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=60);r.raise_for_status();return r.json()
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
@@ -79,7 +86,7 @@ def upload_draft(job,candidate,path):
  with path.open("rb") as body:r=requests.put(prepared["uploadUrl"],data=body,headers={"Content-Type":"video/mp4","Content-Length":str(path.stat().st_size)},timeout=600);r.raise_for_status()
  return prepared
 def run(job):
- root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));assets=[];words={};bounds={}
+ root=Path(tempfile.mkdtemp(prefix="drama-hook-",dir=os.getenv("WORK_DIR","/tmp")));assets=[];words={};bounds={}
  update(job,"downloading",5)
  for a in job["sourceAssets"]:p=root/f"ep-{a['episodeNumber']}.mp4";download(a["videoUrl"],p);assets.append({**a,"path":p})
  update(job,"transcribing",25)
@@ -136,12 +143,12 @@ def yixer_payload(job,pack,video,cover):
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
  return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
 def yixer_file(job,payload,platform,command,dry=False,heartbeat=None):
- root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
+ root=Path(tempfile.mkdtemp(prefix="drama-yixer-",dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
  if dry:args.append("--dry-run")
  return yxer(job,args,heartbeat)
 def download_publish_video(job,status,results):
- root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+ root=Path(tempfile.mkdtemp(prefix="drama-publish-",dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
  with requests.get(job["videoUrl"],stream=True,timeout=(30,120)) as response:
   response.raise_for_status();total=int(response.headers.get("content-length") or 0);received=0
   with target.open("wb") as output:
@@ -179,6 +186,7 @@ def run_publish(job):
   results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
  publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
+ cleanup_worker_temps(0)
  while True:
   try:
    worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
@@ -191,6 +199,7 @@ def main():
     worked=True
     try:run_publish(publish_job)
     except Exception as e:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+   cleanup_worker_temps()
    if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 if __name__=="__main__":main()

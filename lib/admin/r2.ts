@@ -96,6 +96,17 @@ export async function uploadSocialVideo(input:{fileName:string;slug:string;bytes
   return prepared.publicUrl;
 }
 
+function xmlValue(block:string,name:string){const match=block.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));return match?.[1]?.replaceAll("&amp;","&").replaceAll("&lt;","<").replaceAll("&gt;",">").replaceAll("&quot;",'"').replaceAll("&#39;","")||""}
+async function signedR2Request(method:string,objectKey="",query:Record<string,string>={}){
+  const accountId=required("R2_ACCOUNT_ID"),accessKey=required("R2_ACCESS_KEY_ID"),secret=required("R2_SECRET_ACCESS_KEY"),bucket=required("R2_BUCKET_NAME"),host=`${accountId}.r2.cloudflarestorage.com`;
+  const uri=`/${encode(bucket)}${objectKey?`/${objectKey.split("/").map(encode).join("/")}`:""}`;const canonicalQuery=Object.entries(query).sort(([a],[b])=>a.localeCompare(b)).map(([key,value])=>`${encode(key)}=${encode(value)}`).join("&");
+  const now=new Date(),amzDate=now.toISOString().replace(/[:-]|\.\d{3}/g,""),date=amzDate.slice(0,8),scope=`${date}/auto/s3/aws4_request`,payloadHash=crypto.createHash("sha256").update("").digest("hex");
+  const canonicalHeaders=`host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`,signedHeaders="host;x-amz-content-sha256;x-amz-date",canonicalRequest=[method,uri,canonicalQuery,canonicalHeaders,signedHeaders,payloadHash].join("\n"),stringToSign=["AWS4-HMAC-SHA256",amzDate,scope,crypto.createHash("sha256").update(canonicalRequest).digest("hex")].join("\n");
+  const signingKey=sign(sign(sign(sign(`AWS4${secret}`,date),"auto"),"s3"),"aws4_request"),signature=crypto.createHmac("sha256",signingKey).update(stringToSign).digest("hex");
+  return fetch(`https://${host}${uri}${canonicalQuery?`?${canonicalQuery}`:""}`,{method,headers:{"x-amz-date":amzDate,"x-amz-content-sha256":payloadHash,Authorization:`AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`}});
+}
+export async function cleanupExpiredHookDrafts(before:Date){let token="",deleted=0,bytes=0;do{const query:Record<string,string>={"list-type":"2",prefix:"dramas/"};if(token)query["continuation-token"]=token;const response=await signedR2Request("GET","",query);if(!response.ok)throw new Error(`R2 list returned ${response.status}`);const xml=await response.text();for(const match of Array.from(xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g))){const block=match[1],key=xmlValue(block,"Key"),modified=new Date(xmlValue(block,"LastModified"));if(key.includes("/social/drafts/")&&modified<before){const removed=await signedR2Request("DELETE",key);if(!removed.ok)throw new Error(`R2 delete returned ${removed.status}`);deleted++;bytes+=Number(xmlValue(block,"Size")||0)}}token=xmlValue(xml,"NextContinuationToken")}while(token);return{deleted,bytes}}
+
 const REMOTE_VIDEO_HOST="v-mps.crazymaplestudios.com";
 export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeNumber:number}){
   const source=new URL(input.url);if(source.protocol!=="https:"||source.hostname!==REMOTE_VIDEO_HOST||!source.pathname.toLowerCase().endsWith(".mp4"))throw new Error("Remote video URL is not allowed");
