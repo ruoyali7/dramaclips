@@ -12,7 +12,7 @@ HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 MODEL=os.getenv("WHISPER_MODEL","small.en")
 def call(path,payload):
- r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=30);r.raise_for_status();return r.json()
+ r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=60);r.raise_for_status();return r.json()
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -95,12 +95,56 @@ def run(job):
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
+def yxer(job,args):
+ env={**os.environ,"YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
+ subprocess.check_output(["yxer","config","set-api-key",job["apiKey"]],env=env,stderr=subprocess.STDOUT,timeout=60)
+ raw=subprocess.check_output(["yxer",*args,"--json"],env=env,stderr=subprocess.STDOUT,timeout=900)
+ parsed=json.loads(raw)
+ if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
+ return parsed.get("data")
+def publish_update(job,status,progress,terminal=False,**extra):call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
+def yixer_video(data):
+ if not isinstance(data,dict):raise RuntimeError("Yixiaoer upload returned no resource")
+ candidate=data.get("resource") or data.get("file") or data.get("upload") or data
+ if not candidate.get("key"):raise RuntimeError("Yixiaoer upload returned no resource key")
+ return candidate
+def yixer_payload(job,pack,video):
+ platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=pack["caption"];title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
+ if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramaClips","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
+ if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
+ if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
+ if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
+ return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"contentPublishForm":content}]}}
+def yixer_file(job,payload,platform,command,dry=False):
+ root=Path(tempfile.mkdtemp(dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
+ args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
+ if dry:args.append("--dry-run")
+ return yxer(job,args)
+def run_publish(job):
+ action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";video=job.get("yixiaoerVideo") or {};results=job.get("yixiaoerResults") or {}
+ if not video:
+  publish_update(job,status,10,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+  video=yixer_video(yxer(job,["upload","--url",job["videoUrl"],"--bucket","cloud-publish"]));publish_update(job,status,35,video=video,results=results)
+ payloads={pack["source"]:yixer_payload(job,pack,video) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
+ pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
+ for index,pack in enumerate(pending):
+  source=pack["source"];checked={"validation":yixer_file(job,payloads[source],source,"validate"),"preview":yixer_file(job,payloads[source],source,"publish",True)}
+  if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish")
+  results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=video,payloads=payloads,results=results)
+ publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=video,payloads=payloads,results=results)
 def main():
  while True:
   try:
-   job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
-   if not job:time.sleep(5);continue
-   try:run(job)
-   except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
+   worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   if job:
+    worked=True
+    try:run(job)
+    except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
+   publish_job=call("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
+   if publish_job:
+    worked=True
+    try:run_publish(publish_job)
+    except Exception as e:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+   if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 if __name__=="__main__":main()

@@ -17,6 +17,7 @@ type JsonEnvelope={ok:boolean;data?:unknown;error?:{message?:string;hint?:string
 type PublishPack={source:PublishingPlatform;caption:string};
 
 async function activeApiKey(){try{return(await getRuntimeSecret("yixiaoer_api_key"))?.value||process.env.YIXIAOER_API_KEY||""}catch{return process.env.YIXIAOER_API_KEY||""}}
+export async function getYixiaoerApiKey(){const key=await activeApiKey();if(!key)throw new Error("YIXIAOER_API_KEY is not configured");return key}
 export async function yixiaoerConfigured(){return Boolean(await activeApiKey())}
 export function yixiaoerPlatformName(platform:PublishingPlatform){const name=platformNames[platform];if(!name)throw new Error(`${platform} is not supported by Yixiaoer video publishing`);return name}
 function binary(){return process.env.YXER_BIN||join(process.cwd(),"node_modules",".bin","yxer")}
