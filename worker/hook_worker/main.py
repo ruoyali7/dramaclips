@@ -57,13 +57,7 @@ def candidates(assets,words,bounds,direction_schema):
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
   visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])+(item["direction"]["score"] or 0)*.28-item["direction"]["penalty"]
- ranked=select_ranked(raw,2);out=[]
- if not ranked:
-  for asset in assets[:2]:
-   duration=float(probe(asset["path"])["format"]["duration"]);end=max(1,duration-.35);start=max(0,end-min(38,end));visual=visual_stats(asset["path"],start,end)
-   parts={"dialogue":35,"conflict":0,"reversal":0,"tension":0,"danger":0,"identity":0,"cliffhanger":100,"context":60,"visual":visual["score"]}
-   direction=score_direction(direction_schema,f"last-scene-{asset['episodeNumber']}",parts)
-   if direction["eligible"] or not direction_schema.get("original"):ranked.append({"episodeNumber":asset["episodeNumber"],"start":start,"end":end,"text":f"last-scene-{asset['episodeNumber']}","score":total_score(parts)+(direction["score"] or 0)*.28-direction["penalty"],"parts":parts,"risk":"low","visual":visual,"direction":direction})
+ ranked=[item for item in select_ranked(raw,2) if item["score"]>=22 and item.get("visual",{}).get("score",0)>=18];out=[]
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
@@ -72,13 +66,19 @@ def candidates(assets,words,bounds,direction_schema):
 def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
  subprocess.check_call(["ffmpeg","-y","-ss",str(candidate["coverSourceTimestamp"]),"-i",str(source),"-frames:v","1","-q:v","2",str(cover)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
- duration=rng["end"]-rng["start"];total=duration+cover_duration
+ cap=cv2.VideoCapture(str(source));clean_end=rng["end"]
+ for offset in (.04,.14,.28,.45,.7,1.0):
+  stamp=max(rng["start"]+1,rng["end"]-offset);cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
+  if ok and float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).mean())>=12:clean_end=stamp;break
+ cap.release();duration=clean_end-rng["start"]
+ if duration<8:raise RuntimeError("Render QA rejected a short or black-ended candidate")
+ total=duration+cover_duration;fade_start=max(0,duration-.18)
  vf="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
- graph=f"[0:v]{vf},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{vf},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,apad=pad_dur={cover_duration}[a]"
- subprocess.check_call(["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(rng["end"]),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","medium","-crf","20","-force_key_frames","0","-c:a","aac","-b:a","160k","-movflags","+faststart",str(target)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ graph=f"[0:v]{vf},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{vf},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=.18,apad=pad_dur={cover_duration}[a]"
+ subprocess.check_call(["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","medium","-crf","20","-force_key_frames","0","-c:a","aac","-b:a","160k","-movflags","+faststart",str(target)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  frame0=target.with_suffix(".frame0.jpg");subprocess.check_call(["ffmpeg","-y","-i",str(target),"-frames:v","1","-q:v","2",str(frame0)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  info=probe(target);video=next(s for s in info["streams"] if s["codec_type"]=="video");audio=next((s for s in info["streams"] if s["codec_type"]=="audio"),{})
- qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.35,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920}
+ qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.35,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920,"cleanEndingFrame":clean_end<=rng["end"],"audioFadeApplied":bool(audio)}
  if not all(qa.values()):raise RuntimeError(f"Render QA failed: {qa}")
  return {"durationSeconds":round(float(info["format"]["duration"]),2),"width":video["width"],"height":video["height"],"videoCodec":video["codec_name"],"audioCodec":audio.get("codec_name","none"),"sizeBytes":target.stat().st_size,"qaResults":qa}
 def upload_draft(job,candidate,path):
@@ -103,10 +103,11 @@ def run(job):
    update(job,"rendering",80+index*10)
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
 class PublishCanceled(Exception):pass
+class PublishOutcomeUnknown(Exception):pass
 def cancel_requested(response):
  package=(response or {}).get("package") or {};control=((package.get("yixiaoerResults") or {}).get("_control") or {})
  return bool(control.get("cancelRequested"))
-def cli_output(command,env,timeout,secret,heartbeat=None):
+def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False):
  process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);deadline=time.time()+timeout
  while True:
   try:
@@ -116,16 +117,18 @@ def cli_output(command,env,timeout,secret,heartbeat=None):
    return raw
   except subprocess.TimeoutExpired:
    if time.time()>=deadline:
-    process.kill();process.communicate();raise RuntimeError("Yixiaoer CLI timed out")
+    process.kill();process.communicate()
+    if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
+    raise RuntimeError("Yixiaoer CLI timed out")
    if heartbeat and heartbeat():
     process.terminate()
     try:process.wait(timeout=5)
     except subprocess.TimeoutExpired:process.kill();process.wait()
     raise PublishCanceled("Canceled by user")
-def yxer(job,args,heartbeat=None):
+def yxer(job,args,heartbeat=None,ambiguous_timeout=False):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
  cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
- raw=cli_output(["yxer",*args,"--json"],env,900,job["apiKey"],heartbeat)
+ raw=cli_output(["yxer",*args,"--json"],env,900,job["apiKey"],heartbeat,ambiguous_timeout)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
@@ -142,11 +145,40 @@ def yixer_payload(job,pack,video,cover):
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
  return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
-def yixer_file(job,payload,platform,command,dry=False,heartbeat=None):
+def yixer_file(job,payload,platform,command,dry=False,heartbeat=None,ambiguous_timeout=False):
  root=Path(tempfile.mkdtemp(prefix="drama-yixer-",dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
  if dry:args.append("--dry-run")
- return yxer(job,args,heartbeat)
+ return yxer(job,args,heartbeat,ambiguous_timeout)
+def find_value(data,names):
+ if isinstance(data,dict):
+  for key,value in data.items():
+   if key.lower().replace("_","") in names and value not in (None,""):return str(value)
+  for value in data.values():
+   found=find_value(value,names)
+   if found:return found
+ if isinstance(data,list):
+  for value in data:
+   found=find_value(value,names)
+   if found:return found
+ return None
+def provider_request_id(data):return find_value(data,{"tasksetid","requestid","taskid"})
+def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid"})
+def provider_state(data):
+ raw=(find_value(data,{"status","state","publishstatus","taskstatus"}) or "").lower()
+ if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
+ if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
+ return "processing"
+def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
+ deadline=time.time()+600;last={}
+ while time.time()<deadline:
+  last=yxer(job,["query","details",request_id],heartbeat);state=provider_state(last)
+  results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last),"reconciliation":last}
+  publish_update(job,"reconciling",95,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"reconciling_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+  if state=="published":return
+  if state=="failed":raise RuntimeError(f"Yixiaoer confirmed {source} publishing failed")
+  time.sleep(10)
+ raise PublishOutcomeUnknown(f"Yixiaoer accepted {source} task {request_id}, but it did not reach a terminal state within 10 minutes; retry is blocked")
 def download_publish_video(job,status,results):
  root=Path(tempfile.mkdtemp(prefix="drama-publish-",dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
  with requests.get(job["videoUrl"],stream=True,timeout=(30,120)) as response:
@@ -176,14 +208,32 @@ def run_publish(job):
   cover=yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat))
  assets={"video":video,"cover":cover};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  payloads={pack["source"]:yixer_payload(job,pack,video,cover) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
- pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("publish"))]
+ pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish")))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
-  checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat)}
-  if action=="publish":checked["publish"]=yixer_file(job,payloads[source],source,"publish",heartbeat=platform_heartbeat)
-  results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
+  checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat),"state":"validated"}
+  results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*40),video=assets,payloads=payloads,results=results)
+  if action=="publish":
+   checked["state"]="submitting";publish_update(job,"publishing",88,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"submitting_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+   try:response=yixer_file(job,payloads[source],source,"publish",heartbeat=platform_heartbeat,ambiguous_timeout=True)
+   except PublishOutcomeUnknown as error:
+    checked["state"]="outcome_unknown";checked["error"]=str(error);results[source]=checked
+    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+   request_id=provider_request_id(response)
+   if not request_id:
+    message=f"Yixiaoer accepted {source} but returned no taskSetId; retry is blocked to prevent duplication"
+    checked.update({"publish":response,"state":"outcome_unknown","error":message});results[source]=checked
+    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=message);return
+   checked.update({"publish":response,"state":"submitted","providerRequestId":request_id});results[source]=checked
+   publish_update(job,"submitted",92,video=assets,payloads=payloads,results=results)
+   try:reconcile_publish(job,source,request_id,results,assets,payloads,platform_heartbeat)
+   except PublishOutcomeUnknown as error:
+    results[source]["state"]="outcome_unknown";results[source]["error"]=str(error)
+    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+  if action!="publish":results[source]=checked
+  publish_update(job,status if action!="publish" else "publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
  publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  cleanup_worker_temps(0)
