@@ -22,6 +22,7 @@ type Source = {
   title: string;
   slug: string;
   language: string;
+  coverUrl: string;
   episodes: { episodeNumber: number; videoUrl: string }[];
   hooks: Hook[];
   draftHooks: DraftHook[];
@@ -165,8 +166,6 @@ export function PublishCenter({
   const [historySize, setHistorySize] = useState(5);
   const [savingCopy, setSavingCopy] = useState(false);
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
-  const [assetKindFilter, setAssetKindFilter] = useState("all");
-  const [assetStateFilter, setAssetStateFilter] = useState("all");
   useEffect(() => {
     fetch("/api/admin/publish-packages")
       .then(async (r) => (r.ok ? (await r.json()).packages : []))
@@ -269,20 +268,7 @@ export function PublishCenter({
       }),
     [sources, recent],
   );
-  const visibleAssets = assetRows.filter(
-    (row) =>
-      (assetDramaFilter === "all" || row.sourceId === assetDramaFilter) &&
-      (assetKindFilter === "all" || row.kind === assetKindFilter) &&
-      (assetStateFilter === "all" ||
-        (assetStateFilter === "not_uploaded"
-          ? !row.latest || !Object.keys(row.latest.yixiaoerVideo || {}).length
-          : assetStateFilter === "uploaded"
-            ? Boolean(
-                row.latest &&
-                Object.keys(row.latest.yixiaoerVideo || {}).length,
-              )
-            : row.latest?.status === assetStateFilter)),
-  );
+  const dramaGroups=useMemo(()=>sources.filter(item=>assetDramaFilter==="all"||item.id===assetDramaFilter).map(item=>{const assets=assetRows.filter(row=>row.sourceId===item.id);const packages=recent.filter(pack=>pack.dramaSlug===item.slug);const publishedPackages=packages.filter(pack=>pack.status==="published");const uploaded=new Set(packages.filter(pack=>Object.keys(pack.yixiaoerVideo||{}).length).map(pack=>pack.videoUrl));const publishedPlatforms=Array.from(new Set(publishedPackages.flatMap(pack=>pack.platforms.map(platform=>platform.source))));return{source:item,assets,packages,uploaded,publishedPlatforms,published:publishedPackages.length,scheduled:packages.filter(pack=>pack.status==="scheduled").length,processing:packages.filter(pack=>Boolean(pack.yixiaoerAction)&&pack.status!=="scheduled").length,failed:packages.filter(pack=>pack.status==="failed"||pack.status==="outcome_unknown").length}}),[sources,assetRows,recent,assetDramaFilter]);
   const activeOperation = created ? operationOf(created) : null;
   const activeStarted =
     typeof activeOperation?.startedAt === "string"
@@ -624,80 +610,12 @@ export function PublishCenter({
               </option>
             ))}
           </select>
-          <select
-            value={assetKindFilter}
-            onChange={(e) => setAssetKindFilter(e.target.value)}
-          >
-            <option value="all">Original + hooks</option>
-            <option value="original">Original episodes</option>
-            <option value="hook">Saved hooks</option>
-            <option value="draft">Hook drafts</option>
-          </select>
-          <select
-            value={assetStateFilter}
-            onChange={(e) => setAssetStateFilter(e.target.value)}
-          >
-            <option value="all">Any delivery state</option>
-            <option value="not_uploaded">Not uploaded</option>
-            <option value="uploaded">Uploaded to Yixiaoer</option>
-            <option value="published">Published confirmed</option>
-            <option value="failed">Failed</option>
-          </select>
+          <small>One row per drama. Expand only when you need a specific video.</small>
         </div>
-        <div className="asset-ledger-head">
-          <b>Drama / video</b>
-          <b>R2 / Hook</b>
-          <b>Yixiaoer</b>
-          <b>Delivery</b>
-          <b>Action</b>
+        <div className="drama-ledger-head">
+          <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
         </div>
-        <div className="asset-ledger">
-          {visibleAssets.map((row) => {
-            const uploaded = Boolean(
-              row.latest && Object.keys(row.latest.yixiaoerVideo || {}).length,
-            );
-            return (
-              <div className="asset-row" key={row.key}>
-                <div>
-                  <b>{row.dramaTitle}</b>
-                  <strong>{row.label}</strong>
-                  <small>{row.detail}</small>
-                </div>
-                <span className={`asset-pill ${row.kind}`}>{row.r2State}</span>
-                <span>
-                  {uploaded
-                    ? "Uploaded"
-                    : row.latest?.yixiaoerAction
-                      ? `${row.latest.yixiaoerProgress || 0}%`
-                      : "Not uploaded"}
-                </span>
-                <span className={`delivery ${row.latest?.status || "none"}`}>
-                  {row.latest
-                    ? packageState(row.latest)
-                    : row.kind === "draft"
-                      ? "Review needed"
-                      : "Never packaged"}
-                </span>
-                <div>
-                  {row.latest && (
-                    <button onClick={() => openPackage(row.latest!)}>
-                      Open latest
-                    </button>
-                  )}
-                  <button
-                    className="asset-primary"
-                    onClick={() => selectAsset(row)}
-                  >
-                    {row.kind === "draft" ? "Review hook" : "Use video"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          {!visibleAssets.length && (
-            <p className="asset-empty">No assets match these filters.</p>
-          )}
-        </div>
+        <div className="drama-ledger">{dramaGroups.map(group=><details className="drama-asset-row" key={group.source.id}><summary><div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div><div className="asset-chips">{group.source.episodes.map(ep=><i key={ep.episodeNumber} className={group.uploaded.has(ep.videoUrl)?"uploaded":""}>EP {ep.episodeNumber}</i>)}</div><div><b>{group.source.hooks.length} saved</b><small>{group.source.draftHooks.length?`${group.source.draftHooks.length} need review`:"No drafts waiting"}</small></div><div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length?group.publishedPlatforms.join(" · "):`${group.published} published · ${group.scheduled} scheduled`}</small></div><div className="drama-status">{group.processing?<span className="working">Processing</span>:group.scheduled?<span className="scheduled">Scheduled</span>:group.failed?<span className="failed">Needs attention</span>:group.published?<span className="published">Published</span>:<span>Ready</span>}<small>Expand details</small></div></summary><div className="drama-assets-expanded"><div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter(row=>row.kind==="original").map(row=><article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl)?"Uploaded to Yixiaoer":"R2 only"} · {row.latest?packageState(row.latest):"Never published"}</small>{row.latest&&<button onClick={()=>openPackage(row.latest!)}>Open latest</button>}<button onClick={()=>selectAsset(row)}>Use video</button></article>)}</div></div><div className="expanded-section"><b>Hooks</b><div>{group.assets.filter(row=>row.kind!=="original").map(row=><article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest?packageState(row.latest):"Never published"}</small>{row.latest&&<button onClick={()=>openPackage(row.latest!)}>Open latest</button>}<button onClick={()=>selectAsset(row)}>{row.kind==="draft"?"Review":"Use video"}</button></article>)}{!group.source.hooks.length&&!group.source.draftHooks.length&&<p>No hooks generated yet.</p>}</div></div></div></details>)}{!dramaGroups.length&&<p className="asset-empty">No drama matches this filter.</p>}</div>
       </section>
       <section className="publish-compose asset-selection">
         <span>02 · Exact video asset</span>
