@@ -1,0 +1,120 @@
+.asset-library {
+  grid-column: 1/-1;
+}
+.asset-filters {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.asset-filters select {
+  height: 40px;
+  border: 1px solid #dad8d1;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 9px;
+}
+.asset-ledger-head,
+.asset-row {
+  display: grid;
+  grid-template-columns: minmax(250px, 2fr) 100px 120px 150px 170px;
+  gap: 14px;
+  align-items: center;
+}
+.asset-ledger-head {
+  padding: 9px 0;
+  border-bottom: 1px solid #d9d7d0;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 8px;
+}
+.asset-row {
+  padding: 13px 0;
+  border-bottom: 1px solid #eceae4;
+}
+.asset-row > div:first-child b,
+.asset-row > div:first-child strong,
+.asset-row > div:first-child small {
+  display: block;
+}
+.asset-row > div:first-child b {
+  font-size: 10px;
+}
+.asset-row > div:first-child strong {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  margin: 3px 0;
+}
+.asset-row > div:first-child small {
+  font-size: 8px;
+  color: #888;
+}
+.asset-row > span {
+  font-size: 9px;
+}
+.asset-pill {
+  display: inline-block;
+  width: max-content;
+  padding: 5px 8px;
+  border-radius: 12px;
+  background: #eee;
+}
+.asset-pill.hook {
+  background: #e8f5ec;
+  color: #34724c;
+}
+.asset-pill.draft {
+  background: #fff4df;
+  color: #8d681f;
+}
+.asset-row > div:last-child {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.asset-row button {
+  border: 1px solid #d4d1c9;
+  background: #fff;
+  padding: 8px 9px;
+  font-size: 8px;
+  white-space: nowrap;
+}
+.asset-row .asset-primary {
+  border-color: #171717;
+  background: #171717;
+  color: #fff;
+}
+.asset-empty {
+  text-align: center;
+  color: #888;
+  font-size: 10px;
+  padding: 28px;
+}
+.delivery.submitted,
+.delivery.reconciling,
+.delivery.outcome_unknown {
+  background: #fff4df;
+  color: #8d681f;
+}
+@media (max-width: 900px) {
+  .asset-library {
+    overflow-x: auto;
+  }
+  .asset-ledger-head,
+  .asset-row {
+    min-width: 830px;
+  }
+  .asset-filters {
+    min-width: 650px;
+  }
+}
+@media (max-width: 600px) {
+  .asset-filters {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+  .asset-library {
+    overflow-x: auto;
+  }
+}

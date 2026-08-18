@@ -1,45 +1,1183 @@
 "use client";
-import {Check,CloudUpload,Copy,LoaderCircle,Send,ShieldCheck} from "lucide-react";
-import {useEffect,useMemo,useState} from "react";
-import {PublishTimePicker} from "@/components/admin/publish-time-picker";
-type Hook={id:string;title:string;sourceEpisodes:number[];videoUrl:string;durationSeconds:number};
-type Source={id:string;title:string;slug:string;language:string;episodes:{episodeNumber:number;videoUrl:string}[];hooks:Hook[]};
-type Pack={source:string;hook:string;caption:string};
-type Package={id:string;dramaSlug:string;episodeNumber:number;videoUrl:string;videoKind:string;videoLabel?:string;scheduledAt?:string;status:string;platforms:Pack[];createdAt:string;yixiaoerVideo?:Record<string,unknown>;yixiaoerResults?:Record<string,unknown>;yixiaoerAction?:"validate"|"publish";yixiaoerAccounts?:Record<string,string>;yixiaoerProgress?:number;yixiaoerError?:string;yixiaoerUpdatedAt?:string};
-type YAccount={id:string;name:string;platform:string;status:number};
-const options=[["tiktok","TikTok"],["instagram","Instagram"],["youtube","YouTube"],["facebook","Facebook"],["x","X (CSV fallback)"]] as const;
-const yNames:Record<string,string>={tiktok:"TikTok",instagram:"Instagram",youtube:"Youtube",facebook:"Facebook"};
-const stageNames:Record<string,string>={awaiting_scheduled_time:"Waiting for scheduled publish time",downloading_from_r2:"Downloading video from R2",uploading_to_yixiaoer:"Uploading video to Yixiaoer",uploading_cover_to_yixiaoer:"Uploading cover to Yixiaoer",preparing_platform_validation:"Preparing platform validation",validating_platform:"Validating platform",submitting_platform:"Submitting to platform",reconciling_platform:"Confirming live platform status"};
-function operationOf(value:Package){const operation=value.yixiaoerResults?._operation;return operation&&typeof operation==="object"?operation as Record<string,unknown>:null}
-function durationLabel(seconds:number){const minutes=Math.floor(seconds/60);return minutes?`${minutes}m ${seconds%60}s`:`${seconds}s`}
-function localTime(value:unknown,timeZone?:string){if(typeof value!=="string")return "Waiting for heartbeat";return new Intl.DateTimeFormat(undefined,{hour:"2-digit",minute:"2-digit",second:"2-digit",timeZone,timeZoneName:"short"}).format(new Date(value))}
-function cancelRequested(value:Package){const control=value.yixiaoerResults?._control;return Boolean(control&&typeof control==="object"&&(control as Record<string,unknown>).cancelRequested)}
-function packageState(value:Package){if(value.status==="published")return "Published · confirmed";if(value.status==="outcome_unknown")return "Needs reconciliation";if(value.status==="submitted"||value.status==="reconciling")return "Submitted · confirming";if(value.status==="scheduled")return "Scheduled";if(value.status==="failed"&&value.yixiaoerError==="Canceled by user")return "Canceled";if(value.status==="failed")return "Failed";if(value.yixiaoerAction)return cancelRequested(value)?"Canceling":value.status==="publishing"?"Publishing":"Processing";if(Object.keys(value.yixiaoerVideo||{}).length)return "Dry-run passed";return "Generated only"}
-export function PublishCenter({sources,yixiaoerReady}:{sources:Source[];yixiaoerReady:boolean}){
- const [sourceId,setSourceId]=useState(sources[0]?.id||"");const source=sources.find(x=>x.id===sourceId);const [kind,setKind]=useState<"original"|"hook"|"upload">("original");const [asset,setAsset]=useState("");const [videoUrl,setVideoUrl]=useState(source?.episodes[0]?.videoUrl||"");const [platforms,setPlatforms]=useState<string[]>(["tiktok","instagram","youtube","facebook"]);const [account,setAccount]=useState("");const [campaign,setCampaign]=useState("");const [scheduledAt,setScheduledAt]=useState("");const [created,setCreated]=useState<Package|null>(null);const [recent,setRecent]=useState<Package[]>([]);const [busy,setBusy]=useState(false);const [uploading,setUploading]=useState(false);const [progress,setProgress]=useState(0);const [error,setError]=useState("");const [copied,setCopied]=useState("");const [accounts,setAccounts]=useState<YAccount[]>([]);const [accountIds,setAccountIds]=useState<Record<string,string>>({});const [connectionBusy,setConnectionBusy]=useState(false);const [validated,setValidated]=useState(false);const [historyPage,setHistoryPage]=useState(1);const [historySize,setHistorySize]=useState(5);const [savingCopy,setSavingCopy]=useState(false);
- useEffect(()=>{fetch("/api/admin/publish-packages").then(async r=>r.ok?(await r.json()).packages:[]).then(setRecent).catch(()=>{})},[]);
- useEffect(()=>{if(!created||!created.yixiaoerAction)return;const timer=window.setInterval(async()=>{try{const response=await fetch("/api/admin/publish-packages",{cache:"no-store"});const json=await response.json();if(!response.ok)return;const packages:Package[]=json.packages||[];setRecent(packages);const next=packages.find(item=>item.id===created.id);if(next){setCreated(next);if(next.status==="ready"&&!next.yixiaoerAction)setValidated(true)}}catch{}},3000);return()=>window.clearInterval(timer)},[created]);
- const [clock,setClock]=useState(Date.now());useEffect(()=>{if(!created?.yixiaoerAction)return;const timer=window.setInterval(()=>setClock(Date.now()),1000);return()=>window.clearInterval(timer)},[created?.yixiaoerAction]);
- const selectedEpisode=source?.episodes.find(x=>String(x.episodeNumber)===asset)||source?.episodes[0];const selectedHook=source?.hooks.find(x=>x.id===asset);const episodeNumber=kind==="hook"?(selectedHook?.sourceEpisodes[0]||1):(selectedEpisode?.episodeNumber||1);const videoLabel=kind==="hook"?selectedHook?.title:kind==="original"?`EP ${episodeNumber}`:"Manual upload";const allCopy=useMemo(()=>created?.platforms.map(p=>`${p.source.toUpperCase()}\n${p.caption}`).join("\n\n")||"",[created]);
- const activeOperation=created?operationOf(created):null;const activeStarted=typeof activeOperation?.startedAt==="string"?Date.parse(activeOperation.startedAt):NaN;const activeElapsed=Number.isFinite(activeStarted)?Math.max(0,Math.floor((clock-activeStarted)/1000)):Number(activeOperation?.elapsedSeconds||0);const activeStage=activeOperation?.stage?stageNames[String(activeOperation.stage)]||String(activeOperation.stage):"Waiting for Railway worker";
- const historyPool=created?recent.filter(item=>item.id!==created.id):recent;const historyPages=Math.max(1,Math.ceil(historyPool.length/historySize));const currentHistoryPage=Math.min(historyPage,historyPages);const historyItems=historyPool.slice((currentHistoryPage-1)*historySize,currentHistoryPage*historySize);const supportedAccountPlatforms=created?.platforms.map(pack=>pack.source).filter(platform=>Boolean(yNames[platform]))||[];const selectedAccountCount=supportedAccountPlatforms.filter(platform=>Boolean(accountIds[platform])).length;const allAccountsSelected=selectedAccountCount===supportedAccountPlatforms.length&&supportedAccountPlatforms.length>0;
- function resetFor(id:string,nextKind:"original"|"hook"|"upload"="original"){const next=sources.find(x=>x.id===id);setSourceId(id);setKind(nextKind);if(nextKind==="hook"&&next?.hooks[0]){setAsset(next.hooks[0].id);setVideoUrl(next.hooks[0].videoUrl)}else{setAsset(String(next?.episodes[0]?.episodeNumber||""));setVideoUrl(nextKind==="original"?next?.episodes[0]?.videoUrl||"":"")}setCreated(null);setValidated(false)}
- function changeAsset(value:string){setAsset(value);setVideoUrl(kind==="original"?source?.episodes.find(x=>String(x.episodeNumber)===value)?.videoUrl||"":source?.hooks.find(x=>x.id===value)?.videoUrl||"");setCreated(null);setValidated(false)}
- async function upload(file:File){if(!source)return;setUploading(true);setError("");try{const p=await fetch("/api/admin/uploads/presign",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({fileName:file.name,contentType:file.type||"video/mp4",size:file.size,slug:source.slug,kind:"social"})});const data=await p.json();if(!p.ok)throw new Error(data.message);await new Promise<void>((resolve,reject)=>{const x=new XMLHttpRequest();x.open("PUT",data.uploadUrl);x.setRequestHeader("Content-Type",file.type||"video/mp4");x.upload.onprogress=e=>e.lengthComputable&&setProgress(Math.round(e.loaded/e.total*100));x.onload=()=>x.status<300?resolve():reject(new Error("R2 upload failed"));x.onerror=()=>reject(new Error("R2 upload failed"));x.send(file)});setVideoUrl(data.publicUrl);setProgress(100)}catch(e){setError(e instanceof Error?e.message:"Upload failed")}finally{setUploading(false)}}
- async function create(){if(!source||!videoUrl||!platforms.length)return;setBusy(true);setError("");try{const r=await fetch("/api/admin/publish-packages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({dramaSlug:source.slug,episodeNumber,videoUrl,videoKind:kind,videoLabel,hookClipId:kind==="hook"?selectedHook?.id:undefined,account,campaign,scheduledAt:scheduledAt?new Date(scheduledAt).toISOString():undefined,platforms})});const j=await r.json();if(!r.ok)throw new Error(j.message);setCreated(j.package);setRecent(x=>[j.package,...x]);await loadAccounts()}catch(e){setError(e instanceof Error?e.message:"Could not create package")}finally{setBusy(false)}}
- async function loadAccounts(targetPlatforms=platforms,preferred:Record<string,string>={}){if(!yixiaoerReady)return;setConnectionBusy(true);try{const r=await fetch("/api/admin/yixiaoer/accounts");const j=await r.json();if(!r.ok)throw new Error(j.message);setAccounts(j.accounts);const next:Record<string,string>={};for(const platform of targetPlatforms){const matches=j.accounts.filter((a:YAccount)=>a.platform.toLowerCase()===yNames[platform]?.toLowerCase());if(preferred[platform]&&matches.some((a:YAccount)=>a.id===preferred[platform]))next[platform]=preferred[platform];else if(matches.length===1)next[platform]=matches[0].id}setAccountIds(next)}catch(e){setError(e instanceof Error?e.message:"Could not load accounts")}finally{setConnectionBusy(false)}}
- async function yAction(action:"validate"|"publish"){if(!created)return;const future=Boolean(created.scheduledAt)&&new Date(created.scheduledAt as string).getTime()>Date.now();if(action==="publish"&&!window.confirm(future?`Schedule this package for ${new Date(created.scheduledAt as string).toLocaleString()}? Railway will send it to the selected live accounts at that time.`:"This will publish immediately to the selected live social accounts. Continue?"))return;setConnectionBusy(true);setError("");try{await persistCopy();const r=await fetch(`/api/admin/publish-packages/${created.id}/yixiaoer`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,confirm:action==="publish",accounts:accountIds})});const j=await r.json();if(!r.ok)throw new Error(j.message);setCreated(j.package);setRecent(items=>items.map(item=>item.id===j.package.id?j.package:item));setValidated(false)}catch(e){setError(e instanceof Error?e.message:"Yixiaoer operation failed")}finally{setConnectionBusy(false)}}
- function editCopy(source:string,field:"hook"|"caption",value:string){if(!created)return;setCreated({...created,platforms:created.platforms.map(pack=>pack.source===source?{...pack,[field]:value}:pack)})}
- async function persistCopy(){if(!created)return null;const r=await fetch(`/api/admin/publish-packages/${created.id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({platforms:created.platforms})});const j=await r.json();if(!r.ok)throw new Error(j.message);setCreated(j.package);setRecent(items=>items.map(item=>item.id===j.package.id?j.package:item));return j.package as Package}
- async function saveCopy(){setSavingCopy(true);setError("");try{await persistCopy()}catch(e){setError(e instanceof Error?e.message:"Could not save copy")}finally{setSavingCopy(false)}}
- async function cancelOperation(){if(!created?.yixiaoerAction||!window.confirm("Stop the current Yixiaoer operation? Nothing will be published after the worker stops."))return;setConnectionBusy(true);setError("");try{const r=await fetch(`/api/admin/publish-packages/${created.id}/yixiaoer`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"cancel"})});const j=await r.json();if(!r.ok)throw new Error(j.message);setCreated(j.package);setRecent(items=>items.map(item=>item.id===j.package.id?j.package:item))}catch(e){setError(e instanceof Error?e.message:"Could not cancel operation")}finally{setConnectionBusy(false)}}
- function openPackage(item:Package){const next=sources.find(x=>x.slug===item.dramaSlug);const nextPlatforms=item.platforms.map(pack=>pack.source);if(next)setSourceId(next.id);setKind(item.videoKind as "original"|"hook"|"upload");setAsset(item.videoKind==="original"?String(item.episodeNumber):"");setVideoUrl(item.videoUrl);setPlatforms(nextPlatforms);setCreated(item);setAccountIds(item.yixiaoerAccounts||{});setValidated(item.status==="ready"&&Object.keys(item.yixiaoerVideo||{}).length>0);setError("");if(!item.yixiaoerAction&&item.status!=="published")void loadAccounts(nextPlatforms,item.yixiaoerAccounts||{});window.scrollTo({top:0,behavior:"smooth"})}
- async function copy(text:string,key:string){await navigator.clipboard.writeText(text);setCopied(key);setTimeout(()=>setCopied(""),1200)}
- if(!sources.length)return <div className="admin-empty"><Send/><h2>No published dramas</h2></div>;
- return <div className="publish-center">
-  <section className="publish-compose"><span>01 · Exact video asset</span><label><b>Drama</b><select value={sourceId} onChange={e=>resetFor(e.target.value)}>{sources.map(x=><option value={x.id} key={x.id}>{x.title}</option>)}</select></label><div className="asset-kind">{(["original","hook","upload"] as const).map(x=><button className={kind===x?"selected":""} key={x} onClick={()=>resetFor(sourceId,x)}>{x==="original"?"Original episode":x==="hook"?"Saved hook":"Manual upload"}</button>)}</div>{kind!=="upload"&&<label><b>Specific video</b><select value={asset||String(kind==="original"?source?.episodes[0]?.episodeNumber:source?.hooks[0]?.id||"")} onChange={e=>changeAsset(e.target.value)}>{kind==="original"?source?.episodes.map(x=><option value={x.episodeNumber} key={x.episodeNumber}>EP {x.episodeNumber}</option>):source?.hooks.map(x=><option value={x.id} key={x.id}>{x.title} · {x.durationSeconds}s</option>)}</select></label>}<div className="video-source"><b>{videoLabel}</b>{videoUrl?<details><summary>Technical source · Railway uses this exact R2 file</summary><code>{videoUrl}</code></details>:<small>No video selected</small>}</div>{videoUrl&&<video className="publish-preview" src={videoUrl} controls preload="metadata"/>}{kind==="upload"&&<label className="social-upload"><input type="file" accept="video/mp4,video/quicktime" onChange={e=>e.target.files?.[0]&&void upload(e.target.files[0])}/><CloudUpload/><b>{uploading?`Uploading · ${progress}%`:"Upload a finished video to R2"}</b></label>}</section>
-  <section className="publish-compose"><span>02 · Distribution</span><div className="platform-picker"><span>Platforms</span><div>{options.map(([v,l])=><label className={platforms.includes(v)?"selected":""} key={v}><input type="checkbox" checked={platforms.includes(v)} onChange={()=>{setPlatforms(x=>x.includes(v)?x.filter(p=>p!==v):[...x,v]);setCreated(null);setValidated(false)}}/>{l}</label>)}</div></div><div className="publish-grid"><label><b>Account label · optional</b><input value={account} onChange={e=>setAccount(e.target.value)}/></label><label><b>Campaign · optional</b><input value={campaign} onChange={e=>setCampaign(e.target.value)}/></label><label><b>Publish time · optional</b><PublishTimePicker value={scheduledAt} onChange={setScheduledAt}/></label></div><button className="save-draft" onClick={()=>void create()} disabled={!videoUrl||!platforms.length||busy}>{busy?<LoaderCircle className="spin"/>:<Send/>}{busy?"Building package…":"Generate publish package"}</button>{error&&<div className="form-error">{error}</div>}</section>
-  {created&&<section className="publish-results"><div className="pack-heading"><div><span>{packageState(created)}</span><b>{source?.title||created.dramaSlug} · {created.videoLabel}</b></div></div>{created.yixiaoerError&&<div className="form-error">{created.yixiaoerError}</div>}{created.yixiaoerAction&&<div className="publish-process"><div className="process-title"><div><span>Railway → Yixiaoer</span><b>{activeStage}{activeOperation?.platform?` · ${String(activeOperation.platform)}`:""}</b></div><div className="process-actions"><strong>{created.yixiaoerProgress||0}%</strong><button onClick={()=>void cancelOperation()} disabled={connectionBusy||cancelRequested(created)}>{cancelRequested(created)?"Canceling…":"Cancel"}</button></div></div><div className="process-track"><i style={{width:`${created.yixiaoerProgress||0}%`}}/></div><div className="process-meta">{created.status==="scheduled"?<><span>Publishes · {created.scheduledAt?new Date(created.scheduledAt).toLocaleString():"Not set"}</span><span>Railway will start automatically</span><span>China · {created.scheduledAt?new Intl.DateTimeFormat(undefined,{dateStyle:"short",timeStyle:"short",timeZone:"Asia/Shanghai"}).format(new Date(created.scheduledAt)):"Not set"}</span></>:<><span>Running · {durationLabel(activeElapsed)}</span><span>Last heartbeat · {localTime(activeOperation?.heartbeatAt||created.yixiaoerUpdatedAt)}</span><span>China · {localTime(activeOperation?.heartbeatAt||created.yixiaoerUpdatedAt,"Asia/Shanghai")}</span></>}</div></div>}<details className="copy-editor"><summary><div><b>Generated account copy</b><small>{created.platforms.length} account version(s) · expand to review or edit</small></div><span>Expand</span></summary><div className="copy-toolbar"><button onClick={()=>void copy(allCopy,"all")}>{copied==="all"?<Check/>:<Copy/>} Copy all</button><button onClick={()=>void saveCopy()} disabled={savingCopy||Boolean(created.yixiaoerAction)||created.status==="published"}>{savingCopy?"Saving…":"Save edits"}</button></div>{created.platforms.map(pack=><details className="copy-account" key={pack.source}><summary><b>{pack.source}</b><span>Review & edit</span></summary><label><b>Hook line</b><textarea value={pack.hook} disabled={Boolean(created.yixiaoerAction)||created.status==="published"} onChange={e=>editCopy(pack.source,"hook",e.target.value)}/></label><label><b>Full caption</b><textarea className="caption-editor" value={pack.caption} disabled={Boolean(created.yixiaoerAction)||created.status==="published"} onChange={e=>editCopy(pack.source,"caption",e.target.value)}/></label><button onClick={()=>void copy(pack.caption,pack.source)}>{copied===pack.source?<Check/>:<Copy/>} Copy {pack.source}</button></details>)}</details>{created.status!=="published"&&!created.yixiaoerAction&&<details className="account-routing" open={!allAccountsSelected}><summary><div><b>Publishing accounts</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected</small></div><span>{allAccountsSelected?"Ready":"Action required"}</span></summary><div className="account-routing-body"><p>Refresh only after adding, removing, or reconnecting an account in Yixiaoer.</p><button onClick={()=>void loadAccounts(platforms,accountIds)} disabled={connectionBusy||!yixiaoerReady}>{connectionBusy?"Refreshing…":"Refresh accounts"}</button>{supportedAccountPlatforms.map(p=><label className="yixiaoer-account" key={p}><b>{yNames[p]} account</b><select value={accountIds[p]||""} onChange={e=>{setAccountIds(x=>({...x,[p]:e.target.value}));setValidated(false)}}><option value="">Choose account</option>{accounts.filter(a=>a.platform.toLowerCase()===yNames[p].toLowerCase()).map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></label>)}</div></details>}{created.status!=="published"&&!created.yixiaoerAction&&<div className="yixiaoer-actions"><button onClick={()=>void yAction("validate")} disabled={connectionBusy||!yixiaoerReady||!allAccountsSelected}><ShieldCheck/> {Object.keys(created.yixiaoerVideo||{}).length?"Re-run validation":"Upload, validate & dry-run"}</button><button className="publish-live" onClick={()=>void yAction("publish")} disabled={connectionBusy||!validated||!allAccountsSelected}><Send/> {created.scheduledAt&&new Date(created.scheduledAt).getTime()>Date.now()?"Confirm scheduled publish":"Confirm live publish"}</button></div>}</section>}
-  {recent.length>0&&<section className="publish-history publish-monitor"><span>Publish history</span><div className="monitor-head"><b>Asset</b><b>Type</b><b>Yixiaoer asset</b><b>State</b></div>{historyItems.map(x=>{const uploaded=Boolean(Object.keys(x.yixiaoerVideo||{}).length);return <details key={x.id}><summary><b>{x.dramaSlug}<small>{x.videoLabel||`EP ${x.episodeNumber}`}{x.id===created?.id?" · Open":""}</small></b><span>{x.videoKind}</span><span>{uploaded?"Uploaded":x.yixiaoerAction?`${x.yixiaoerProgress||0}%`:"Not uploaded"}</span><span className={`delivery ${x.status}`}>{packageState(x)}</span></summary><div className="monitor-detail"><div className="history-actions"><code>{x.id}</code><button onClick={()=>openPackage(x)}>{x.id===created?.id?"Currently open":"Open & continue"}</button></div>{x.yixiaoerError&&<p>{x.yixiaoerError}</p>}{x.platforms.map(pack=>{const result=x.yixiaoerResults?.[pack.source] as Record<string,unknown>|undefined;return <div key={pack.source}><b>{pack.source}</b><span>{result?.publish?"Published":result?.preview?"Dry-run passed":x.yixiaoerAction?"Waiting":"Not started"}</span></div>})}</div></details>})}<div className="history-pagination"><label>Rows <select value={historySize} onChange={e=>{setHistorySize(Number(e.target.value));setHistoryPage(1)}}><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label><span>Page {currentHistoryPage} of {historyPages}</span><div><button onClick={()=>setHistoryPage(page=>Math.max(1,page-1))} disabled={currentHistoryPage===1}>Previous</button><button onClick={()=>setHistoryPage(page=>Math.min(historyPages,page+1))} disabled={currentHistoryPage===historyPages}>Next</button></div></div></section>}
- </div>
+import {
+  Check,
+  CloudUpload,
+  Copy,
+  LoaderCircle,
+  Send,
+  ShieldCheck,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { PublishTimePicker } from "@/components/admin/publish-time-picker";
+type Hook = {
+  id: string;
+  title: string;
+  sourceEpisodes: number[];
+  videoUrl: string;
+  durationSeconds: number;
+};
+type DraftHook = Hook & { score: number; jobId: string };
+type Source = {
+  id: string;
+  title: string;
+  slug: string;
+  language: string;
+  episodes: { episodeNumber: number; videoUrl: string }[];
+  hooks: Hook[];
+  draftHooks: DraftHook[];
+};
+type Pack = { source: string; hook: string; caption: string };
+type Package = {
+  id: string;
+  dramaSlug: string;
+  episodeNumber: number;
+  videoUrl: string;
+  videoKind: string;
+  videoLabel?: string;
+  scheduledAt?: string;
+  status: string;
+  platforms: Pack[];
+  createdAt: string;
+  yixiaoerVideo?: Record<string, unknown>;
+  yixiaoerResults?: Record<string, unknown>;
+  yixiaoerAction?: "validate" | "publish";
+  yixiaoerAccounts?: Record<string, string>;
+  yixiaoerProgress?: number;
+  yixiaoerError?: string;
+  yixiaoerUpdatedAt?: string;
+};
+type YAccount = { id: string; name: string; platform: string; status: number };
+type AssetRow = {
+  key: string;
+  sourceId: string;
+  dramaSlug: string;
+  dramaTitle: string;
+  kind: "original" | "hook" | "draft";
+  assetId: string;
+  label: string;
+  detail: string;
+  videoUrl: string;
+  r2State: string;
+  latest?: Package;
+};
+const options = [
+  ["tiktok", "TikTok"],
+  ["instagram", "Instagram"],
+  ["youtube", "YouTube"],
+  ["facebook", "Facebook"],
+  ["x", "X (CSV fallback)"],
+] as const;
+const yNames: Record<string, string> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  youtube: "Youtube",
+  facebook: "Facebook",
+};
+const stageNames: Record<string, string> = {
+  awaiting_scheduled_time: "Waiting for scheduled publish time",
+  downloading_from_r2: "Downloading video from R2",
+  uploading_to_yixiaoer: "Uploading video to Yixiaoer",
+  uploading_cover_to_yixiaoer: "Uploading cover to Yixiaoer",
+  preparing_platform_validation: "Preparing platform validation",
+  validating_platform: "Validating platform",
+  submitting_platform: "Submitting to platform",
+  reconciling_platform: "Confirming live platform status",
+};
+function operationOf(value: Package) {
+  const operation = value.yixiaoerResults?._operation;
+  return operation && typeof operation === "object"
+    ? (operation as Record<string, unknown>)
+    : null;
+}
+function durationLabel(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+function localTime(value: unknown, timeZone?: string) {
+  if (typeof value !== "string") return "Waiting for heartbeat";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone,
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+function cancelRequested(value: Package) {
+  const control = value.yixiaoerResults?._control;
+  return Boolean(
+    control &&
+    typeof control === "object" &&
+    (control as Record<string, unknown>).cancelRequested,
+  );
+}
+function packageState(value: Package) {
+  if (value.status === "published") return "Published · confirmed";
+  if (value.status === "outcome_unknown") return "Needs reconciliation";
+  if (value.status === "submitted" || value.status === "reconciling")
+    return "Submitted · confirming";
+  if (value.status === "scheduled") return "Scheduled";
+  if (value.status === "failed" && value.yixiaoerError === "Canceled by user")
+    return "Canceled";
+  if (value.status === "failed") return "Failed";
+  if (value.yixiaoerAction)
+    return cancelRequested(value)
+      ? "Canceling"
+      : value.status === "publishing"
+        ? "Publishing"
+        : "Processing";
+  if (Object.keys(value.yixiaoerVideo || {}).length) return "Dry-run passed";
+  return "Generated only";
+}
+export function PublishCenter({
+  sources,
+  yixiaoerReady,
+}: {
+  sources: Source[];
+  yixiaoerReady: boolean;
+}) {
+  const [sourceId, setSourceId] = useState(sources[0]?.id || "");
+  const source = sources.find((x) => x.id === sourceId);
+  const [kind, setKind] = useState<"original" | "hook" | "upload">("original");
+  const [asset, setAsset] = useState("");
+  const [videoUrl, setVideoUrl] = useState(source?.episodes[0]?.videoUrl || "");
+  const [platforms, setPlatforms] = useState<string[]>([
+    "tiktok",
+    "instagram",
+    "youtube",
+    "facebook",
+  ]);
+  const [account, setAccount] = useState("");
+  const [campaign, setCampaign] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [created, setCreated] = useState<Package | null>(null);
+  const [recent, setRecent] = useState<Package[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState("");
+  const [accounts, setAccounts] = useState<YAccount[]>([]);
+  const [accountIds, setAccountIds] = useState<Record<string, string>>({});
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [validated, setValidated] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historySize, setHistorySize] = useState(5);
+  const [savingCopy, setSavingCopy] = useState(false);
+  const [assetDramaFilter, setAssetDramaFilter] = useState("all");
+  const [assetKindFilter, setAssetKindFilter] = useState("all");
+  const [assetStateFilter, setAssetStateFilter] = useState("all");
+  useEffect(() => {
+    fetch("/api/admin/publish-packages")
+      .then(async (r) => (r.ok ? (await r.json()).packages : []))
+      .then(setRecent)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!created || !created.yixiaoerAction) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch("/api/admin/publish-packages", {
+          cache: "no-store",
+        });
+        const json = await response.json();
+        if (!response.ok) return;
+        const packages: Package[] = json.packages || [];
+        setRecent(packages);
+        const next = packages.find((item) => item.id === created.id);
+        if (next) {
+          setCreated(next);
+          if (next.status === "ready" && !next.yixiaoerAction)
+            setValidated(true);
+        }
+      } catch {}
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [created]);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    if (!created?.yixiaoerAction) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [created?.yixiaoerAction]);
+  const selectedEpisode =
+    source?.episodes.find((x) => String(x.episodeNumber) === asset) ||
+    source?.episodes[0];
+  const selectedHook = source?.hooks.find((x) => x.id === asset);
+  const episodeNumber =
+    kind === "hook"
+      ? selectedHook?.sourceEpisodes[0] || 1
+      : selectedEpisode?.episodeNumber || 1;
+  const videoLabel =
+    kind === "hook"
+      ? selectedHook?.title
+      : kind === "original"
+        ? `EP ${episodeNumber}`
+        : "Manual upload";
+  const allCopy = useMemo(
+    () =>
+      created?.platforms
+        .map((p) => `${p.source.toUpperCase()}\n${p.caption}`)
+        .join("\n\n") || "",
+    [created],
+  );
+  const assetRows = useMemo<AssetRow[]>(
+    () =>
+      sources.flatMap((item) => {
+        const rows: AssetRow[] = [
+          ...item.episodes.map((ep) => ({
+            key: `original:${item.id}:${ep.episodeNumber}`,
+            sourceId: item.id,
+            dramaSlug: item.slug,
+            dramaTitle: item.title,
+            kind: "original" as const,
+            assetId: String(ep.episodeNumber),
+            label: `EP ${ep.episodeNumber}`,
+            detail: "Original episode",
+            videoUrl: ep.videoUrl,
+            r2State: "Available",
+          })),
+          ...item.hooks.map((hook) => ({
+            key: `hook:${hook.id}`,
+            sourceId: item.id,
+            dramaSlug: item.slug,
+            dramaTitle: item.title,
+            kind: "hook" as const,
+            assetId: hook.id,
+            label: hook.title,
+            detail: `Saved hook · EP ${hook.sourceEpisodes.join(", ")} · ${Math.round(hook.durationSeconds)}s`,
+            videoUrl: hook.videoUrl,
+            r2State: "Saved",
+          })),
+          ...item.draftHooks.map((hook) => ({
+            key: `draft:${hook.id}`,
+            sourceId: item.id,
+            dramaSlug: item.slug,
+            dramaTitle: item.title,
+            kind: "draft" as const,
+            assetId: hook.id,
+            label: hook.title,
+            detail: `Review needed · EP ${hook.sourceEpisodes.join(", ")} · score ${Math.round(hook.score)}`,
+            videoUrl: hook.videoUrl,
+            r2State: "Draft",
+          })),
+        ];
+        return rows.map((row) => ({
+          ...row,
+          latest: recent.find((pack) => pack.videoUrl === row.videoUrl),
+        }));
+      }),
+    [sources, recent],
+  );
+  const visibleAssets = assetRows.filter(
+    (row) =>
+      (assetDramaFilter === "all" || row.sourceId === assetDramaFilter) &&
+      (assetKindFilter === "all" || row.kind === assetKindFilter) &&
+      (assetStateFilter === "all" ||
+        (assetStateFilter === "not_uploaded"
+          ? !row.latest || !Object.keys(row.latest.yixiaoerVideo || {}).length
+          : assetStateFilter === "uploaded"
+            ? Boolean(
+                row.latest &&
+                Object.keys(row.latest.yixiaoerVideo || {}).length,
+              )
+            : row.latest?.status === assetStateFilter)),
+  );
+  const activeOperation = created ? operationOf(created) : null;
+  const activeStarted =
+    typeof activeOperation?.startedAt === "string"
+      ? Date.parse(activeOperation.startedAt)
+      : NaN;
+  const activeElapsed = Number.isFinite(activeStarted)
+    ? Math.max(0, Math.floor((clock - activeStarted) / 1000))
+    : Number(activeOperation?.elapsedSeconds || 0);
+  const activeStage = activeOperation?.stage
+    ? stageNames[String(activeOperation.stage)] || String(activeOperation.stage)
+    : "Waiting for Railway worker";
+  const historyPool = created
+    ? recent.filter((item) => item.id !== created.id)
+    : recent;
+  const historyPages = Math.max(1, Math.ceil(historyPool.length / historySize));
+  const currentHistoryPage = Math.min(historyPage, historyPages);
+  const historyItems = historyPool.slice(
+    (currentHistoryPage - 1) * historySize,
+    currentHistoryPage * historySize,
+  );
+  const supportedAccountPlatforms =
+    created?.platforms
+      .map((pack) => pack.source)
+      .filter((platform) => Boolean(yNames[platform])) || [];
+  const selectedAccountCount = supportedAccountPlatforms.filter((platform) =>
+    Boolean(accountIds[platform]),
+  ).length;
+  const allAccountsSelected =
+    selectedAccountCount === supportedAccountPlatforms.length &&
+    supportedAccountPlatforms.length > 0;
+  function resetFor(
+    id: string,
+    nextKind: "original" | "hook" | "upload" = "original",
+  ) {
+    const next = sources.find((x) => x.id === id);
+    setSourceId(id);
+    setKind(nextKind);
+    if (nextKind === "hook" && next?.hooks[0]) {
+      setAsset(next.hooks[0].id);
+      setVideoUrl(next.hooks[0].videoUrl);
+    } else {
+      setAsset(String(next?.episodes[0]?.episodeNumber || ""));
+      setVideoUrl(
+        nextKind === "original" ? next?.episodes[0]?.videoUrl || "" : "",
+      );
+    }
+    setCreated(null);
+    setValidated(false);
+  }
+  function changeAsset(value: string) {
+    setAsset(value);
+    setVideoUrl(
+      kind === "original"
+        ? source?.episodes.find((x) => String(x.episodeNumber) === value)
+            ?.videoUrl || ""
+        : source?.hooks.find((x) => x.id === value)?.videoUrl || "",
+    );
+    setCreated(null);
+    setValidated(false);
+  }
+  async function upload(file: File) {
+    if (!source) return;
+    setUploading(true);
+    setError("");
+    try {
+      const p = await fetch("/api/admin/uploads/presign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type || "video/mp4",
+          size: file.size,
+          slug: source.slug,
+          kind: "social",
+        }),
+      });
+      const data = await p.json();
+      if (!p.ok) throw new Error(data.message);
+      await new Promise<void>((resolve, reject) => {
+        const x = new XMLHttpRequest();
+        x.open("PUT", data.uploadUrl);
+        x.setRequestHeader("Content-Type", file.type || "video/mp4");
+        x.upload.onprogress = (e) =>
+          e.lengthComputable &&
+          setProgress(Math.round((e.loaded / e.total) * 100));
+        x.onload = () =>
+          x.status < 300 ? resolve() : reject(new Error("R2 upload failed"));
+        x.onerror = () => reject(new Error("R2 upload failed"));
+        x.send(file);
+      });
+      setVideoUrl(data.publicUrl);
+      setProgress(100);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+  async function create() {
+    if (!source || !videoUrl || !platforms.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/admin/publish-packages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          dramaSlug: source.slug,
+          episodeNumber,
+          videoUrl,
+          videoKind: kind,
+          videoLabel,
+          hookClipId: kind === "hook" ? selectedHook?.id : undefined,
+          account,
+          campaign,
+          scheduledAt: scheduledAt
+            ? new Date(scheduledAt).toISOString()
+            : undefined,
+          platforms,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setCreated(j.package);
+      setRecent((x) => [j.package, ...x]);
+      await loadAccounts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create package");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function loadAccounts(
+    targetPlatforms = platforms,
+    preferred: Record<string, string> = {},
+  ) {
+    if (!yixiaoerReady) return;
+    setConnectionBusy(true);
+    try {
+      const r = await fetch("/api/admin/yixiaoer/accounts");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setAccounts(j.accounts);
+      const next: Record<string, string> = {};
+      for (const platform of targetPlatforms) {
+        const matches = j.accounts.filter(
+          (a: YAccount) =>
+            a.platform.toLowerCase() === yNames[platform]?.toLowerCase(),
+        );
+        if (
+          preferred[platform] &&
+          matches.some((a: YAccount) => a.id === preferred[platform])
+        )
+          next[platform] = preferred[platform];
+        else if (matches.length === 1) next[platform] = matches[0].id;
+      }
+      setAccountIds(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load accounts");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+  async function yAction(action: "validate" | "publish") {
+    if (!created) return;
+    const future =
+      Boolean(created.scheduledAt) &&
+      new Date(created.scheduledAt as string).getTime() > Date.now();
+    if (
+      action === "publish" &&
+      !window.confirm(
+        future
+          ? `Schedule this package for ${new Date(created.scheduledAt as string).toLocaleString()}? Railway will send it to the selected live accounts at that time.`
+          : "This will publish immediately to the selected live social accounts. Continue?",
+      )
+    )
+      return;
+    setConnectionBusy(true);
+    setError("");
+    try {
+      await persistCopy();
+      const r = await fetch(
+        `/api/admin/publish-packages/${created.id}/yixiaoer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action,
+            confirm: action === "publish",
+            accounts: accountIds,
+          }),
+        },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setCreated(j.package);
+      setRecent((items) =>
+        items.map((item) => (item.id === j.package.id ? j.package : item)),
+      );
+      setValidated(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Yixiaoer operation failed");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+  function editCopy(source: string, field: "hook" | "caption", value: string) {
+    if (!created) return;
+    setCreated({
+      ...created,
+      platforms: created.platforms.map((pack) =>
+        pack.source === source ? { ...pack, [field]: value } : pack,
+      ),
+    });
+  }
+  async function persistCopy() {
+    if (!created) return null;
+    const r = await fetch(`/api/admin/publish-packages/${created.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ platforms: created.platforms }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message);
+    setCreated(j.package);
+    setRecent((items) =>
+      items.map((item) => (item.id === j.package.id ? j.package : item)),
+    );
+    return j.package as Package;
+  }
+  async function saveCopy() {
+    setSavingCopy(true);
+    setError("");
+    try {
+      await persistCopy();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save copy");
+    } finally {
+      setSavingCopy(false);
+    }
+  }
+  async function cancelOperation() {
+    if (
+      !created?.yixiaoerAction ||
+      !window.confirm(
+        "Stop the current Yixiaoer operation? Nothing will be published after the worker stops.",
+      )
+    )
+      return;
+    setConnectionBusy(true);
+    setError("");
+    try {
+      const r = await fetch(
+        `/api/admin/publish-packages/${created.id}/yixiaoer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "cancel" }),
+        },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setCreated(j.package);
+      setRecent((items) =>
+        items.map((item) => (item.id === j.package.id ? j.package : item)),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel operation");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+  function openPackage(item: Package) {
+    const next = sources.find((x) => x.slug === item.dramaSlug);
+    const nextPlatforms = item.platforms.map((pack) => pack.source);
+    if (next) setSourceId(next.id);
+    setKind(item.videoKind as "original" | "hook" | "upload");
+    setAsset(item.videoKind === "original" ? String(item.episodeNumber) : "");
+    setVideoUrl(item.videoUrl);
+    setPlatforms(nextPlatforms);
+    setCreated(item);
+    setAccountIds(item.yixiaoerAccounts || {});
+    setValidated(
+      item.status === "ready" &&
+        Object.keys(item.yixiaoerVideo || {}).length > 0,
+    );
+    setError("");
+    if (!item.yixiaoerAction && item.status !== "published")
+      void loadAccounts(nextPlatforms, item.yixiaoerAccounts || {});
+    document
+      .querySelector(".asset-selection")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function selectAsset(row: AssetRow) {
+    if (row.kind === "draft") {
+      const jobId =
+        sources
+          .find((item) => item.id === row.sourceId)
+          ?.draftHooks.find((hook) => hook.id === row.assetId)?.jobId || "";
+      window.location.href = `/admin/hooks?job=${jobId}`;
+      return;
+    }
+    setSourceId(row.sourceId);
+    setKind(row.kind);
+    setAsset(row.assetId);
+    setVideoUrl(row.videoUrl);
+    setCreated(null);
+    setValidated(false);
+    setError("");
+    document
+      .querySelector(".asset-selection")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  async function copy(text: string, key: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(""), 1200);
+  }
+  if (!sources.length)
+    return (
+      <div className="admin-empty">
+        <Send />
+        <h2>No published dramas</h2>
+      </div>
+    );
+  return (
+    <div className="publish-center">
+      <section className="asset-library">
+        <span>01 · Video asset library</span>
+        <div className="asset-filters">
+          <select
+            value={assetDramaFilter}
+            onChange={(e) => setAssetDramaFilter(e.target.value)}
+          >
+            <option value="all">All dramas</option>
+            {sources.map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.title}
+              </option>
+            ))}
+          </select>
+          <select
+            value={assetKindFilter}
+            onChange={(e) => setAssetKindFilter(e.target.value)}
+          >
+            <option value="all">Original + hooks</option>
+            <option value="original">Original episodes</option>
+            <option value="hook">Saved hooks</option>
+            <option value="draft">Hook drafts</option>
+          </select>
+          <select
+            value={assetStateFilter}
+            onChange={(e) => setAssetStateFilter(e.target.value)}
+          >
+            <option value="all">Any delivery state</option>
+            <option value="not_uploaded">Not uploaded</option>
+            <option value="uploaded">Uploaded to Yixiaoer</option>
+            <option value="published">Published confirmed</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div className="asset-ledger-head">
+          <b>Drama / video</b>
+          <b>R2 / Hook</b>
+          <b>Yixiaoer</b>
+          <b>Delivery</b>
+          <b>Action</b>
+        </div>
+        <div className="asset-ledger">
+          {visibleAssets.map((row) => {
+            const uploaded = Boolean(
+              row.latest && Object.keys(row.latest.yixiaoerVideo || {}).length,
+            );
+            return (
+              <div className="asset-row" key={row.key}>
+                <div>
+                  <b>{row.dramaTitle}</b>
+                  <strong>{row.label}</strong>
+                  <small>{row.detail}</small>
+                </div>
+                <span className={`asset-pill ${row.kind}`}>{row.r2State}</span>
+                <span>
+                  {uploaded
+                    ? "Uploaded"
+                    : row.latest?.yixiaoerAction
+                      ? `${row.latest.yixiaoerProgress || 0}%`
+                      : "Not uploaded"}
+                </span>
+                <span className={`delivery ${row.latest?.status || "none"}`}>
+                  {row.latest
+                    ? packageState(row.latest)
+                    : row.kind === "draft"
+                      ? "Review needed"
+                      : "Never packaged"}
+                </span>
+                <div>
+                  {row.latest && (
+                    <button onClick={() => openPackage(row.latest!)}>
+                      Open latest
+                    </button>
+                  )}
+                  <button
+                    className="asset-primary"
+                    onClick={() => selectAsset(row)}
+                  >
+                    {row.kind === "draft" ? "Review hook" : "Use video"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {!visibleAssets.length && (
+            <p className="asset-empty">No assets match these filters.</p>
+          )}
+        </div>
+      </section>
+      <section className="publish-compose asset-selection">
+        <span>02 · Exact video asset</span>
+        <label>
+          <b>Drama</b>
+          <select value={sourceId} onChange={(e) => resetFor(e.target.value)}>
+            {sources.map((x) => (
+              <option value={x.id} key={x.id}>
+                {x.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="asset-kind">
+          {(["original", "hook", "upload"] as const).map((x) => (
+            <button
+              className={kind === x ? "selected" : ""}
+              key={x}
+              onClick={() => resetFor(sourceId, x)}
+            >
+              {x === "original"
+                ? "Original episode"
+                : x === "hook"
+                  ? "Saved hook"
+                  : "Manual upload"}
+            </button>
+          ))}
+        </div>
+        {kind !== "upload" && (
+          <label>
+            <b>Specific video</b>
+            <select
+              value={
+                asset ||
+                String(
+                  kind === "original"
+                    ? source?.episodes[0]?.episodeNumber
+                    : source?.hooks[0]?.id || "",
+                )
+              }
+              onChange={(e) => changeAsset(e.target.value)}
+            >
+              {kind === "original"
+                ? source?.episodes.map((x) => (
+                    <option value={x.episodeNumber} key={x.episodeNumber}>
+                      EP {x.episodeNumber}
+                    </option>
+                  ))
+                : source?.hooks.map((x) => (
+                    <option value={x.id} key={x.id}>
+                      {x.title} · {x.durationSeconds}s
+                    </option>
+                  ))}
+            </select>
+          </label>
+        )}
+        <div className="video-source">
+          <b>{videoLabel}</b>
+          {videoUrl ? (
+            <details>
+              <summary>
+                Technical source · Railway uses this exact R2 file
+              </summary>
+              <code>{videoUrl}</code>
+            </details>
+          ) : (
+            <small>No video selected</small>
+          )}
+        </div>
+        {videoUrl && (
+          <video
+            className="publish-preview"
+            src={videoUrl}
+            controls
+            preload="metadata"
+          />
+        )}
+        {kind === "upload" && (
+          <label className="social-upload">
+            <input
+              type="file"
+              accept="video/mp4,video/quicktime"
+              onChange={(e) =>
+                e.target.files?.[0] && void upload(e.target.files[0])
+              }
+            />
+            <CloudUpload />
+            <b>
+              {uploading
+                ? `Uploading · ${progress}%`
+                : "Upload a finished video to R2"}
+            </b>
+          </label>
+        )}
+      </section>
+      <section className="publish-compose">
+        <span>03 · Distribution</span>
+        <div className="platform-picker">
+          <span>Platforms</span>
+          <div>
+            {options.map(([v, l]) => (
+              <label
+                className={platforms.includes(v) ? "selected" : ""}
+                key={v}
+              >
+                <input
+                  type="checkbox"
+                  checked={platforms.includes(v)}
+                  onChange={() => {
+                    setPlatforms((x) =>
+                      x.includes(v) ? x.filter((p) => p !== v) : [...x, v],
+                    );
+                    setCreated(null);
+                    setValidated(false);
+                  }}
+                />
+                {l}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="publish-grid">
+          <label>
+            <b>Account label · optional</b>
+            <input
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+            />
+          </label>
+          <label>
+            <b>Campaign · optional</b>
+            <input
+              value={campaign}
+              onChange={(e) => setCampaign(e.target.value)}
+            />
+          </label>
+          <label>
+            <b>Publish time · optional</b>
+            <PublishTimePicker value={scheduledAt} onChange={setScheduledAt} />
+          </label>
+        </div>
+        <button
+          className="save-draft"
+          onClick={() => void create()}
+          disabled={!videoUrl || !platforms.length || busy}
+        >
+          {busy ? <LoaderCircle className="spin" /> : <Send />}
+          {busy ? "Building package…" : "Generate publish package"}
+        </button>
+        {error && <div className="form-error">{error}</div>}
+      </section>
+      {created && (
+        <section className="publish-results">
+          <div className="pack-heading">
+            <div>
+              <span>{packageState(created)}</span>
+              <b>
+                {source?.title || created.dramaSlug} · {created.videoLabel}
+              </b>
+            </div>
+          </div>
+          {created.yixiaoerError && (
+            <div className="form-error">{created.yixiaoerError}</div>
+          )}
+          {created.yixiaoerAction && (
+            <div className="publish-process">
+              <div className="process-title">
+                <div>
+                  <span>Railway → Yixiaoer</span>
+                  <b>
+                    {activeStage}
+                    {activeOperation?.platform
+                      ? ` · ${String(activeOperation.platform)}`
+                      : ""}
+                  </b>
+                </div>
+                <div className="process-actions">
+                  <strong>{created.yixiaoerProgress || 0}%</strong>
+                  <button
+                    onClick={() => void cancelOperation()}
+                    disabled={connectionBusy || cancelRequested(created)}
+                  >
+                    {cancelRequested(created) ? "Canceling…" : "Cancel"}
+                  </button>
+                </div>
+              </div>
+              <div className="process-track">
+                <i style={{ width: `${created.yixiaoerProgress || 0}%` }} />
+              </div>
+              <div className="process-meta">
+                {created.status === "scheduled" ? (
+                  <>
+                    <span>
+                      Publishes ·{" "}
+                      {created.scheduledAt
+                        ? new Date(created.scheduledAt).toLocaleString()
+                        : "Not set"}
+                    </span>
+                    <span>Railway will start automatically</span>
+                    <span>
+                      China ·{" "}
+                      {created.scheduledAt
+                        ? new Intl.DateTimeFormat(undefined, {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                            timeZone: "Asia/Shanghai",
+                          }).format(new Date(created.scheduledAt))
+                        : "Not set"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span>Running · {durationLabel(activeElapsed)}</span>
+                    <span>
+                      Last heartbeat ·{" "}
+                      {localTime(
+                        activeOperation?.heartbeatAt ||
+                          created.yixiaoerUpdatedAt,
+                      )}
+                    </span>
+                    <span>
+                      China ·{" "}
+                      {localTime(
+                        activeOperation?.heartbeatAt ||
+                          created.yixiaoerUpdatedAt,
+                        "Asia/Shanghai",
+                      )}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          <details className="copy-editor">
+            <summary>
+              <div>
+                <b>Generated account copy</b>
+                <small>
+                  {created.platforms.length} account version(s) · expand to
+                  review or edit
+                </small>
+              </div>
+              <span>Expand</span>
+            </summary>
+            <div className="copy-toolbar">
+              <button onClick={() => void copy(allCopy, "all")}>
+                {copied === "all" ? <Check /> : <Copy />} Copy all
+              </button>
+              <button
+                onClick={() => void saveCopy()}
+                disabled={
+                  savingCopy ||
+                  Boolean(created.yixiaoerAction) ||
+                  created.status === "published"
+                }
+              >
+                {savingCopy ? "Saving…" : "Save edits"}
+              </button>
+            </div>
+            {created.platforms.map((pack) => (
+              <details className="copy-account" key={pack.source}>
+                <summary>
+                  <b>{pack.source}</b>
+                  <span>Review & edit</span>
+                </summary>
+                <label>
+                  <b>Hook line</b>
+                  <textarea
+                    value={pack.hook}
+                    disabled={
+                      Boolean(created.yixiaoerAction) ||
+                      created.status === "published"
+                    }
+                    onChange={(e) =>
+                      editCopy(pack.source, "hook", e.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  <b>Full caption</b>
+                  <textarea
+                    className="caption-editor"
+                    value={pack.caption}
+                    disabled={
+                      Boolean(created.yixiaoerAction) ||
+                      created.status === "published"
+                    }
+                    onChange={(e) =>
+                      editCopy(pack.source, "caption", e.target.value)
+                    }
+                  />
+                </label>
+                <button onClick={() => void copy(pack.caption, pack.source)}>
+                  {copied === pack.source ? <Check /> : <Copy />} Copy{" "}
+                  {pack.source}
+                </button>
+              </details>
+            ))}
+          </details>
+          {created.status !== "published" && !created.yixiaoerAction && (
+            <details className="account-routing" open={!allAccountsSelected}>
+              <summary>
+                <div>
+                  <b>Publishing accounts</b>
+                  <small>
+                    {selectedAccountCount}/{supportedAccountPlatforms.length}{" "}
+                    selected
+                  </small>
+                </div>
+                <span>{allAccountsSelected ? "Ready" : "Action required"}</span>
+              </summary>
+              <div className="account-routing-body">
+                <p>
+                  Refresh only after adding, removing, or reconnecting an
+                  account in Yixiaoer.
+                </p>
+                <button
+                  onClick={() => void loadAccounts(platforms, accountIds)}
+                  disabled={connectionBusy || !yixiaoerReady}
+                >
+                  {connectionBusy ? "Refreshing…" : "Refresh accounts"}
+                </button>
+                {supportedAccountPlatforms.map((p) => (
+                  <label className="yixiaoer-account" key={p}>
+                    <b>{yNames[p]} account</b>
+                    <select
+                      value={accountIds[p] || ""}
+                      onChange={(e) => {
+                        setAccountIds((x) => ({ ...x, [p]: e.target.value }));
+                        setValidated(false);
+                      }}
+                    >
+                      <option value="">Choose account</option>
+                      {accounts
+                        .filter(
+                          (a) =>
+                            a.platform.toLowerCase() ===
+                            yNames[p].toLowerCase(),
+                        )
+                        .map((a) => (
+                          <option value={a.id} key={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </details>
+          )}
+          {created.status !== "published" && !created.yixiaoerAction && (
+            <div className="yixiaoer-actions">
+              <button
+                onClick={() => void yAction("validate")}
+                disabled={
+                  connectionBusy || !yixiaoerReady || !allAccountsSelected
+                }
+              >
+                <ShieldCheck />{" "}
+                {Object.keys(created.yixiaoerVideo || {}).length
+                  ? "Re-run validation"
+                  : "Upload, validate & dry-run"}
+              </button>
+              <button
+                className="publish-live"
+                onClick={() => void yAction("publish")}
+                disabled={connectionBusy || !validated || !allAccountsSelected}
+              >
+                <Send />{" "}
+                {created.scheduledAt &&
+                new Date(created.scheduledAt).getTime() > Date.now()
+                  ? "Confirm scheduled publish"
+                  : "Confirm live publish"}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      {recent.length > 0 && (
+        <section className="publish-history publish-monitor">
+          <span>Publish history</span>
+          <div className="monitor-head">
+            <b>Asset</b>
+            <b>Type</b>
+            <b>Yixiaoer asset</b>
+            <b>State</b>
+          </div>
+          {historyItems.map((x) => {
+            const uploaded = Boolean(Object.keys(x.yixiaoerVideo || {}).length);
+            return (
+              <details key={x.id}>
+                <summary>
+                  <b>
+                    {x.dramaSlug}
+                    <small>
+                      {x.videoLabel || `EP ${x.episodeNumber}`}
+                      {x.id === created?.id ? " · Open" : ""}
+                    </small>
+                  </b>
+                  <span>{x.videoKind}</span>
+                  <span>
+                    {uploaded
+                      ? "Uploaded"
+                      : x.yixiaoerAction
+                        ? `${x.yixiaoerProgress || 0}%`
+                        : "Not uploaded"}
+                  </span>
+                  <span className={`delivery ${x.status}`}>
+                    {packageState(x)}
+                  </span>
+                </summary>
+                <div className="monitor-detail">
+                  <div className="history-actions">
+                    <code>{x.id}</code>
+                    <button onClick={() => openPackage(x)}>
+                      {x.id === created?.id
+                        ? "Currently open"
+                        : "Open & continue"}
+                    </button>
+                  </div>
+                  {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
+                  {x.platforms.map((pack) => {
+                    const result = x.yixiaoerResults?.[pack.source] as
+                      Record<string, unknown> | undefined;
+                    return (
+                      <div key={pack.source}>
+                        <b>{pack.source}</b>
+                        <span>
+                          {result?.publish
+                            ? "Published"
+                            : result?.preview
+                              ? "Dry-run passed"
+                              : x.yixiaoerAction
+                                ? "Waiting"
+                                : "Not started"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            );
+          })}
+          <div className="history-pagination">
+            <label>
+              Rows{" "}
+              <select
+                value={historySize}
+                onChange={(e) => {
+                  setHistorySize(Number(e.target.value));
+                  setHistoryPage(1);
+                }}
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+              </select>
+            </label>
+            <span>
+              Page {currentHistoryPage} of {historyPages}
+            </span>
+            <div>
+              <button
+                onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                disabled={currentHistoryPage === 1}
+              >
+                Previous
+              </button>
+              <button
+                onClick={() =>
+                  setHistoryPage((page) => Math.min(historyPages, page + 1))
+                }
+                disabled={currentHistoryPage === historyPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
 }
