@@ -11,6 +11,7 @@ API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_T
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 MODEL=os.getenv("WHISPER_MODEL","small.en")
+FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 def cleanup_worker_temps(max_age=3600):
  root=Path(os.getenv("WORK_DIR","/tmp"));cutoff=time.time()-max_age
  for prefix in ("drama-hook-","drama-publish-","drama-yixer-"):
@@ -61,7 +62,8 @@ def candidates(assets,words,bounds,direction_schema):
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
-  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":labels[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
+  topics={"conflict":"She finally calls him out","reversal":"The truth changes everything","tension":"The moment they get too close","danger":"One step from disaster","identity":"The secret identity is exposed","cliffhanger":"What happens next is shocking"}
+  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":topics[dominant],"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
@@ -73,8 +75,10 @@ def render(asset,candidate,target,cover_duration=.1):
  cap.release();duration=clean_end-rng["start"]
  if duration<8:raise RuntimeError("Render QA rejected a short or black-ended candidate")
  total=duration+cover_duration;fade_start=max(0,duration-.18)
- vf="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
- graph=f"[0:v]{vf},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{vf},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,apad=pad_dur={cover_duration}[a]"
+ base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
+ def esc(value):return value.replace("\\","\\\\").replace(":","\\:").replace("'","\\'").replace("%","\\%")
+ overlay=f"{base},drawtext=fontfile={FONT}:text='DramaClips · EP {rng['episodeNumber']}':fontcolor=white@0.62:fontsize=28:x=38:y=42:box=1:boxcolor=black@0.22:boxborderw=10,drawtext=fontfile={FONT}:text='{esc(candidate['title'])}':fontcolor=white@0.96:fontsize=46:x=(w-text_w)/2:y=112:box=1:boxcolor=black@0.38:boxborderw=18"
+ graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,apad=pad_dur={cover_duration}[a]"
  command=["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","medium","-crf","20","-force_key_frames","0","-c:a","aac","-b:a","160k","-movflags","+faststart",str(target)]
  rendered=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
  if rendered.returncode:raise RuntimeError(f"FFmpeg render failed: {rendered.stderr[-1200:]}")
