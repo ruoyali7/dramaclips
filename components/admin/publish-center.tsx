@@ -27,6 +27,7 @@ type Source = {
   hooks: Hook[];
   draftHooks: DraftHook[];
   vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
+  vizardAssets: { id: string; episodeNumber: number; title: string; videoUrl: string; durationSeconds: number }[];
 };
 type Pack = { source: string; hook: string; caption: string };
 type Package = {
@@ -310,6 +311,10 @@ export function PublishCenter({
             key: `vizard:${project.id}`, sourceId: item.id, dramaSlug: item.slug, dramaTitle: item.title,
             kind: "vizard" as const, assetId: project.id, label: project.finalLabel || `Vizard · EP ${project.episodeNumber}`,
             detail: `Vizard edit · EP ${project.episodeNumber}`, videoUrl: project.finalVideoUrl!, r2State: "Final",
+          })),
+          ...item.vizardAssets.map((asset) => ({
+            key: `vizard-clip:${asset.id}`, sourceId: item.id, dramaSlug: item.slug, dramaTitle: item.title,
+            kind: "vizard" as const, assetId: asset.id, label: asset.title, detail: `Vizard clip · EP ${asset.episodeNumber} · ${Math.round(asset.durationSeconds)}s`, videoUrl: asset.videoUrl, r2State: "R2",
           })),
         ];
         return rows.map((row) => ({
