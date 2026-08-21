@@ -73,17 +73,19 @@ def candidates(assets,words,bounds,direction_schema):
 def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
  subprocess.check_call(["ffmpeg","-y","-ss",str(candidate["coverSourceTimestamp"]),"-i",str(source),"-frames:v","1","-q:v","2",str(cover)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
- cap=cv2.VideoCapture(str(source));clean_end=rng["end"]
+ source_duration=float(probe(source)["format"]["duration"])
+ cap=cv2.VideoCapture(str(source));clean_end=min(source_duration,rng["end"]+1.2)
  for offset in (.04,.14,.28,.45,.7,1.0):
   stamp=max(rng["start"]+1,rng["end"]-offset);cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
-  if ok and float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).mean())>=12:clean_end=stamp;break
+  if ok and float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).mean())<12:clean_end=stamp
+  else:break
  cap.release();duration=clean_end-rng["start"]
  if duration<8:raise RuntimeError("Render QA rejected a short or black-ended candidate")
- total=duration+cover_duration;fade_start=max(0,duration-.18)
+ sting_duration=.4;total=duration+cover_duration+sting_duration;fade_start=max(0,duration-.18)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
  def esc(value):return value.replace("\\","\\\\").replace(":","\\:").replace("'","\\'").replace("%","\\%")
  overlay=f"{base},drawtext=fontfile={FONT}:text='DramaClips · EP {rng['episodeNumber']}':fontcolor=white@0.62:fontsize=28:x=38:y=42:box=1:boxcolor=black@0.22:boxborderw=10,drawtext=fontfile={FONT}:text='{esc(candidate['title'])}':fontcolor=white@0.96:fontsize=46:x=(w-text_w)/2:y=112:box=1:boxcolor=black@0.38:boxborderw=18"
- graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,apad=pad_dur={cover_duration}[a]"
+ graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,apad=pad_dur={cover_duration}[content];sine=frequency=660:duration=0.16[s1];sine=frequency=880:duration=0.24[s2];[s1][s2]concat=n=2:v=0:a=1,afade=t=in:st=0:d=0.02,afade=t=out:st=0.3:d=0.1,volume=0.12[sting];[content][sting]concat=n=2:v=0:a=1[a]"
  command=["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","medium","-crf","20","-force_key_frames","0","-c:a","aac","-b:a","160k","-movflags","+faststart",str(target)]
  rendered=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
  if rendered.returncode:raise RuntimeError(f"FFmpeg render failed: {rendered.stderr[-1200:]}")
@@ -94,7 +96,7 @@ def render(asset,candidate,target,cover_duration=.1):
  return {"durationSeconds":round(float(info["format"]["duration"]),2),"width":video["width"],"height":video["height"],"videoCodec":video["codec_name"],"audioCodec":audio.get("codec_name","none"),"sizeBytes":target.stat().st_size,"qaResults":qa}
 def upload_draft(job,candidate,path):
  prepared=call("/api/internal/hook-worker/uploads",{"jobId":job["id"],"workerId":WORKER,"rank":candidate["rank"],"sizeBytes":path.stat().st_size})
- with path.open("rb") as body:r=requests.put(prepared["uploadUrl"],data=body,headers={"Content-Type":"video/mp4","Content-Length":str(path.stat().st_size)},timeout=600);r.raise_for_status()
+ with path.open("rb") as body:r=requests.put(prepared["uploadUrl"],data=body,headers={"Content-Type":"video/mp4","Cache-Control":"public, max-age=31536000, immutable","Content-Length":str(path.stat().st_size)},timeout=600);r.raise_for_status()
  return prepared
 def run(job):
  root=Path(tempfile.mkdtemp(prefix="drama-hook-",dir=os.getenv("WORK_DIR","/tmp")));assets=[];words={};bounds={}

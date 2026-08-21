@@ -91,7 +91,7 @@ export async function promoteHookDraft(input:{sourceKey:string;slug:string;fileN
 
 export async function uploadSocialVideo(input:{fileName:string;slug:string;bytes:Buffer}){
   const prepared=createR2Upload({fileName:input.fileName,contentType:"video/mp4",size:input.bytes.byteLength,slug:input.slug,kind:"social"});
-  const response=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Content-Length":String(input.bytes.byteLength)},body:new Uint8Array(input.bytes)});
+  const response=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Cache-Control":"public, max-age=31536000, immutable","Content-Length":String(input.bytes.byteLength)},body:new Uint8Array(input.bytes)});
   if(!response.ok)throw new Error(`R2 upload returned ${response.status}`);
   return prepared.publicUrl;
 }
@@ -118,7 +118,7 @@ export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeN
     const type=(response.headers.get("content-type")||"application/octet-stream").split(";")[0].trim();if(!["video/mp4","application/octet-stream","binary/octet-stream"].includes(type))throw new Error(`Unexpected remote content type: ${type}`);
     const size=Number(response.headers.get("content-length"));if(!Number.isFinite(size)||size<=0||size>MAX_FILE_BYTES)throw new Error("Remote video has an invalid or oversized Content-Length");
     const prepared=createR2Upload({fileName:`${String(input.episodeNumber).padStart(3,"0")}.mp4`,contentType:"video/mp4",size,slug:input.slug,kind:"episode"});
-    const uploaded=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Content-Length":String(size)},body:response.body,duplex:"half"} as RequestInit & {duplex:"half"});
+    const uploaded=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Cache-Control":"public, max-age=31536000, immutable","Content-Length":String(size)},body:response.body,duplex:"half"} as RequestInit & {duplex:"half"});
     if(!uploaded.ok)throw new Error(`R2 upload returned ${uploaded.status}`);return{publicUrl:prepared.publicUrl,size};
   }finally{clearTimeout(timeout)}
 }
