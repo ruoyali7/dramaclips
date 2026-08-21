@@ -146,13 +146,16 @@ def yxer(job,args,heartbeat=None,ambiguous_timeout=False):
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
 def publish_update(job,status,progress,terminal=False,**extra):return call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
+def plain_description(value):
+ import re
+ return re.sub(r"[ \t]{2,}"," ",re.sub(r"\n{3,}","\n\n",re.sub(r"(^|\s)#[A-Za-z0-9_-]+",r"\1",re.sub(r"<[^>]+>"," ",value)))).strip()
 def yixer_video(data):
  if not isinstance(data,dict):raise RuntimeError("Yixiaoer upload returned no resource")
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
  if not candidate.get("key"):raise RuntimeError("Yixiaoer upload returned no resource key")
  return candidate
 def yixer_payload(job,pack,video,cover):
- platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=pack["caption"];title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
+ platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=plain_description(pack["caption"]);title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
  if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramaClips","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
  if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
