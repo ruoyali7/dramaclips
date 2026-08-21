@@ -5,14 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Drama, Episode } from "@/lib/types";
 
 function track(name:string, data:Record<string,unknown>) {
+  const eventId=crypto.randomUUID();
   const tracking=Object.fromEntries(new URLSearchParams(window.location.search));
-  const body=JSON.stringify({name,schemaVersion:1,occurredAt:new Date().toISOString(),tracking,...data});
+  const body=JSON.stringify({eventId,name,schemaVersion:1,occurredAt:new Date().toISOString(),tracking,...data});
   if(navigator.sendBeacon) navigator.sendBeacon("/api/events",new Blob([body],{type:"application/json"}));
   else fetch("/api/events",{method:"POST",headers:{"content-type":"application/json"},body,keepalive:true}).catch(()=>{});
 }
 
 export function EpisodePlayer({drama,episodes,goHref}:{drama:Drama;episodes:Episode[];goHref:string}) {
   const video=useRef<HTMLVideoElement>(null); const [index,setIndex]=useState(0); const [playing,setPlaying]=useState(false); const [muted,setMuted]=useState(true); const [progress,setProgress]=useState(0); const [ended,setEnded]=useState(false); const [copied,setCopied]=useState(false); const episode=episodes[index];
+  useEffect(()=>{track("page_view",{dramaId:drama.id,dramaSlug:drama.slug});},[drama.id,drama.slug]);
   const play=useCallback(()=>{video.current?.play();setPlaying(true);track("episode_start",{dramaId:drama.id,dramaSlug:drama.slug,episodeId:episode.id,episodeNumber:episode.episodeNumber});},[drama.id,drama.slug,episode]);
   useEffect(()=>{localStorage.setItem("dramaclips:last",JSON.stringify({slug:drama.slug,episode:index+1,at:Date.now()}));setEnded(false);setProgress(0);},[drama.slug,index]);
   function select(next:number){if(next<0||next>=episodes.length)return;setIndex(next);setPlaying(false);setTimeout(()=>video.current?.play().then(()=>setPlaying(true)).catch(()=>{}),80);track("next_episode",{dramaId:drama.id,dramaSlug:drama.slug,fromEpisode:episode.episodeNumber,toEpisode:next+1});}
