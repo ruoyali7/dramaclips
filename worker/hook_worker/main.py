@@ -91,7 +91,7 @@ def render(asset,candidate,target,cover_duration=.1):
  if rendered.returncode:raise RuntimeError(f"FFmpeg render failed: {rendered.stderr[-1200:]}")
  frame0=target.with_suffix(".frame0.jpg");subprocess.check_call(["ffmpeg","-y","-i",str(target),"-frames:v","1","-q:v","2",str(frame0)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  info=probe(target);video=next(s for s in info["streams"] if s["codec_type"]=="video");audio=next((s for s in info["streams"] if s["codec_type"]=="audio"),{})
- qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.35,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920,"cleanEndingFrame":clean_end<=rng["end"],"audioFadeApplied":bool(audio)}
+ qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.35,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920,"cleanEndingFrame":clean_end<=source_duration,"audioFadeApplied":bool(audio)}
  if not all(qa.values()):raise RuntimeError(f"Render QA failed: {qa}")
  return {"durationSeconds":round(float(info["format"]["duration"]),2),"width":video["width"],"height":video["height"],"videoCodec":video["codec_name"],"audioCodec":audio.get("codec_name","none"),"sizeBytes":target.stat().st_size,"qaResults":qa}
 def upload_draft(job,candidate,path):
