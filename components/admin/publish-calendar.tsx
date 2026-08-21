@@ -47,18 +47,19 @@ function statusLabel(item: Package) {
 
 export function PublishCalendar({ packages, sources }: { packages: Package[]; sources: Source[] }) {
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [view, setView] = useState<"week" | "month">("week");
   const [selected, setSelected] = useState<Package | null>(null);
   const sourceName = (slug: string) => sources.find((source) => source.slug === slug)?.title || slug;
   const cells = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
     const start = new Date(first);
     start.setDate(first.getDate() - first.getDay());
-    return Array.from({ length: 42 }, (_, index) => {
+    return Array.from({ length: view === "week" ? 7 : 42 }, (_, index) => {
       const date = new Date(start);
       date.setDate(start.getDate() + index);
       return date;
     });
-  }, [month]);
+  }, [month, view]);
   const byDay = useMemo(() => {
     const map = new Map<string, Package[]>();
     packages.forEach((item) => {
@@ -72,14 +73,16 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
   return (
     <section className="publish-calendar">
       <div className="publish-calendar-head">
-        <div><span>Calendar</span><h2>{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2></div>
+        <div><span>Calendar</span><h2>{view === "week" ? `Week of ${cells[0]?.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2></div>
         <div className="publish-calendar-actions">
-          <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month"><ChevronLeft /></button>
+          <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous period"><ChevronLeft /></button>
           <button onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>Today</button>
-          <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight /></button>
+          <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next period"><ChevronRight /></button>
+          <button className={view === "week" ? "selected" : ""} onClick={() => setView("week")}>Week</button>
+          <button className={view === "month" ? "selected" : ""} onClick={() => setView("month")}>Month</button>
         </div>
       </div>
-      <div className="publish-calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <b key={day}>{day}</b>)}</div>
+      <div className="publish-calendar-weekdays">{cells.map((date) => <b key={date.toISOString()}>{date.toLocaleDateString(undefined, { weekday: "short" })}</b>)}</div>
       <div className="publish-calendar-grid">
         {cells.map((date) => {
           const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
