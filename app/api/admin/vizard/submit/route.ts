@@ -3,6 +3,7 @@ import { z, ZodError } from "zod";
 import { submitToVizard } from "@/lib/admin/vizard";
 
 const schema = z.object({
+  dramaId: z.string().min(1), dramaSlug: z.string().min(1), episodeNumber: z.number().int().positive(),
   projectName: z.string().trim().min(2).max(140),
   videoUrl: z.string().url().refine((value) => new URL(value).protocol === "https:"),
   language: z.string().trim().min(2).max(12).default("auto"),

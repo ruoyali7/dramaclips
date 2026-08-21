@@ -242,7 +242,13 @@ def run_publish(job):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
-  checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat),"state":"validated"}
+  try:
+   checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat),"state":"validated"}
+  except PublishCanceled: raise
+  except Exception as error:
+   results[source]={"state":"failed","error":str(error)[:500]}
+   publish_update(job,status,45+int((index+1)/max(1,len(pending))*40),video=assets,payloads=payloads,results=results)
+   continue
   results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*40),video=assets,payloads=payloads,results=results)
   if action=="publish":
    checked["state"]="submitting";publish_update(job,"publishing",88,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"submitting_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
@@ -250,6 +256,11 @@ def run_publish(job):
    except PublishOutcomeUnknown as error:
     checked["state"]="outcome_unknown";checked["error"]=str(error);results[source]=checked
     publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+   except PublishCanceled: raise
+   except Exception as error:
+    checked["state"]="failed";checked["error"]=str(error)[:500];results[source]=checked
+    publish_update(job,"publishing",92,video=assets,payloads=payloads,results=results)
+    continue
    request_id=provider_request_id(response)
    if not request_id:
     message=f"Yixiaoer accepted {source} but returned no taskSetId; retry is blocked to prevent duplication"
@@ -270,7 +281,8 @@ def run_publish(job):
   if draft_heartbeat():raise PublishCanceled("Canceled by user")
   response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
   publish_update(job,"ready",100,terminal=True,video=assets,payloads=payloads,results=results);return
- publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=assets,payloads=payloads,results=results)
+ failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
+ publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  cleanup_worker_temps(0)
  while True:

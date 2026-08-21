@@ -1,0 +1,6 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z, ZodError } from "zod";
+import { listVizardProjects, updateVizardProject } from "@/lib/admin/vizard-repository";
+const schema = z.object({ id: z.string().uuid(), status: z.enum(["editing","ready","archived"]).optional(), finalVideoUrl: z.string().url().optional(), finalObjectKey: z.string().max(300).optional(), finalLabel: z.string().trim().max(160).optional(), editInfo: z.record(z.unknown()).optional() });
+export async function GET(request: NextRequest) { try { return NextResponse.json({ projects: await listVizardProjects(request.nextUrl.searchParams.get("dramaSlug") || undefined) }); } catch (error) { return NextResponse.json({ message: error instanceof Error ? error.message : "Could not load Vizard projects" }, { status: 503 }); } }
+export async function PATCH(request: NextRequest) { try { const input = schema.parse(await request.json()); const { id, ...changes } = input; return NextResponse.json({ project: await updateVizardProject(id, changes) }); } catch (error) { if (error instanceof ZodError) return NextResponse.json({ message: "Check the Vizard project and edit info" }, { status: 400 }); return NextResponse.json({ message: error instanceof Error ? error.message : "Could not update Vizard project" }, { status: 503 }); } }

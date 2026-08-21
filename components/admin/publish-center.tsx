@@ -26,6 +26,7 @@ type Source = {
   episodes: { episodeNumber: number; videoUrl: string }[];
   hooks: Hook[];
   draftHooks: DraftHook[];
+  vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
 };
 type Pack = { source: string; hook: string; caption: string };
 type Package = {
@@ -54,7 +55,7 @@ type AssetRow = {
   sourceId: string;
   dramaSlug: string;
   dramaTitle: string;
-  kind: "original" | "hook" | "draft";
+  kind: "original" | "hook" | "draft" | "vizard";
   assetId: string;
   label: string;
   detail: string;
@@ -304,6 +305,11 @@ export function PublishCenter({
             detail: `Review needed · EP ${hook.sourceEpisodes.join(", ")} · score ${Math.round(hook.score)}`,
             videoUrl: hook.videoUrl,
             r2State: "Draft",
+          })),
+          ...item.vizardProjects.filter((project) => project.finalVideoUrl).map((project) => ({
+            key: `vizard:${project.id}`, sourceId: item.id, dramaSlug: item.slug, dramaTitle: item.title,
+            kind: "vizard" as const, assetId: project.id, label: project.finalLabel || `Vizard · EP ${project.episodeNumber}`,
+            detail: `Vizard edit · EP ${project.episodeNumber}`, videoUrl: project.finalVideoUrl!, r2State: "Final",
           })),
         ];
         return rows.map((row) => ({
@@ -708,7 +714,7 @@ export function PublishCenter({
       return;
     }
     setSourceId(row.sourceId);
-    setKind(row.kind);
+    setKind(row.kind === "vizard" ? "upload" : row.kind);
     setAsset(row.assetId);
     setVideoUrl(row.videoUrl);
     setCreated(null);

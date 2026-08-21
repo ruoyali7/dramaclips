@@ -11,15 +11,17 @@ import { listVizardSources } from "@/lib/admin/repository";
 import { listHookClips } from "@/lib/admin/hook-repository";
 import { listHookJobs } from "@/lib/admin/hook-job-repository";
 import { yixiaoerConfigured } from "@/lib/admin/yixiaoer";
+import { listVizardProjects } from "@/lib/admin/vizard-repository";
 import "../asset-library.css";
 
 export const dynamic = "force-dynamic";
 export default async function Page() {
-  const [base, hooks, hookJobs, yixiaoerReady] = await Promise.all([
+  const [base, hooks, hookJobs, yixiaoerReady, vizardProjects] = await Promise.all([
     listVizardSources(),
     listHookClips(),
     listHookJobs(undefined, 25),
     yixiaoerConfigured(),
+    listVizardProjects(),
   ]);
   const sources = base.map((source) => ({
     ...source,
@@ -44,6 +46,7 @@ export default async function Page() {
             jobId: job.id,
           })),
       ),
+    vizardProjects: vizardProjects.filter((project) => project.dramaSlug === source.slug),
   }));
   const r2Account = process.env.R2_ACCOUNT_ID?.trim();
   const r2Bucket = process.env.R2_BUCKET_NAME?.trim();

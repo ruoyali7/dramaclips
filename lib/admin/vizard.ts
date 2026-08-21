@@ -1,6 +1,9 @@
 import "server-only";
 
 export type VizardInput = {
+  dramaId: string;
+  dramaSlug: string;
+  episodeNumber: number;
   projectName: string;
   videoUrl: string;
   language: string;
@@ -44,5 +47,8 @@ export async function submitToVizard(input: VizardInput) {
     error.retryable = data.code === 4003 || response.status === 429;
     throw error;
   }
-  return { projectId: String(data.projectId || ""), status: "submitted" as const };
+  const projectId = String(data.projectId || "");
+  const { createVizardProject } = await import("./vizard-repository");
+  await createVizardProject({ dramaId: input.dramaId, dramaSlug: input.dramaSlug, episodeNumber: input.episodeNumber, projectName: input.projectName, vizardProjectId: projectId, sourceVideoUrl: input.videoUrl, settings: { language: input.language, preferLength: input.preferLength, maxClipNumber: input.maxClipNumber, ratio: input.ratio, subtitles: input.subtitles, headline: input.headline, clipModel: input.clipModel }, status: "submitted", editInfo: {} });
+  return { projectId, status: "submitted" as const };
 }
