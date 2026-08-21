@@ -211,6 +211,8 @@ export function PublishCenter({
   const [historySize, setHistorySize] = useState(5);
   const [savingCopy, setSavingCopy] = useState(false);
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
+  const [assetPage, setAssetPage] = useState(1);
+  const [assetPageSize, setAssetPageSize] = useState(10);
   const [showCalendar, setShowCalendar] = useState(true);
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -361,6 +363,8 @@ export function PublishCenter({
         }),
     [sources, assetRows, recent, assetDramaFilter],
   );
+  const assetPageCount = Math.max(1, Math.ceil(dramaGroups.length / assetPageSize));
+  const visibleDramaGroups = dramaGroups.slice((Math.min(assetPage, assetPageCount) - 1) * assetPageSize, Math.min(assetPage, assetPageCount) * assetPageSize);
   const activeOperation = created ? operationOf(created) : null;
   const draftSaved = Boolean(
     created?.yixiaoerResults?._draft &&
@@ -764,7 +768,7 @@ export function PublishCenter({
         <div className="asset-filters">
           <select
             value={assetDramaFilter}
-            onChange={(e) => setAssetDramaFilter(e.target.value)}
+            onChange={(e) => { setAssetDramaFilter(e.target.value); setAssetPage(1); }}
           >
             <option value="all">All dramas</option>
             {sources.map((item) => (
@@ -779,7 +783,7 @@ export function PublishCenter({
           <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
         </div>
         <div className="drama-ledger">
-          {dramaGroups.map((group) => (
+          {visibleDramaGroups.map((group) => (
             <details className="drama-asset-row" key={group.source.id}>
               <summary>
                 <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
@@ -800,6 +804,7 @@ export function PublishCenter({
           ))}
           {!dramaGroups.length && <p className="asset-empty">No drama matches this filter.</p>}
         </div>
+        <div className="history-pagination"><label>Rows <select value={assetPageSize} onChange={(event) => { setAssetPageSize(Number(event.target.value)); setAssetPage(1); }}><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label><span>Page {Math.min(assetPage, assetPageCount)} of {assetPageCount}</span><div><button onClick={() => setAssetPage((page) => Math.max(1, page - 1))} disabled={assetPage <= 1}>Previous</button><button onClick={() => setAssetPage((page) => Math.min(assetPageCount, page + 1))} disabled={assetPage >= assetPageCount}>Next</button></div></div>
       </section>
       <section className="publish-compose asset-selection">
         <span>02 · Exact video asset</span>
