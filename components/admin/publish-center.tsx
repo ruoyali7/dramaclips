@@ -247,9 +247,12 @@ export function PublishCenter({
   const selectedEpisode =
     source?.episodes.find((x) => String(x.episodeNumber) === asset) ||
     source?.episodes[0];
+  const hookOptions = source
+    ? [...source.hooks, ...source.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))]
+    : [];
   const selectedHook =
-    source?.hooks.find((x) => x.id === asset) ||
-    (kind === "hook" ? source?.hooks[0] : undefined);
+    hookOptions.find((x) => x.id === asset) ||
+    (kind === "hook" ? hookOptions[0] : undefined);
   const episodeNumber =
     kind === "hook"
       ? selectedHook?.sourceEpisodes[0] || 1
@@ -405,9 +408,10 @@ export function PublishCenter({
     const next = sources.find((x) => x.id === id);
     setSourceId(id);
     setKind(nextKind);
-    if (nextKind === "hook" && next?.hooks[0]) {
-      setAsset(next.hooks[0].id);
-      setVideoUrl(next.hooks[0].videoUrl);
+    const nextHooks = next ? [...next.hooks, ...next.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))] : [];
+    if (nextKind === "hook" && nextHooks[0]) {
+      setAsset(nextHooks[0].id);
+      setVideoUrl(nextHooks[0].videoUrl);
     } else {
       setAsset(String(next?.episodes[0]?.episodeNumber || ""));
       setVideoUrl(
@@ -424,7 +428,7 @@ export function PublishCenter({
       kind === "original"
         ? source?.episodes.find((x) => String(x.episodeNumber) === value)
             ?.videoUrl || ""
-        : source?.hooks.find((x) => x.id === value)?.videoUrl || "",
+        : hookOptions.find((x) => x.id === value)?.videoUrl || "",
     );
     setCreated(null);
     setValidated(false);
@@ -827,7 +831,7 @@ export function PublishCenter({
                 String(
                   kind === "original"
                     ? source?.episodes[0]?.episodeNumber
-                    : source?.hooks[0]?.id || "",
+                    : hookOptions[0]?.id || "",
                 )
               }
               onChange={(e) => changeAsset(e.target.value)}
@@ -838,7 +842,7 @@ export function PublishCenter({
                       EP {x.episodeNumber}
                     </option>
                   ))
-                : source?.hooks.map((x) => (
+                : hookOptions.map((x) => (
                     <option value={x.id} key={x.id}>
                       {x.title} · {x.durationSeconds}s
                     </option>
