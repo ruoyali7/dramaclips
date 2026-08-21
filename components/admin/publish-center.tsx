@@ -7,8 +7,8 @@ import {
   Send,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { PublishTimePicker } from "@/components/admin/publish-time-picker";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { defaultPublishTime, PublishTimePicker } from "@/components/admin/publish-time-picker";
 type Hook = {
   id: string;
   title: string;
@@ -48,6 +48,7 @@ type Package = {
   yixiaoerUpdatedAt?: string;
 };
 type YAccount = { id: string; name: string; platform: string; status: number };
+type DeliveryMode = "draft" | "now" | "scheduled";
 type AssetRow = {
   key: string;
   sourceId: string;
@@ -83,6 +84,7 @@ const stageNames: Record<string, string> = {
   validating_platform: "Validating platform",
   submitting_platform: "Submitting to platform",
   reconciling_platform: "Confirming live platform status",
+  saving_to_yixiaoer_draft: "Saving to Yixiaoer drafts",
 };
 function operationOf(value: Package) {
   const operation = value.yixiaoerResults?._operation;
@@ -113,6 +115,9 @@ function cancelRequested(value: Package) {
   );
 }
 function packageState(value: Package) {
+  const draft = value.yixiaoerResults?._draft;
+  if (draft && typeof draft === "object" && (draft as Record<string, unknown>).state === "saved")
+    return "Saved in Yixiaoer drafts";
   if (value.status === "published") return "Published · confirmed";
   if (value.status === "outcome_unknown") return "Needs reconciliation";
   if (value.status === "submitted" || value.status === "reconciling")
@@ -129,6 +134,42 @@ function packageState(value: Package) {
         : "Processing";
   if (Object.keys(value.yixiaoerVideo || {}).length) return "Dry-run passed";
   return "Generated only";
+}
+function platformState(value: Package, platform: string) {
+  const draft = value.yixiaoerResults?._draft;
+  if (draft && typeof draft === "object" && (draft as Record<string, unknown>).state === "saved")
+    return "Saved in Yixiaoer draft";
+  const result = value.yixiaoerResults?.[platform];
+  if (result && typeof result === "object") {
+    const state = String((result as Record<string, unknown>).state || "");
+    if (state === "published") return "Published · confirmed";
+    if (state === "failed") return "Failed · retry";
+    if (state === "outcome_unknown")
+      return (result as Record<string, unknown>).providerRequestId
+        ? "Needs confirmation"
+        : "Manual check required";
+    if (["submitted", "processing", "submitting"].includes(state))
+      return "Processing";
+    if ((result as Record<string, unknown>).preview) return "Validated";
+    if ((result as Record<string, unknown>).publish) return "Submitted";
+  }
+  if (value.status === "published") return "Published · confirmed";
+  if (value.yixiaoerAction) return "Queued";
+  if (value.status === "failed") return "Not published";
+  return "Not started";
+}
+function deliveryMethod(value: Package) {
+  const intent = value.yixiaoerResults?._intent;
+  if (value.yixiaoerResults?._draft || (intent && typeof intent === "object" && (intent as Record<string, unknown>).deliveryMode === "draft")) return "Yixiaoer draft";
+  if (value.scheduledAt) return "Scheduled";
+  return "Publish now";
+}
+function taskCanContinue(value: Package) {
+  const state = packageState(value);
+  return ![
+    "Published · confirmed",
+    "Saved in Yixiaoer drafts",
+  ].includes(state);
 }
 export function PublishCenter({
   sources,
@@ -150,7 +191,8 @@ export function PublishCenter({
   ]);
   const [account, setAccount] = useState("");
   const [campaign, setCampaign] = useState("");
-  const [scheduledAt, setScheduledAt] = useState("");
+  const [scheduledAt, setScheduledAt] = useState(defaultPublishTime);
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("draft");
   const [created, setCreated] = useState<Package | null>(null);
   const [recent, setRecent] = useState<Package[]>([]);
   const [busy, setBusy] = useState(false);
@@ -166,6 +208,7 @@ export function PublishCenter({
   const [historySize, setHistorySize] = useState(5);
   const [savingCopy, setSavingCopy] = useState(false);
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
+  const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
     fetch("/api/admin/publish-packages")
       .then(async (r) => (r.ok ? (await r.json()).packages : []))
@@ -202,7 +245,9 @@ export function PublishCenter({
   const selectedEpisode =
     source?.episodes.find((x) => String(x.episodeNumber) === asset) ||
     source?.episodes[0];
-  const selectedHook = source?.hooks.find((x) => x.id === asset);
+  const selectedHook =
+    source?.hooks.find((x) => x.id === asset) ||
+    (kind === "hook" ? source?.hooks[0] : undefined);
   const episodeNumber =
     kind === "hook"
       ? selectedHook?.sourceEpisodes[0] || 1
@@ -268,8 +313,44 @@ export function PublishCenter({
       }),
     [sources, recent],
   );
-  const dramaGroups=useMemo(()=>sources.filter(item=>assetDramaFilter==="all"||item.id===assetDramaFilter).map(item=>{const assets=assetRows.filter(row=>row.sourceId===item.id);const packages=recent.filter(pack=>pack.dramaSlug===item.slug);const publishedPackages=packages.filter(pack=>pack.status==="published");const uploaded=new Set(packages.filter(pack=>Object.keys(pack.yixiaoerVideo||{}).length).map(pack=>pack.videoUrl));const publishedPlatforms=Array.from(new Set(publishedPackages.flatMap(pack=>pack.platforms.map(platform=>platform.source))));return{source:item,assets,packages,uploaded,publishedPlatforms,published:publishedPackages.length,scheduled:packages.filter(pack=>pack.status==="scheduled").length,processing:packages.filter(pack=>Boolean(pack.yixiaoerAction)&&pack.status!=="scheduled").length,failed:packages.filter(pack=>pack.status==="failed"||pack.status==="outcome_unknown").length}}),[sources,assetRows,recent,assetDramaFilter]);
+  const dramaGroups = useMemo(
+    () =>
+      sources
+        .filter((item) => assetDramaFilter === "all" || item.id === assetDramaFilter)
+        .map((item) => {
+          const assets = assetRows.filter((row) => row.sourceId === item.id);
+          const packages = recent.filter((pack) => pack.dramaSlug === item.slug);
+          const publishedPackages = packages.filter((pack) => pack.status === "published");
+          const uploaded = new Set(
+            packages
+              .filter((pack) => Object.keys(pack.yixiaoerVideo || {}).length)
+              .map((pack) => pack.videoUrl),
+          );
+          const publishedVideos = new Set(publishedPackages.map((pack) => pack.videoUrl));
+          const publishedPlatforms = Array.from(
+            new Set(publishedPackages.flatMap((pack) => pack.platforms.map((platform) => platform.source))),
+          );
+          return {
+            source: item,
+            assets,
+            packages,
+            uploaded,
+            publishedVideos,
+            publishedPlatforms,
+            published: publishedPackages.length,
+            scheduled: packages.filter((pack) => pack.status === "scheduled").length,
+            processing: packages.filter((pack) => Boolean(pack.yixiaoerAction) && pack.status !== "scheduled").length,
+            failed: packages.filter((pack) => pack.status === "failed" || pack.status === "outcome_unknown").length,
+          };
+        }),
+    [sources, assetRows, recent, assetDramaFilter],
+  );
   const activeOperation = created ? operationOf(created) : null;
+  const draftSaved = Boolean(
+    created?.yixiaoerResults?._draft &&
+      typeof created.yixiaoerResults._draft === "object" &&
+      (created.yixiaoerResults._draft as Record<string, unknown>).state === "saved",
+  );
   const activeStarted =
     typeof activeOperation?.startedAt === "string"
       ? Date.parse(activeOperation.startedAt)
@@ -289,6 +370,13 @@ export function PublishCenter({
     (currentHistoryPage - 1) * historySize,
     currentHistoryPage * historySize,
   );
+  const attentionCount = recent.filter(
+    (item) => item.status === "failed" || item.status === "outcome_unknown",
+  ).length;
+  const activeCount = recent.filter(
+    (item) => Boolean(item.yixiaoerAction) && item.status !== "scheduled",
+  ).length;
+  const scheduledCount = recent.filter((item) => item.status === "scheduled").length;
   const supportedAccountPlatforms =
     created?.platforms
       .map((pack) => pack.source)
@@ -317,6 +405,7 @@ export function PublishCenter({
     }
     setCreated(null);
     setValidated(false);
+    setScheduledAt(defaultPublishTime());
   }
   function changeAsset(value: string) {
     setAsset(value);
@@ -369,6 +458,10 @@ export function PublishCenter({
   }
   async function create() {
     if (!source || !videoUrl || !platforms.length) return;
+    if (deliveryMode === "scheduled" && new Date(scheduledAt).getTime() <= Date.now()) {
+      setError("Choose a scheduled time in the future");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -384,7 +477,8 @@ export function PublishCenter({
           hookClipId: kind === "hook" ? selectedHook?.id : undefined,
           account,
           campaign,
-          scheduledAt: scheduledAt
+          deliveryMode,
+          scheduledAt: deliveryMode === "scheduled" && scheduledAt
             ? new Date(scheduledAt).toISOString()
             : undefined,
           platforms,
@@ -395,6 +489,9 @@ export function PublishCenter({
       setCreated(j.package);
       setRecent((x) => [j.package, ...x]);
       await loadAccounts();
+      window.requestAnimationFrame(() =>
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create package");
     } finally {
@@ -432,15 +529,17 @@ export function PublishCenter({
       setConnectionBusy(false);
     }
   }
-  async function yAction(action: "validate" | "publish") {
+  async function yAction(action: "draft" | "validate" | "publish") {
     if (!created) return;
     const future =
       Boolean(created.scheduledAt) &&
       new Date(created.scheduledAt as string).getTime() > Date.now();
     if (
-      action === "publish" &&
+      (action === "publish" || action === "draft") &&
       !window.confirm(
-        future
+        action === "draft"
+          ? "Save this package to Yixiaoer drafts? This will not publish to any social platform."
+          : future
           ? `Schedule this package for ${new Date(created.scheduledAt as string).toLocaleString()}? Railway will send it to the selected live accounts at that time.`
           : "This will publish immediately to the selected live social accounts. Continue?",
       )
@@ -541,6 +640,30 @@ export function PublishCenter({
       setConnectionBusy(false);
     }
   }
+  async function platformAction(
+    item: Package,
+    action: "reconcile" | "retry",
+    platform: string,
+  ) {
+    const message = action === "reconcile"
+      ? `Query Yixiaoer for the latest ${platform} result before retrying?`
+      : `Retry publishing to ${platform}? Already confirmed platforms will not be submitted again.`;
+    if (!window.confirm(message)) return;
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, platform, accounts: item.yixiaoerAccounts || {} }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setRecent((items) => items.map((current) => current.id === item.id ? j.package : current));
+      if (created?.id === item.id) setCreated(j.package);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update platform operation");
+    }
+  }
   function openPackage(item: Package) {
     const next = sources.find((x) => x.slug === item.dramaSlug);
     const nextPlatforms = item.platforms.map((pack) => pack.source);
@@ -550,6 +673,19 @@ export function PublishCenter({
     setVideoUrl(item.videoUrl);
     setPlatforms(nextPlatforms);
     setCreated(item);
+    setDeliveryMode(
+      item.yixiaoerResults?._draft ||
+      (item.yixiaoerResults?._intent && typeof item.yixiaoerResults._intent === "object" && (item.yixiaoerResults._intent as Record<string, unknown>).deliveryMode === "draft")
+        ? "draft"
+        : item.scheduledAt
+          ? "scheduled"
+          : "now",
+    );
+    if (item.scheduledAt) {
+      const local = new Date(item.scheduledAt);
+      const offset = local.getTimezoneOffset() * 60000;
+      setScheduledAt(new Date(local.getTime() - offset).toISOString().slice(0, 16));
+    }
     setAccountIds(item.yixiaoerAccounts || {});
     setValidated(
       item.status === "ready" &&
@@ -598,6 +734,12 @@ export function PublishCenter({
     <div className="publish-center">
       <section className="asset-library">
         <span>01 · Video asset library</span>
+        <div className="publish-summary" aria-label="Publish queue summary">
+          <span><b>{recent.length}</b><small>Tasks</small></span>
+          <span><b>{activeCount}</b><small>Processing</small></span>
+          <span><b>{scheduledCount}</b><small>Scheduled</small></span>
+          <span className={attentionCount ? "attention" : ""}><b>{attentionCount}</b><small>Needs attention</small></span>
+        </div>
         <div className="asset-filters">
           <select
             value={assetDramaFilter}
@@ -615,7 +757,28 @@ export function PublishCenter({
         <div className="drama-ledger-head">
           <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
         </div>
-        <div className="drama-ledger">{dramaGroups.map(group=><details className="drama-asset-row" key={group.source.id}><summary><div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div><div className="asset-chips">{group.source.episodes.map(ep=><i key={ep.episodeNumber} className={group.uploaded.has(ep.videoUrl)?"uploaded":""}>EP {ep.episodeNumber}</i>)}</div><div><b>{group.source.hooks.length} saved</b><small>{group.source.draftHooks.length?`${group.source.draftHooks.length} need review`:"No drafts waiting"}</small></div><div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length?group.publishedPlatforms.join(" · "):`${group.published} published · ${group.scheduled} scheduled`}</small></div><div className="drama-status">{group.processing?<span className="working">Processing</span>:group.scheduled?<span className="scheduled">Scheduled</span>:group.failed?<span className="failed">Needs attention</span>:group.published?<span className="published">Published</span>:<span>Ready</span>}<small>Expand details</small></div></summary><div className="drama-assets-expanded"><div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter(row=>row.kind==="original").map(row=><article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl)?"Uploaded to Yixiaoer":"R2 only"} · {row.latest?packageState(row.latest):"Never published"}</small>{row.latest&&<button onClick={()=>openPackage(row.latest!)}>Open latest</button>}<button onClick={()=>selectAsset(row)}>Use video</button></article>)}</div></div><div className="expanded-section"><b>Hooks</b><div>{group.assets.filter(row=>row.kind!=="original").map(row=><article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest?packageState(row.latest):"Never published"}</small>{row.latest&&<button onClick={()=>openPackage(row.latest!)}>Open latest</button>}<button onClick={()=>selectAsset(row)}>{row.kind==="draft"?"Review":"Use video"}</button></article>)}{!group.source.hooks.length&&!group.source.draftHooks.length&&<p>No hooks generated yet.</p>}</div></div></div></details>)}{!dramaGroups.length&&<p className="asset-empty">No drama matches this filter.</p>}</div>
+        <div className="drama-ledger">
+          {dramaGroups.map((group) => (
+            <details className="drama-asset-row" key={group.source.id}>
+              <summary>
+                <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
+                <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
+                <div className="asset-chips hook-chips">
+                  {group.source.hooks.map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
+                  {!group.source.hooks.length && <small>No saved hooks</small>}
+                  {group.source.draftHooks.length > 0 && <small>{group.source.draftHooks.length} need review</small>}
+                </div>
+                <div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length ? group.publishedPlatforms.join(" · ") : `${group.published} published · ${group.scheduled} scheduled`}</small></div>
+                <div className="drama-status">{group.processing ? <span className="working">Processing</span> : group.scheduled ? <span className="scheduled">Scheduled</span> : group.failed ? <span className="failed">Needs attention</span> : group.published ? <span className="published">Published</span> : <span>Ready</span>}<small>Expand details</small></div>
+              </summary>
+              <div className="drama-assets-expanded">
+                <div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter((row) => row.kind === "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl) ? "Uploaded to Yixiaoer" : "R2 only"} · {row.latest ? packageState(row.latest) : "Never published"}</small>{row.latest && <button onClick={() => openPackage(row.latest!)}>Open task</button>}<button onClick={() => selectAsset(row)}>Use video</button></article>)}</div></div>
+                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small>{row.latest && <button onClick={() => openPackage(row.latest!)}>Open task</button>}<button onClick={() => selectAsset(row)}>{row.kind === "draft" ? "Review" : "Use video"}</button></article>)}{!group.source.hooks.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
+              </div>
+            </details>
+          ))}
+          {!dramaGroups.length && <p className="asset-empty">No drama matches this filter.</p>}
+        </div>
       </section>
       <section className="publish-compose asset-selection">
         <span>02 · Exact video asset</span>
@@ -712,7 +875,28 @@ export function PublishCenter({
         )}
       </section>
       <section className="publish-compose">
-        <span>03 · Distribution</span>
+        <span>03 · Choose delivery</span>
+        <div className="delivery-mode-picker">
+          {([
+            ["draft", "Save Yixiaoer draft", "Upload and save for review. Nothing is sent to social platforms."],
+            ["now", "Publish now · 2 steps", "Prepare the task here, then validate and confirm live publish below."],
+            ["scheduled", "Schedule publish", "Validate now. Railway sends it at the selected time."],
+          ] as const).map(([mode, title, description]) => (
+            <button
+              type="button"
+              key={mode}
+              className={deliveryMode === mode ? "selected" : ""}
+              onClick={() => {
+                setDeliveryMode(mode);
+                setCreated(null);
+                setValidated(false);
+              }}
+            >
+              <b>{title}</b>
+              <small>{description}</small>
+            </button>
+          ))}
+        </div>
         <div className="platform-picker">
           <span>Platforms</span>
           <div>
@@ -752,23 +936,33 @@ export function PublishCenter({
               onChange={(e) => setCampaign(e.target.value)}
             />
           </label>
-          <label>
-            <b>Publish time · optional</b>
-            <PublishTimePicker value={scheduledAt} onChange={setScheduledAt} />
-          </label>
+          {deliveryMode === "scheduled" && (
+            <label>
+              <b>Scheduled publish time</b>
+              <PublishTimePicker value={scheduledAt} onChange={setScheduledAt} />
+            </label>
+          )}
         </div>
         <button
           className="save-draft"
           onClick={() => void create()}
-          disabled={!videoUrl || !platforms.length || busy}
+          disabled={!videoUrl || !platforms.length || busy || Boolean(created)}
         >
           {busy ? <LoaderCircle className="spin" /> : <Send />}
-          {busy ? "Building package…" : "Generate publish package"}
+          {created
+            ? "Task prepared · continue below"
+            : busy
+            ? "Preparing task…"
+            : deliveryMode === "draft"
+              ? "Prepare Yixiaoer draft"
+              : deliveryMode === "scheduled"
+                ? "Prepare scheduled publish"
+                : "Prepare immediate publish"}
         </button>
         {error && <div className="form-error">{error}</div>}
       </section>
       {created && (
-        <section className="publish-results">
+        <section className="publish-results" ref={resultsRef}>
           <div className="pack-heading">
             <div>
               <span>{packageState(created)}</span>
@@ -777,6 +971,18 @@ export function PublishCenter({
               </b>
             </div>
           </div>
+          {!created.yixiaoerAction && created.status !== "published" && !draftSaved && (
+            <div className="publish-next-step" role="status">
+              <b>
+                {deliveryMode === "draft"
+                  ? "Next: choose the publishing accounts, then save to Yixiaoer drafts."
+                  : "Next: choose the publishing accounts, run validation, then confirm publishing."}
+              </b>
+              <small>
+                Preparing a task does not publish it. The final action is completed in this panel.
+              </small>
+            </div>
+          )}
           {created.yixiaoerError && (
             <div className="form-error">{created.yixiaoerError}</div>
           )}
@@ -915,7 +1121,7 @@ export function PublishCenter({
               </details>
             ))}
           </details>
-          {created.status !== "published" && !created.yixiaoerAction && (
+          {created.status !== "published" && !created.yixiaoerAction && !draftSaved && (
             <details className="account-routing" open={!allAccountsSelected}>
               <summary>
                 <div>
@@ -968,40 +1174,46 @@ export function PublishCenter({
           )}
           {created.status !== "published" && !created.yixiaoerAction && (
             <div className="yixiaoer-actions">
-              <button
-                onClick={() => void yAction("validate")}
-                disabled={
-                  connectionBusy || !yixiaoerReady || !allAccountsSelected
-                }
-              >
-                <ShieldCheck />{" "}
-                {Object.keys(created.yixiaoerVideo || {}).length
-                  ? "Re-run validation"
-                  : "Upload, validate & dry-run"}
-              </button>
-              <button
-                className="publish-live"
-                onClick={() => void yAction("publish")}
-                disabled={connectionBusy || !validated || !allAccountsSelected}
-              >
-                <Send />{" "}
-                {created.scheduledAt &&
-                new Date(created.scheduledAt).getTime() > Date.now()
-                  ? "Confirm scheduled publish"
-                  : "Confirm live publish"}
-              </button>
+              {deliveryMode === "draft" ? (
+                <button
+                  className="publish-live"
+                  onClick={() => void yAction("draft")}
+                  disabled={connectionBusy || !yixiaoerReady || !allAccountsSelected || draftSaved}
+                >
+                  <ShieldCheck /> {draftSaved ? "Saved in Yixiaoer drafts" : "Save to Yixiaoer drafts"}
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => void yAction("validate")}
+                    disabled={connectionBusy || !yixiaoerReady || !allAccountsSelected}
+                  >
+                    <ShieldCheck /> {Object.keys(created.yixiaoerVideo || {}).length ? "Re-run validation" : "Upload, validate & dry-run"}
+                  </button>
+                  <button
+                    className="publish-live"
+                    onClick={() => void yAction("publish")}
+                    disabled={connectionBusy || !validated || !allAccountsSelected}
+                  >
+                    <Send /> {deliveryMode === "scheduled" ? "Confirm scheduled publish" : "Confirm live publish"}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </section>
       )}
       {recent.length > 0 && (
         <section className="publish-history publish-monitor">
-          <span>Publish history</span>
+          <span>04 · Publishing tasks</span>
+          <p className="task-help">
+            Use this list to check delivery status, reopen unfinished tasks, or inspect completed results. Opening a task never republishes it.
+          </p>
           <div className="monitor-head">
+            <b>Task</b>
+            <b>Method</b>
             <b>Asset</b>
-            <b>Type</b>
-            <b>Yixiaoer asset</b>
-            <b>State</b>
+            <b>Outcome</b>
           </div>
           {historyItems.map((x) => {
             const uploaded = Boolean(Object.keys(x.yixiaoerVideo || {}).length);
@@ -1015,7 +1227,7 @@ export function PublishCenter({
                       {x.id === created?.id ? " · Open" : ""}
                     </small>
                   </b>
-                  <span>{x.videoKind}</span>
+                  <span>{deliveryMethod(x)}</span>
                   <span>
                     {uploaded
                       ? "Uploaded"
@@ -1033,25 +1245,27 @@ export function PublishCenter({
                     <button onClick={() => openPackage(x)}>
                       {x.id === created?.id
                         ? "Currently open"
-                        : "Open & continue"}
+                        : taskCanContinue(x)
+                          ? "Open & continue"
+                          : "View details"}
                     </button>
                   </div>
                   {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
                   {x.platforms.map((pack) => {
-                    const result = x.yixiaoerResults?.[pack.source] as
-                      Record<string, unknown> | undefined;
+                    const result = x.yixiaoerResults?.[pack.source];
+                    const state = result && typeof result === "object"
+                      ? String((result as Record<string, unknown>).state || "")
+                      : "";
                     return (
                       <div key={pack.source}>
                         <b>{pack.source}</b>
-                        <span>
-                          {result?.publish
-                            ? "Published"
-                            : result?.preview
-                              ? "Dry-run passed"
-                              : x.yixiaoerAction
-                                ? "Waiting"
-                                : "Not started"}
-                        </span>
+                        <span>{platformState(x, pack.source)}</span>
+                        {state === "outcome_unknown" && Boolean((result as Record<string, unknown>)?.providerRequestId) && (
+                          <button onClick={() => void platformAction(x, "reconcile", pack.source)}>Reconcile</button>
+                        )}
+                        {state === "failed" && (
+                          <button onClick={() => void platformAction(x, "retry", pack.source)}>Retry platform</button>
+                        )}
                       </div>
                     );
                   })}

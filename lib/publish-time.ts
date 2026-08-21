@@ -1,5 +1,5 @@
-export function snapIsoToHalfHour(value: string) {
+export function snapIsoToTenMinutes(value: string) {
   const date = new Date(value);
-  date.setUTCMinutes(date.getUTCMinutes() < 30 ? 0 : 30, 0, 0);
+  date.setUTCMinutes(Math.floor(date.getUTCMinutes() / 10) * 10, 0, 0);
   return date.toISOString();
 }

@@ -6,10 +6,11 @@ import { getSupabaseConfig } from "./supabase-config";
 import {promoteHookDraft} from "./r2";
 import type {HookCandidate,HookJob} from "./hook-job-types";
 
-export type HookClip = { id:string; dramaSlug:string; title:string; sourceEpisodes:number[]; videoUrl:string; durationSeconds:number; status:"saved"; createdAt:string };
-type Row={id:string;drama_slug:string;title:string;source_episodes:number[];video_url:string;duration_seconds:number;status:"saved";created_at:string};
+type Range={start:number;end:number;episodeNumber?:number};
+export type HookClip = { id:string; dramaSlug:string; title:string; sourceEpisodes:number[]; sourceRanges?:Range[]; renderedRanges?:Range[]; coverSourceTimestamp?:number; videoUrl:string; durationSeconds:number; status:"saved"; createdAt:string };
+type Row={id:string;drama_slug:string;title:string;source_episodes:number[];source_ranges?:Range[];rendered_ranges?:Range[];cover_source_timestamp?:number;video_url:string;duration_seconds:number;status:"saved";created_at:string};
 function localPath(){return process.env.HOOK_CLIP_FILE||path.join(process.cwd(),"data","hook-clips.json")}
-function fromRow(row:Row):HookClip{return{id:row.id,dramaSlug:row.drama_slug,title:row.title,sourceEpisodes:row.source_episodes,videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status,createdAt:row.created_at}}
+function fromRow(row:Row):HookClip{return{id:row.id,dramaSlug:row.drama_slug,title:row.title,sourceEpisodes:row.source_episodes,sourceRanges:row.source_ranges,renderedRanges:row.rendered_ranges,coverSourceTimestamp:row.cover_source_timestamp==null?undefined:Number(row.cover_source_timestamp),videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status,createdAt:row.created_at}}
 async function localRows():Promise<HookClip[]>{try{const rows=JSON.parse(await readFile(localPath(),"utf8"));return Array.isArray(rows)?rows:[]}catch{return[]}}
 async function writeLocal(rows:HookClip[]){const file=localPath();await mkdir(path.dirname(file),{recursive:true});const temp=`${file}.tmp`;await writeFile(temp,JSON.stringify(rows,null,2),{mode:0o600});await rename(temp,file)}
 async function request(pathname:string,init:RequestInit={}){const config=getSupabaseConfig();const response=await fetch(`${config.url}/rest/v1/${pathname}`,{...init,headers:{apikey:config.key,Authorization:`Bearer ${config.key}`,"Content-Type":"application/json",...init.headers},cache:"no-store"});if(!response.ok)throw new Error(`Supabase ${response.status}: ${(await response.text()).slice(0,180)}`);return response.status===204?null:response.json()}

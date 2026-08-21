@@ -13,3 +13,4 @@ work/
 worker/**/__pycache__/
 worker/**/*.pyc
 .vercel
+.env*

@@ -20,7 +20,12 @@ def cleanup_worker_temps(max_age=3600):
     if path.is_dir() and path.stat().st_mtime<cutoff:shutil.rmtree(path)
    except OSError:pass
 def call(path,payload):
- r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=60);r.raise_for_status();return r.json()
+ r=requests.post(f"{API}{path}",headers=HEAD,json=payload,timeout=60)
+ if not r.ok:
+  try:detail=(r.json() or {}).get("message") or r.text
+  except ValueError:detail=r.text
+  raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
+ return r.json()
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -156,6 +161,9 @@ def yixer_file(job,payload,platform,command,dry=False,heartbeat=None,ambiguous_t
  args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
  if dry:args.append("--dry-run")
  return yxer(job,args,heartbeat,ambiguous_timeout)
+def yixer_draft(job,payload,heartbeat=None):
+ root=Path(tempfile.mkdtemp(prefix="drama-yixer-",dir=os.getenv("WORK_DIR","/tmp")));path=root/"draft-payload.json";path.write_text(json.dumps(payload))
+ return yxer(job,["draft","save",str(path)],heartbeat)
 def find_value(data,names):
  if isinstance(data,dict):
   for key,value in data.items():
@@ -169,9 +177,9 @@ def find_value(data,names):
    if found:return found
  return None
 def provider_request_id(data):return find_value(data,{"tasksetid","requestid","taskid"})
-def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid"})
+def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
 def provider_state(data):
- raw=(find_value(data,{"status","state","publishstatus","taskstatus"}) or "").lower()
+ raw=(find_value(data,{"status","state","publishstatus","taskstatus","stagestatus","stages"}) or "").lower()
  if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
  if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
  return "processing"
@@ -186,7 +194,7 @@ def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
   time.sleep(10)
  raise PublishOutcomeUnknown(f"Yixiaoer accepted {source} task {request_id}, but it did not reach a terminal state within 10 minutes; retry is blocked")
 def download_publish_video(job,status,results):
- root=Path(tempfile.mkdtemp(prefix="drama-publish-",dir=os.getenv("WORK_DIR","/tmp")));target=root/"publish-video.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
+ root=Path(tempfile.mkdtemp(prefix="drama-publish-",dir=os.getenv("WORK_DIR","/tmp")));target=root/f"publish-video-{job['id']}.mp4";started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
  with requests.get(job["videoUrl"],stream=True,timeout=(30,120)) as response:
   response.raise_for_status();total=int(response.headers.get("content-length") or 0);received=0
   with target.open("wb") as output:
@@ -197,7 +205,7 @@ def download_publish_video(job,status,results):
     if cancel_requested(publish_update(job,status,min(25,progress),results={**results,"_operation":operation})):raise PublishCanceled("Canceled by user")
  return target
 def run_publish(job):
- action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};video=stored.get("video") or (stored if stored.get("key") else {});cover=stored.get("cover") or {};results=job.get("yixiaoerResults") or {};local_video=None
+ action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};candidate_video=stored.get("video") or (stored if stored.get("key") else {});video=candidate_video if "publish-video-" in str(candidate_video.get("key") or "") else {};cover=stored.get("cover") if stored.get("coverPackageId")==job["id"] else {};results=job.get("yixiaoerResults") or {};control=results.get("_control") or {};local_video=None
  if not video.get("duration") or not cover:
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
@@ -208,13 +216,23 @@ def run_publish(job):
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
   video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat))
  if not cover:
-  cover_path=local_video.with_name("publish-cover.jpg");subprocess.check_call(["ffmpeg","-y","-ss","0","-i",str(local_video),"-frames:v","1","-q:v","2",str(cover_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  duration=float(probe(local_video)["format"]["duration"]);requested=float(job.get("coverTimestampSeconds") or 0);cover_timestamp=max(0,min(requested,max(0,duration-.1)))
+  cover_path=local_video.with_name(f"publish-cover-{job['id']}.jpg");subprocess.check_call(["ffmpeg","-y","-ss",str(cover_timestamp),"-i",str(local_video),"-frames:v","1","-q:v","2",str(cover_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   def cover_heartbeat():return cancel_requested(publish_update(job,status,33,results={**results,"_operation":{"stage":"uploading_cover_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
   cover=yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat))
- assets={"video":video,"cover":cover};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+ assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  payloads={pack["source"]:yixer_payload(job,pack,video,cover) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
- pending=[p for p in job["platforms"] if p["source"] in payloads and not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish")))]
+ if control.get("reconcilePlatforms"):
+  for source in control["reconcilePlatforms"]:
+   prior=results.get(source) if isinstance(results.get(source),dict) else {}
+   request_id=prior.get("providerRequestId") or provider_request_id(prior.get("publish"))
+   if not request_id:raise RuntimeError(f"No Yixiaoer task id available for {source} reconciliation")
+   try:reconcile_publish(job,source,request_id,results,assets,payloads,lambda: cancel_requested(publish_update(job,"reconciling",95,results=results)))
+   except PublishOutcomeUnknown as error:
+    results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+  publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
+ pending=[p for p in job["platforms"] if p["source"] in payloads and (control.get("retryPlatform")==p["source"] or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
@@ -240,6 +258,13 @@ def run_publish(job):
     publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
   if action!="publish":results[source]=checked
   publish_update(job,status if action!="publish" else "publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
+ if control.get("saveDraft"):
+  forms=[payloads[p["source"]]["publishArgs"]["accountForms"][0] for p in job["platforms"] if p["source"] in payloads]
+  draft_payload={"action":"save-draft","publishType":"video","platforms":[form["platformName"] for form in forms],"publishChannel":"cloud","desc":f"{job['dramaTitle']} · EP {job['episodeNumber']}","publishArgs":{"video":video,"cover":cover,"coverKey":cover["key"],"accountForms":forms}}
+  def draft_heartbeat():return cancel_requested(publish_update(job,"validating",92,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"saving_to_yixiaoer_draft","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  if draft_heartbeat():raise PublishCanceled("Canceled by user")
+  response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+  publish_update(job,"ready",100,terminal=True,video=assets,payloads=payloads,results=results);return
  publish_update(job,"ready" if action=="validate" else "published",100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  cleanup_worker_temps(0)
@@ -254,7 +279,12 @@ def main():
    if publish_job:
     worked=True
     try:run_publish(publish_job)
-    except Exception as e:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+    except Exception as e:
+     current_results=publish_job.get("yixiaoerResults") or {};uncertain=any(isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing") for value in current_results.values())
+     if uncertain:
+      for value in current_results.values():
+       if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
+     publish_update(publish_job,"outcome_unknown" if uncertain else "failed",100,terminal=True,results=current_results,error=str(e)[:900])
    cleanup_worker_temps()
    if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)

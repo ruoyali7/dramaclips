@@ -63,7 +63,9 @@ async function request(path: string, init: RequestInit = {}) {
     throw new Error(
       `Supabase ${response.status}: ${(await response.text()).slice(0, 220)}`,
     );
-  return response.status === 204 ? null : response.json();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 function safe(row: Row) {
   return {
@@ -174,16 +176,22 @@ export async function createPublishPackage(input: {
   account?: string;
   campaign?: string;
   scheduledAt?: string;
+  deliveryMode: "draft" | "now" | "scheduled";
   platforms: PublishingPlatform[];
   siteUrl: string;
 }) {
   await request("publish_packages?select=id&limit=0");
   const priorRows = (await request(
-    `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=yixiaoer_video&order=created_at.desc&limit=10`,
-  )) as Pick<Row, "yixiaoer_video">[];
-  const reusableVideo =
-    priorRows.find((row) => Object.keys(row.yixiaoer_video || {}).length)
-      ?.yixiaoer_video || {};
+    `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=id,yixiaoer_video&order=created_at.desc&limit=10`,
+  )) as Pick<Row, "id" | "yixiaoer_video">[];
+  const reusable = priorRows.find((row) => {
+    const stored = row.yixiaoer_video || {};
+    const video = (stored.video || stored) as Record<string, unknown>;
+    return typeof video.key === "string" && video.key.includes(row.id);
+  });
+  const reusableVideo = reusable
+    ? { video: (reusable.yixiaoer_video?.video || reusable.yixiaoer_video) as Record<string, unknown> }
+    : {};
   const packs: PlatformPack[] = [];
   for (const source of input.platforms) {
     const link = await createShortLink({
@@ -225,6 +233,7 @@ export async function createPublishPackage(input: {
       status: "ready",
       platforms: packs,
       yixiaoer_video: reusableVideo,
+      yixiaoer_results: { _intent: { deliveryMode: input.deliveryMode } },
     }),
   })) as Row[];
   return safe(rows[0]);
@@ -291,7 +300,15 @@ export async function updatePublishPackageYixiaoer(
 }
 export async function enqueueYixiaoerPackage(
   id: string,
-  input: { action: "validate" | "publish"; accounts: Record<string, string> },
+  input: {
+    action: "validate" | "publish";
+    accounts: Record<string, string>;
+    control?: {
+      reconcilePlatforms?: string[];
+      retryPlatform?: string;
+      saveDraft?: boolean;
+    };
+  },
 ) {
   const item = await getPublishPackage(id);
   if (!item) throw new Error("Publish package not found");
@@ -310,7 +327,9 @@ export async function enqueueYixiaoerPackage(
           heartbeatAt: now,
         },
       }
-    : item.yixiaoerResults;
+    : input.control
+      ? { ...item.yixiaoerResults, _control: input.control }
+      : item.yixiaoerResults;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}`,
     {
