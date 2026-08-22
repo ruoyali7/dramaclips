@@ -82,19 +82,18 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
           <button className={view === "month" ? "selected" : ""} onClick={() => setView("month")}>Month</button>
         </div>
       </div>
-      <div className="publish-calendar-weekdays">{cells.map((date) => <b key={date.toISOString()}>{date.toLocaleDateString(undefined, { weekday: "short" })}</b>)}</div>
+      <div className="publish-calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <b key={day}>{day}</b>)}</div>
       <div className="publish-calendar-grid">
         {cells.map((date) => {
           const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
           const items = byDay.get(key) || [];
           return <div className={`publish-calendar-day${view === "month" && date.getMonth() !== anchor.getMonth() ? " muted" : ""}`} key={key}>
             <time>{date.getDate()}</time>
-            {items.slice(0, 3).map((item) => <button className={`publish-calendar-event ${statusLabel(item).toLowerCase()}`} key={item.id} onClick={() => setSelected(item)}>
+            {items.map((item) => <button className={`publish-calendar-event ${statusLabel(item).toLowerCase()}`} key={item.id} onClick={() => setSelected(item)}>
               <strong>{eventDate(item).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong>
               <span>{sourceName(item.dramaSlug)} · EP {item.episodeNumber}</span>
               <small>{item.platforms.map((platform) => platformNames[platform.source] || platform.source).join(" · ")}</small>
             </button>)}
-            {items.length > 3 && <small className="publish-calendar-more">+{items.length - 3} more</small>}
           </div>;
         })}
       </div>
