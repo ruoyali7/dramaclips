@@ -48,7 +48,7 @@ export default async function Page() {
           })),
       ),
     vizardProjects: vizardProjects.filter((project) => project.dramaSlug === source.slug),
-    vizardAssets: vizardAssets.filter((asset) => asset.dramaSlug === source.slug),
+    vizardAssets: vizardAssets.filter((asset) => asset.dramaSlug === source.slug && asset.reviewState === "approved"),
   }));
   const r2Account = process.env.R2_ACCOUNT_ID?.trim();
   const r2Bucket = process.env.R2_BUCKET_NAME?.trim();
