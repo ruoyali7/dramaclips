@@ -9,7 +9,7 @@ import "./library.css";
 
 export const dynamic="force-dynamic";
 export default async function Page({searchParams}:{searchParams:Promise<{dramaId?:string}>}){
-  const [base,hooks,jobs,vizardAssets]=await Promise.all([listVizardSources(),listHookClips(),listHookJobs(undefined,25),listVizardAssets()]);
+  const [base,hooks,jobs,vizardAssets]=await Promise.all([listVizardSources(),listHookClips(),listHookJobs(undefined,100),listVizardAssets()]);
   const sources=base.map(source=>{const sourceJobs=jobs.filter(job=>job.dramaId===source.id);const vizardHooks=vizardAssets.filter(asset=>asset.dramaSlug===source.slug).map(asset=>({id:asset.id,title:asset.title,sourceEpisodes:[asset.episodeNumber],videoUrl:asset.videoUrl,durationSeconds:asset.durationSeconds}));return{...source,hooks:[...hooks.filter(hook=>hook.dramaSlug===source.slug),...vizardHooks],latestJob:sourceJobs[0],analyzedEpisodes:Array.from(new Set(sourceJobs.flatMap(job=>job.sourceEpisodes))).sort((a,b)=>a-b)}});
   const {dramaId}=await searchParams;
   return <AdminShell active="Hook Studio"><div className="admin-title"><div><p>In-house social editing</p><h1>Hook Studio</h1></div></div><HookStudio sources={sources} initialSourceId={dramaId}/><details className="additional-tool" id="vizard"><summary><span><b>Additional tool</b>Vizard batch clipping</span><small>Open only when you need the external clipping fallback</small></summary><VizardStudio sources={sources}/></details></AdminShell>;

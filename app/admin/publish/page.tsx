@@ -19,7 +19,7 @@ export default async function Page() {
   const [base, hooks, hookJobs, yixiaoerReady, vizardProjects, vizardAssets] = await Promise.all([
     listVizardSources(),
     listHookClips(),
-    listHookJobs(undefined, 25),
+    listHookJobs(undefined, 100),
     yixiaoerConfigured(),
     listVizardProjects(),
     listVizardAssets(),

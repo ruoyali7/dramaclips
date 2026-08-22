@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import { getSupabaseConfig } from "./supabase-config";
-import {promoteHookDraft} from "./r2";
+import {deleteR2Object,promoteHookDraft} from "./r2";
 import type {HookCandidate,HookJob} from "./hook-job-types";
 
 type Range={start:number;end:number;episodeNumber?:number};
@@ -25,4 +25,15 @@ export async function approveHookCandidate(job:HookJob,candidate:HookCandidate,t
   const payload={job_id:job.id,candidate_id:candidate.id,drama_id:job.dramaId,drama_slug:job.dramaSlug,title,hook_type:candidate.hookType,source_episodes:job.sourceEpisodes,source_ranges:candidate.sourceRanges,rendered_ranges:candidate.renderedRanges,object_key:promoted.objectKey,video_url:promoted.publicUrl,duration_seconds:candidate.durationSeconds,width:candidate.width||1080,height:candidate.height||1920,video_codec:candidate.videoCodec||"h264",audio_codec:candidate.audioCodec||"aac",size_bytes:candidate.sizeBytes||null,score:candidate.score,score_components:candidate.scoreComponents,rationale:candidate.rationale,risk_level:candidate.riskLevel,cover_source_timestamp:candidate.coverSourceTimestamp,transcript_version:"faster-whisper-1.2",ranking_version:"grounded-visual-v3",render_version:"ffmpeg-v2",review_state:"approved",reviewed_by:"admin",reviewed_at:new Date().toISOString(),status:"saved"};
   const rows=await request("hook_clips",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify(payload)}) as Row[];
   await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}`,{method:"PATCH",body:JSON.stringify({review_state:"approved",reviewed_by:"admin",reviewed_at:new Date().toISOString()})});return fromRow(rows[0]);
+}
+export async function deletePendingHookCandidate(job:HookJob,candidate:HookCandidate){
+  if(candidate.reviewState!=="pending")throw new Error("Only pending drafts can be deleted");
+  const config=getSupabaseConfig();
+  if(config.configured){
+    const existing=await request(`hook_clips?candidate_id=eq.${encodeURIComponent(candidate.id)}&select=id`) as {id:string}[];
+    if(existing.length)throw new Error("This candidate is already saved and cannot be deleted as a draft");
+  }
+  if(candidate.draftObjectKey)await deleteR2Object(candidate.draftObjectKey);
+  if(!config.configured)return;
+  await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}&job_id=eq.${encodeURIComponent(job.id)}&review_state=eq.pending`,{method:"DELETE"});
 }
