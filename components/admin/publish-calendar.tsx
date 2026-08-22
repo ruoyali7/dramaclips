@@ -67,6 +67,7 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
       const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
       map.set(key, [...(map.get(key) || []), item]);
     });
+    map.forEach((items, key) => map.set(key, items.sort((left, right) => eventDate(left).getTime() - eventDate(right).getTime())));
     return map;
   }, [packages]);
 
