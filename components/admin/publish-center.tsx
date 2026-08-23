@@ -423,6 +423,22 @@ export function PublishCenter({
     setValidated(false);
     setScheduledAt(defaultPublishTime());
   }
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetSource = params.get("sourceId");
+    const targetKind = params.get("kind");
+    const targetAsset = params.get("asset");
+    const next = sources.find((item) => item.id === targetSource);
+    if (!next || targetKind !== "hook") return;
+    const hooks = [...next.hooks, ...next.vizardAssets.map((item) => ({ id: item.id, title: item.title, sourceEpisodes: [item.episodeNumber], videoUrl: item.videoUrl, durationSeconds: item.durationSeconds }))];
+    const selected = hooks.find((item) => item.id === targetAsset) || hooks[0];
+    if (!selected) return;
+    setSourceId(next.id);
+    setKind("hook");
+    setAsset(selected.id);
+    setVideoUrl(selected.videoUrl);
+    window.setTimeout(() => document.querySelector(".asset-selection")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [sources]);
   function changeAsset(value: string) {
     setAsset(value);
     setVideoUrl(
