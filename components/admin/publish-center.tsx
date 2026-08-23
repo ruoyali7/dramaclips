@@ -193,7 +193,7 @@ export function PublishCenter({
   const [account, setAccount] = useState("");
   const [campaign, setCampaign] = useState("");
   const [scheduledAt, setScheduledAt] = useState(defaultPublishTime);
-  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("draft");
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("scheduled");
   const [created, setCreated] = useState<Package | null>(null);
   const [recent, setRecent] = useState<Package[]>([]);
   const [busy, setBusy] = useState(false);
@@ -902,8 +902,8 @@ export function PublishCenter({
         <span>03 · Choose delivery</span>
         <div className="delivery-mode-picker">
           {([
-            ["now", "Publish now", "One click queues publishing to the selected live accounts."],
             ["scheduled", "Schedule publish", "One click schedules Railway to publish at the selected time."],
+            ["now", "Publish now", "One click queues publishing to the selected live accounts."],
             ["draft", "Save Yixiaoer draft", "Upload and save for review. Nothing is sent to social platforms."],
           ] as const).map(([mode, title, description]) => (
             <button
