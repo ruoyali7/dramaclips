@@ -5,7 +5,6 @@ import {
   Copy,
   LoaderCircle,
   Send,
-  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultPublishTime, PublishTimePicker } from "@/components/admin/publish-time-picker";
@@ -210,6 +209,7 @@ export function PublishCenter({
   const [historySize, setHistorySize] = useState(5);
   const [savingCopy, setSavingCopy] = useState(false);
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
+  const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
     fetch("/api/admin/publish-packages")
@@ -217,6 +217,9 @@ export function PublishCenter({
       .then(setRecent)
       .catch(() => {});
   }, []);
+  useEffect(() => {
+    if (yixiaoerReady) void loadAccounts(platforms, accountIds);
+  }, [yixiaoerReady, platforms]);
   useEffect(() => {
     if (!created || !created.yixiaoerAction) return;
     const timer = window.setInterval(async () => {
@@ -391,10 +394,8 @@ export function PublishCenter({
     (item) => Boolean(item.yixiaoerAction) && item.status !== "scheduled",
   ).length;
   const scheduledCount = recent.filter((item) => item.status === "scheduled").length;
-  const supportedAccountPlatforms =
-    created?.platforms
-      .map((pack) => pack.source)
-      .filter((platform) => Boolean(yNames[platform])) || [];
+  const supportedAccountPlatforms = (created?.platforms.map((pack) => pack.source) || platforms)
+    .filter((platform) => Boolean(yNames[platform]));
   const selectedAccountCount = supportedAccountPlatforms.filter((platform) =>
     Boolean(accountIds[platform]),
   ).length;
@@ -471,10 +472,27 @@ export function PublishCenter({
       setUploading(false);
     }
   }
+  async function queuePackage(item: Package) {
+    const action = deliveryMode === "draft" ? "draft" : "publish";
+    const response = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, confirm: action === "publish", accounts: accountIds }),
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.message);
+    setCreated(json.package);
+    setRecent((items) => items.map((current) => current.id === json.package.id ? json.package : current));
+    return json.package as Package;
+  }
   async function create() {
     if (!source || !videoUrl || !platforms.length) return;
     if (deliveryMode === "scheduled" && new Date(scheduledAt).getTime() <= Date.now()) {
       setError("Choose a scheduled time in the future");
+      return;
+    }
+    if (!allAccountsSelected) {
+      setError("Choose a Yixiaoer account for every selected publishing platform");
       return;
     }
     setBusy(true);
@@ -502,8 +520,8 @@ export function PublishCenter({
       const j = await r.json();
       if (!r.ok) throw new Error(j.message);
       setCreated(j.package);
-      setRecent((x) => [j.package, ...x]);
-      await loadAccounts();
+      setRecent((x) => [j.package, ...x.filter((item) => item.id !== j.package.id)]);
+      await queuePackage(j.package);
       window.requestAnimationFrame(() =>
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
@@ -544,52 +562,7 @@ export function PublishCenter({
       setConnectionBusy(false);
     }
   }
-  async function yAction(action: "draft" | "validate" | "publish") {
-    if (!created) return;
-    const future =
-      Boolean(created.scheduledAt) &&
-      new Date(created.scheduledAt as string).getTime() > Date.now();
-    if (
-      (action === "publish" || action === "draft") &&
-      !window.confirm(
-        action === "draft"
-          ? "Save this package to Yixiaoer drafts? This will not publish to any social platform."
-          : future
-          ? `Schedule this package for ${new Date(created.scheduledAt as string).toLocaleString()}? Railway will send it to the selected live accounts at that time.`
-          : "This will publish immediately to the selected live social accounts. Continue?",
-      )
-    )
-      return;
-    setConnectionBusy(true);
-    setError("");
-    try {
-      await persistCopy();
-      const r = await fetch(
-        `/api/admin/publish-packages/${created.id}/yixiaoer`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            action,
-            confirm: action === "publish",
-            accounts: accountIds,
-          }),
-        },
-      );
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.message);
-      setCreated(j.package);
-      setRecent((items) =>
-        items.map((item) => (item.id === j.package.id ? j.package : item)),
-      );
-      setValidated(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Yixiaoer operation failed");
-    } finally {
-      setConnectionBusy(false);
-    }
-  }
-  function editCopy(source: string, field: "hook" | "caption", value: string) {
+  function editCopy(source: string, field: "hook" | "cta" | "hashtags" | "caption", value: string) {
     if (!created) return;
     setCreated({
       ...created,
@@ -750,7 +723,7 @@ export function PublishCenter({
       <section className="asset-library">
         <span>01 · Video asset library</span>
         <div className="publish-summary" aria-label="Publish queue summary">
-          <span><b>{recent.length}</b><small>Tasks</small></span>
+          <span><b>{recent.length}</b><small>Results</small></span>
           <span><b>{activeCount}</b><small>Processing</small></span>
           <span><b>{scheduledCount}</b><small>Scheduled</small></span>
           <span className={attentionCount ? "attention" : ""}><b>{attentionCount}</b><small>Needs attention</small></span>
@@ -787,8 +760,8 @@ export function PublishCenter({
                 <div className="drama-status">{group.processing ? <span className="working">Processing</span> : group.scheduled ? <span className="scheduled">Scheduled</span> : group.failed ? <span className="failed">Needs attention</span> : group.published ? <span className="published">Published</span> : <span>Ready</span>}<small>Expand details</small></div>
               </summary>
               <div className="drama-assets-expanded">
-                <div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter((row) => row.kind === "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl) ? "Uploaded to Yixiaoer" : "R2 only"} · {row.latest ? packageState(row.latest) : "Never published"}</small>{row.latest && <button onClick={() => openPackage(row.latest!)}>Open task</button>}<button onClick={() => selectAsset(row)}>Use video</button></article>)}</div></div>
-                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small>{row.latest && <button onClick={() => openPackage(row.latest!)}>Open task</button>}<button onClick={() => selectAsset(row)}>{row.kind === "draft" ? "Review" : "Use video"}</button></article>)}{!group.source.hooks.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
+                <div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter((row) => row.kind === "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl) ? "Uploaded to Yixiaoer" : "R2 only"} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}</div></div>
+                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}{!group.source.hooks.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
               </div>
             </details>
           ))}
@@ -894,8 +867,8 @@ export function PublishCenter({
         <div className="delivery-mode-picker">
           {([
             ["draft", "Save Yixiaoer draft", "Upload and save for review. Nothing is sent to social platforms."],
-            ["now", "Publish now · 2 steps", "Prepare the task here, then validate and confirm live publish below."],
-            ["scheduled", "Schedule publish", "Validate now. Railway sends it at the selected time."],
+            ["now", "Publish now", "One click queues publishing to the selected live accounts."],
+            ["scheduled", "Schedule publish", "One click schedules Railway to publish at the selected time."],
           ] as const).map(([mode, title, description]) => (
             <button
               type="button"
@@ -958,21 +931,25 @@ export function PublishCenter({
             </label>
           )}
         </div>
+        <details className="account-routing" open={!allAccountsSelected}>
+          <summary><div><b>Publishing accounts</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected</small></div><span>{allAccountsSelected ? "Ready" : "Action required"}</span></summary>
+          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => <label className="yixiaoer-account" key={p}><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label>)}</div>
+        </details>
         <button
           className="save-draft"
           onClick={() => void create()}
-          disabled={!videoUrl || !platforms.length || busy || Boolean(created)}
+          disabled={!videoUrl || !platforms.length || busy || Boolean(created) || !allAccountsSelected}
         >
           {busy ? <LoaderCircle className="spin" /> : <Send />}
           {created
-            ? "Task prepared · continue below"
+            ? "Publishing started"
             : busy
             ? "Preparing task…"
             : deliveryMode === "draft"
-              ? "Prepare Yixiaoer draft"
+              ? "Save to Yixiaoer drafts"
               : deliveryMode === "scheduled"
-                ? "Prepare scheduled publish"
-                : "Prepare immediate publish"}
+                ? "Schedule publish"
+                : "Publish now"}
         </button>
         {error && <div className="form-error">{error}</div>}
       </section>
@@ -986,16 +963,11 @@ export function PublishCenter({
               </b>
             </div>
           </div>
-          {!created.yixiaoerAction && created.status !== "published" && !draftSaved && (
+          {!created.yixiaoerAction && created.status === "ready" && !draftSaved && (
             <div className="publish-next-step" role="status">
-              <b>
-                {deliveryMode === "draft"
-                  ? "Next: choose the publishing accounts, then save to Yixiaoer drafts."
-                  : "Next: choose the publishing accounts, run validation, then confirm publishing."}
-              </b>
-              <small>
-                Preparing a task does not publish it. The final action is completed in this panel.
-              </small>
+              <b>Publishing did not enter the queue.</b>
+              <small>Check the error, then retry the same result. This does not create another history row.</small>
+              <button onClick={() => void queuePackage(created)}>Retry publishing</button>
             </div>
           )}
           {created.yixiaoerError && (
@@ -1136,91 +1108,17 @@ export function PublishCenter({
               </details>
             ))}
           </details>
-          {created.status !== "published" && !created.yixiaoerAction && !draftSaved && (
-            <details className="account-routing" open={!allAccountsSelected}>
-              <summary>
-                <div>
-                  <b>Publishing accounts</b>
-                  <small>
-                    {selectedAccountCount}/{supportedAccountPlatforms.length}{" "}
-                    selected
-                  </small>
-                </div>
-                <span>{allAccountsSelected ? "Ready" : "Action required"}</span>
-              </summary>
-              <div className="account-routing-body">
-                <p>
-                  Refresh only after adding, removing, or reconnecting an
-                  account in Yixiaoer.
-                </p>
-                <button
-                  onClick={() => void loadAccounts(platforms, accountIds)}
-                  disabled={connectionBusy || !yixiaoerReady}
-                >
-                  {connectionBusy ? "Refreshing…" : "Refresh accounts"}
-                </button>
-                {supportedAccountPlatforms.map((p) => (
-                  <label className="yixiaoer-account" key={p}>
-                    <b>{yNames[p]} account</b>
-                    <select
-                      value={accountIds[p] || ""}
-                      onChange={(e) => {
-                        setAccountIds((x) => ({ ...x, [p]: e.target.value }));
-                        setValidated(false);
-                      }}
-                    >
-                      <option value="">Choose account</option>
-                      {accounts
-                        .filter(
-                          (a) =>
-                            a.platform.toLowerCase() ===
-                            yNames[p].toLowerCase(),
-                        )
-                        .map((a) => (
-                          <option value={a.id} key={a.id}>
-                            {a.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
-            </details>
-          )}
-          {created.status !== "published" && !created.yixiaoerAction && (
-            <div className="yixiaoer-actions">
-              {deliveryMode === "draft" ? (
-                <button
-                  className="publish-live"
-                  onClick={() => void yAction("draft")}
-                  disabled={connectionBusy || !yixiaoerReady || !allAccountsSelected || draftSaved}
-                >
-                  <ShieldCheck /> {draftSaved ? "Saved in Yixiaoer drafts" : "Save to Yixiaoer drafts"}
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => void yAction("validate")}
-                    disabled={connectionBusy || !yixiaoerReady || !allAccountsSelected}
-                  >
-                    <ShieldCheck /> {Object.keys(created.yixiaoerVideo || {}).length ? "Re-run validation" : "Upload, validate & dry-run"}
-                  </button>
-                  <button
-                    className="publish-live"
-                    onClick={() => void yAction("publish")}
-                    disabled={connectionBusy || !validated || !allAccountsSelected}
-                  >
-                    <Send /> {deliveryMode === "scheduled" ? "Confirm scheduled publish" : "Confirm live publish"}
-                  </button>
-                </>
-              )}
+          {!created.yixiaoerAction && (created.status === "failed" || created.status === "outcome_unknown") && (
+            <div className="failed-platform-actions">
+              <b>Fix the copy above, save edits, then continue only the affected platform.</b>
+              {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="failed"?<button key={pack.source} onClick={() => void platformAction(created,"retry",pack.source)}>Retry {pack.source}</button>:state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
             </div>
           )}
         </section>
       )}
       {recent.length > 0 && (
         <section className="publish-history publish-monitor">
-          <span>04 · Publishing tasks</span>
+          <span>04 · Publishing history</span>
           <p className="task-help">
             Use this list to check delivery status, reopen unfinished tasks, or inspect completed results. Opening a task never republishes it.
           </p>

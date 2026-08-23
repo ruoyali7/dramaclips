@@ -182,8 +182,8 @@ export async function createPublishPackage(input: {
 }) {
   await request("publish_packages?select=id&limit=0");
   const priorRows = (await request(
-    `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=id,yixiaoer_video&order=created_at.desc&limit=10`,
-  )) as Pick<Row, "id" | "yixiaoer_video">[];
+    `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=*&order=created_at.desc&limit=10`,
+  )) as Row[];
   const reusable = priorRows.find((row) => {
     const stored = row.yixiaoer_video || {};
     const video = (stored.video || stored) as Record<string, unknown>;
@@ -192,6 +192,14 @@ export async function createPublishPackage(input: {
   const reusableVideo = reusable
     ? { video: (reusable.yixiaoer_video?.video || reusable.yixiaoer_video) as Record<string, unknown> }
     : {};
+  const replaceableFailure = priorRows.find((row) => {
+    if (row.status !== "failed" || row.yixiaoer_action) return false;
+    return !Object.values(row.yixiaoer_results || {}).some((value) => {
+      if (!value || typeof value !== "object") return false;
+      const state = String((value as Record<string, unknown>).state || "");
+      return state === "published" || state === "outcome_unknown";
+    });
+  });
   const packs: PlatformPack[] = [];
   for (const source of input.platforms) {
     const link = await createShortLink({
@@ -217,10 +225,7 @@ export async function createPublishPackage(input: {
       ),
     });
   }
-  const rows = (await request("publish_packages", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify({
+  const packageBody = {
       drama_slug: input.dramaSlug,
       episode_number: input.episodeNumber,
       video_url: input.videoUrl,
@@ -233,8 +238,20 @@ export async function createPublishPackage(input: {
       status: "ready",
       platforms: packs,
       yixiaoer_video: reusableVideo,
+      yixiaoer_payloads: {},
       yixiaoer_results: { _intent: { deliveryMode: input.deliveryMode } },
-    }),
+      yixiaoer_action: null,
+      yixiaoer_accounts: {},
+      yixiaoer_progress: 0,
+      yixiaoer_error: null,
+      yixiaoer_lease_owner: null,
+      yixiaoer_lease_expires_at: null,
+      updated_at: new Date().toISOString(),
+    };
+  const rows = (await request(replaceableFailure ? `publish_packages?id=eq.${encodeURIComponent(replaceableFailure.id)}` : "publish_packages", {
+    method: replaceableFailure ? "PATCH" : "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(packageBody),
   })) as Row[];
   return safe(rows[0]);
 }
