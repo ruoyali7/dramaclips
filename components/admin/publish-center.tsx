@@ -256,6 +256,7 @@ export function PublishCenter({
   const selectedHook =
     hookOptions.find((x) => x.id === asset) ||
     (kind === "hook" ? hookOptions[0] : undefined);
+  const selectedHookClipId = selectedHook && source?.hooks.some((hook) => hook.id === selectedHook.id) ? selectedHook.id : undefined;
   const episodeNumber =
     kind === "hook"
       ? selectedHook?.sourceEpisodes[0] || 1
@@ -523,7 +524,7 @@ export function PublishCenter({
           videoUrl,
           videoKind: kind,
           videoLabel,
-          hookClipId: kind === "hook" ? selectedHook?.id : undefined,
+          hookClipId: selectedHookClipId,
           account,
           campaign,
           deliveryMode,
