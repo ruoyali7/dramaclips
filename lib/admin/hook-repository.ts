@@ -3,14 +3,14 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import { getSupabaseConfig } from "./supabase-config";
-import {deleteR2Object,promoteHookDraft} from "./r2";
+import {deleteR2Object,deleteSocialVideo,promoteHookDraft} from "./r2";
 import type {HookCandidate,HookJob} from "./hook-job-types";
 
 type Range={start:number;end:number;episodeNumber?:number};
-export type HookClip = { id:string; dramaSlug:string; title:string; sourceEpisodes:number[]; sourceRanges?:Range[]; renderedRanges?:Range[]; coverSourceTimestamp?:number; videoUrl:string; durationSeconds:number; status:"saved"; createdAt:string };
-type Row={id:string;drama_slug:string;title:string;source_episodes:number[];source_ranges?:Range[];rendered_ranges?:Range[];cover_source_timestamp?:number;video_url:string;duration_seconds:number;status:"saved";created_at:string};
+export type HookClip = { id:string; candidateId?:string; dramaSlug:string; title:string; sourceEpisodes:number[]; sourceRanges?:Range[]; renderedRanges?:Range[]; coverSourceTimestamp?:number; videoUrl:string; durationSeconds:number; status:"saved"; createdAt:string };
+type Row={id:string;candidate_id?:string;drama_slug:string;title:string;source_episodes:number[];source_ranges?:Range[];rendered_ranges?:Range[];cover_source_timestamp?:number;video_url:string;duration_seconds:number;status:"saved";created_at:string};
 function localPath(){return process.env.HOOK_CLIP_FILE||path.join(process.cwd(),"data","hook-clips.json")}
-function fromRow(row:Row):HookClip{return{id:row.id,dramaSlug:row.drama_slug,title:row.title,sourceEpisodes:row.source_episodes,sourceRanges:row.source_ranges,renderedRanges:row.rendered_ranges,coverSourceTimestamp:row.cover_source_timestamp==null?undefined:Number(row.cover_source_timestamp),videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status,createdAt:row.created_at}}
+function fromRow(row:Row):HookClip{return{id:row.id,candidateId:row.candidate_id,dramaSlug:row.drama_slug,title:row.title,sourceEpisodes:row.source_episodes,sourceRanges:row.source_ranges,renderedRanges:row.rendered_ranges,coverSourceTimestamp:row.cover_source_timestamp==null?undefined:Number(row.cover_source_timestamp),videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status,createdAt:row.created_at}}
 async function localRows():Promise<HookClip[]>{try{const rows=JSON.parse(await readFile(localPath(),"utf8"));return Array.isArray(rows)?rows:[]}catch{return[]}}
 async function writeLocal(rows:HookClip[]){const file=localPath();await mkdir(path.dirname(file),{recursive:true});const temp=`${file}.tmp`;await writeFile(temp,JSON.stringify(rows,null,2),{mode:0o600});await rename(temp,file)}
 async function request(pathname:string,init:RequestInit={}){const config=getSupabaseConfig();const response=await fetch(`${config.url}/rest/v1/${pathname}`,{...init,headers:{apikey:config.key,Authorization:`Bearer ${config.key}`,"Content-Type":"application/json",...init.headers},cache:"no-store"});if(!response.ok)throw new Error(`Supabase ${response.status}: ${(await response.text()).slice(0,180)}`);return response.status===204?null:response.json()}
@@ -27,7 +27,6 @@ export async function approveHookCandidate(job:HookJob,candidate:HookCandidate,t
   await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}`,{method:"PATCH",body:JSON.stringify({review_state:"approved",reviewed_by:"admin",reviewed_at:new Date().toISOString()})});return fromRow(rows[0]);
 }
 export async function deletePendingHookCandidate(job:HookJob,candidate:HookCandidate){
-  if(candidate.reviewState!=="pending")throw new Error("Only pending drafts can be deleted");
   const config=getSupabaseConfig();
   if(config.configured){
     const existing=await request(`hook_clips?candidate_id=eq.${encodeURIComponent(candidate.id)}&select=id`) as {id:string}[];
@@ -35,5 +34,6 @@ export async function deletePendingHookCandidate(job:HookJob,candidate:HookCandi
   }
   if(candidate.draftObjectKey)await deleteR2Object(candidate.draftObjectKey);
   if(!config.configured)return;
-  await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}&job_id=eq.${encodeURIComponent(job.id)}&review_state=eq.pending`,{method:"DELETE"});
+  await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}&job_id=eq.${encodeURIComponent(job.id)}`,{method:"DELETE"});
 }
+export async function deleteHookClip(id:string){const config=getSupabaseConfig();if(!config.configured)throw new Error("Deleting saved hooks requires Supabase");const rows=await request(`hook_clips?id=eq.${encodeURIComponent(id)}&select=*`) as Row[];const clip=rows[0];if(!clip)throw new Error("Hook not found");const active=await request(`publish_packages?hook_clip_id=eq.${encodeURIComponent(id)}&status=in.(scheduled,publishing,published)&select=id`) as {id:string}[];if(active.length)throw new Error("Published or scheduled hooks cannot be deleted");const pathname=decodeURIComponent(new URL(clip.video_url).pathname).replace(/^\//,"");const key=pathname.slice(pathname.indexOf("dramas/"));if(key.startsWith("dramas/"))await deleteSocialVideo(key);await request(`hook_clips?id=eq.${encodeURIComponent(id)}`,{method:"DELETE"});return fromRow(clip)}

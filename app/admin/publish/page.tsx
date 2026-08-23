@@ -35,7 +35,7 @@ export default async function Page() {
         job.candidates
           .filter(
             (candidate) =>
-              candidate.reviewState === "pending" && candidate.draftUrl,
+              candidate.draftUrl,
           )
           .map((candidate) => ({
             id: candidate.id,

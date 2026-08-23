@@ -1,16 +1,24 @@
 import {AdminShell} from "@/components/admin/admin-shell";
-import {HookStudio} from "@/components/admin/hook-studio";
-import {VizardStudio} from "@/components/admin/vizard-studio";
+import {HookStudioDashboard} from "@/components/admin/hook-studio-dashboard";
 import {listHookClips} from "@/lib/admin/hook-repository";
 import {listHookJobs} from "@/lib/admin/hook-job-repository";
+import {listPublishPackages} from "@/lib/admin/publish-repository";
 import {listVizardSources} from "@/lib/admin/repository";
 import {listVizardAssets} from "@/lib/admin/vizard-repository";
 import "./library.css";
 
 export const dynamic="force-dynamic";
-export default async function Page({searchParams}:{searchParams:Promise<{dramaId?:string}>}){
-  const [base,hooks,jobs,vizardAssets]=await Promise.all([listVizardSources(),listHookClips(),listHookJobs(undefined,100),listVizardAssets()]);
-  const sources=base.map(source=>{const sourceJobs=jobs.filter(job=>job.dramaId===source.id);const assets=vizardAssets.filter(asset=>asset.dramaSlug===source.slug);const vizardHooks=assets.filter(asset=>asset.reviewState==="approved").map(asset=>({id:asset.id,title:asset.title,sourceEpisodes:[asset.episodeNumber],videoUrl:asset.videoUrl,durationSeconds:asset.durationSeconds}));const vizardDrafts=assets.filter(asset=>asset.reviewState==="pending").map(asset=>({id:asset.id,title:asset.title,sourceEpisodes:[asset.episodeNumber],videoUrl:asset.videoUrl,durationSeconds:asset.durationSeconds}));return{...source,hooks:[...hooks.filter(hook=>hook.dramaSlug===source.slug),...vizardHooks],vizardDrafts,latestJob:sourceJobs[0],analyzedEpisodes:Array.from(new Set(sourceJobs.flatMap(job=>job.sourceEpisodes))).sort((a,b)=>a-b)}});
-  const {dramaId}=await searchParams;
-  return <AdminShell active="Hook Studio"><div className="admin-title"><div><p>In-house social editing</p><h1>Hook Studio</h1></div></div><HookStudio sources={sources} initialSourceId={dramaId}/><details className="additional-tool" id="vizard"><summary><span><b>Additional tool</b>Vizard batch clipping</span><small>Open only when you need the external clipping fallback</small></summary><VizardStudio sources={sources}/></details></AdminShell>;
+type AssetStatus="published"|"publishing"|"scheduled"|"failed"|"ready";
+function statusFor(packages:Awaited<ReturnType<typeof listPublishPackages>>,id:string|undefined,url:string):AssetStatus{const relevant=packages.filter(item=>(id&&item.hookClipId===id)||item.videoUrl===url);for(const status of ["published","publishing","scheduled","failed"] as const)if(relevant.some(item=>item.status===status))return status;return"ready"}
+export default async function Page(){
+ const [sources,clips,jobs,vizardAssets,packages]=await Promise.all([listVizardSources(),listHookClips(),listHookJobs(undefined,100),listVizardAssets(),listPublishPackages()]);
+ const sourceMap=new Map(sources.map(source=>[source.slug,source]));const savedCandidateIds=new Set(clips.map(clip=>clip.candidateId).filter(Boolean));
+ const assets=[
+  ...clips.map(clip=>{const source=sourceMap.get(clip.dramaSlug)!;return{id:clip.id,kind:"clip" as const,dramaId:source?.id||"",dramaSlug:clip.dramaSlug,dramaTitle:source?.title||clip.dramaSlug,coverUrl:source?.coverUrl||"",title:clip.title,sourceEpisodes:clip.sourceEpisodes,videoUrl:clip.videoUrl,durationSeconds:clip.durationSeconds,generator:"Built-in" as const,status:statusFor(packages,clip.id,clip.videoUrl),createdAt:clip.createdAt}}),
+  ...jobs.flatMap(job=>job.candidates.filter(candidate=>candidate.draftUrl&&!savedCandidateIds.has(candidate.id)).map(candidate=>{const source=sourceMap.get(job.dramaSlug);return{id:candidate.id,kind:"candidate" as const,jobId:job.id,dramaId:job.dramaId,dramaSlug:job.dramaSlug,dramaTitle:source?.title||job.dramaSlug,coverUrl:source?.coverUrl||"",title:candidate.title,sourceEpisodes:job.sourceEpisodes,videoUrl:candidate.draftUrl!,durationSeconds:candidate.durationSeconds||0,generator:"Built-in" as const,status:statusFor(packages,undefined,candidate.draftUrl!),createdAt:job.createdAt}})),
+  ...vizardAssets.map(asset=>{const source=sourceMap.get(asset.dramaSlug);return{id:asset.id,kind:"vizard" as const,dramaId:source?.id||"",dramaSlug:asset.dramaSlug,dramaTitle:source?.title||asset.dramaSlug,coverUrl:source?.coverUrl||"",title:asset.title,sourceEpisodes:[asset.episodeNumber],videoUrl:asset.videoUrl,durationSeconds:asset.durationSeconds,generator:"Vizard" as const,status:statusFor(packages,undefined,asset.videoUrl),createdAt:asset.createdAt}})
+ ].filter(asset=>asset.dramaId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+ const analyzed=new Map<string,Set<number>>();for(const asset of assets){const set=analyzed.get(asset.dramaId)||new Set<number>();asset.sourceEpisodes.forEach(number=>set.add(number));analyzed.set(asset.dramaId,set)}
+ const dashboardSources=sources.map(source=>({...source,analyzedEpisodes:Array.from(analyzed.get(source.id)||[]).sort((a,b)=>a-b)}));
+ return <AdminShell active="Hook Studio"><div className="admin-title"><div><p>Hook operations</p><h1>Hook Studio</h1></div></div><HookStudioDashboard sources={dashboardSources} assets={assets}/></AdminShell>
 }
