@@ -7,8 +7,8 @@ type Source = { id: string; title: string; slug: string; language: string; episo
 type QueueRow = { episodeNumber: number; videoUrl: string; selected: boolean; state: "ready" | "submitting" | "done" | "failed"; detail?: string };
 type Project = { id: string; episodeNumber: number; projectName: string; vizardProjectId: string; status: string; finalVideoUrl?: string; finalLabel?: string; settings: Record<string, unknown>; editInfo: Record<string, unknown> };
 
-export function VizardStudio({ sources }: { sources: Source[] }) {
-  const [sourceId, setSourceId] = useState(sources[0]?.id || "");
+export function VizardStudio({ sources, initialSourceId, selectedEpisodeNumbers = [] }: { sources: Source[]; initialSourceId?: string; selectedEpisodeNumbers?: number[] }) {
+  const [sourceId, setSourceId] = useState(initialSourceId || sources[0]?.id || "");
   const source = sources.find((item) => item.id === sourceId);
   const [queues, setQueues] = useState<Record<string, QueueRow[]>>({});
   const [running, setRunning] = useState(false);
@@ -16,7 +16,7 @@ export function VizardStudio({ sources }: { sources: Source[] }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectBusy, setProjectBusy] = useState("");
   useEffect(() => { if (!source) return; void fetch(`/api/admin/vizard/projects?dramaSlug=${encodeURIComponent(source.slug)}`, { cache: "no-store" }).then((r) => r.json()).then((data) => setProjects(data.projects || [])).catch(() => setProjects([])); }, [source]);
-  const queue = useMemo(() => queues[sourceId] || source?.episodes.map((episode) => ({ ...episode, selected: true, state: "ready" as const })) || [], [queues, source, sourceId]);
+  const queue = useMemo(() => queues[sourceId] || source?.episodes.map((episode) => ({ ...episode, selected: selectedEpisodeNumbers.includes(episode.episodeNumber), state: "ready" as const })) || [], [queues, source, sourceId, selectedEpisodeNumbers]);
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== "ready"), [projects]);
   function setQueue(next: QueueRow[]) { setQueues((all) => ({ ...all, [sourceId]: next })); }
   function patch(number: number, value: Partial<QueueRow>) {
