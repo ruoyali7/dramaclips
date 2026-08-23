@@ -133,7 +133,7 @@ function packageState(value: Package) {
       : value.status === "publishing"
         ? "Publishing"
         : "Processing";
-  if (Object.keys(value.yixiaoerVideo || {}).length) return "Dry-run passed";
+  if (Object.keys(value.yixiaoerVideo || {}).length) return "Uploaded to Yixiaoer";
   return "Generated only";
 }
 function platformState(value: Package, platform: string) {
