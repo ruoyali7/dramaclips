@@ -12,7 +12,7 @@ function isSameDrama(a: { slug: string; publicCode: string; title: string }, b: 
 }
 
 function toDrama(row: Awaited<ReturnType<typeof getPublishedDramaDrafts>>[number]): Drama {
-  return { id: row.id, slug: row.slug, publicCode: row.publicCode, title: row.title, hook: row.description.slice(0, 150), description: row.description, coverUrl: row.coverUrl, tags: row.tags, status: "published", routeSlug: row.slug, promoCode: row.promoCode, accent: "#d96b43" };
+  return { id: row.id, slug: row.slug, publicCode: row.publicCode, title: row.title, hook: row.description.slice(0, 150), description: row.description, coverUrl: row.coverUrl, tags: row.tags, status: "published", routeSlug: row.slug, promoCode: row.promoCode, appPromotionUrl: row.appCpsUrlEncrypted ? decryptSensitive(row.appCpsUrlEncrypted) : undefined, accent: "#d96b43" };
 }
 
 export async function getCatalog() {

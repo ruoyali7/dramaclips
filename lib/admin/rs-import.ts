@@ -2,7 +2,7 @@ import "server-only";
 
 export type ImportedDrama = {
   title?: string; slug?: string; publicCode?: string; promoCode?: string; language?: string;
-  tags?: string[]; description?: string; coverUrl?: string; cpsUrl?: string; chapterCount?: number; freeChapterCount?: number;
+  tags?: string[]; description?: string; coverUrl?: string; cpsUrl?: string; appCpsUrl?: string; chapterCount?: number; freeChapterCount?: number;
 };
 
 export function parseRsUrl(value: string) {
@@ -46,12 +46,13 @@ export function normalizeRsPayload(payload: unknown): ImportedDrama {
   const title = first(map, ["book_name", "title", "book_title", "name"]);
   const promoCode = first(map, ["promotion_code", "promo_code", "resource_code", "code"]);
   const cpsUrl = first(map, ["book_promotion_link", "resource_promotion_link", "promotion_url", "promote_url", "cps_url"]);
+  const appCpsUrl = first(map, ["app_promotion_link", "app_promotion_url", "app_promote_url"]);
   const rawTags = map.tags ?? map.tag_list ?? map.labels ?? map.category_list;
   return {
     title, slug: title ? slugify(title) : undefined,
     publicCode: promoCode && /^\d{4,8}$/.test(promoCode) ? promoCode : undefined,
     promoCode, language: first(map, ["language", "lang", "book_language"])?.toLowerCase().startsWith("zh") ? "zh" : "en",
-    tags: list(rawTags), description: first(map, ["description", "book_desc", "intro", "introduction", "abstract", "summary"]),
+    tags: list(rawTags), description: first(map, ["description", "book_desc", "intro", "introduction", "abstract", "summary"]), appCpsUrl,
     coverUrl: first(map, ["cover_url", "book_cover", "cover", "cover_image"]), cpsUrl,
     chapterCount: number(map, ["chapter_count", "total_chapter_num", "chapter_num", "total_chapters"]),
     freeChapterCount: number(map, ["free_chapter_count", "free_chapter_num", "free_chapters", "preview_chapter_count"]),
@@ -70,6 +71,7 @@ export function parseRsText(text: string): ImportedDrama {
   const promoCode = matchingAfter(["资源推广口令", "Resource Promotion Code", "Content Referral Code"], /^\d{4,8}$/) || lines.find((line) => /^\d{6,8}$/.test(line));
   const capturedPromotionLinks = lines.filter((line) => /^https:\/\/reelslink\.com\/cps\//.test(line));
   // RS exposes the App Promotion Link first and the content-specific link last.
+  const appCpsUrl = capturedPromotionLinks.at(0);
   const cpsUrl = capturedPromotionLinks.at(-1);
   const languageLine = lines.find((line) => /^(英语|中文|English|Chinese)$/i.test(line));
   const tagLanguagePosition = languageLine ? lines.indexOf(languageLine) : -1;
@@ -83,7 +85,7 @@ export function parseRsText(text: string): ImportedDrama {
   const freeChapterCount = chapterLine ? Number(chapterLine.match(/前\s*(\d+)\s*章节免费|first\s*(\d+)\s*(?:(?:chapters?|episodes?)\s*)?free/i)?.slice(1).find(Boolean)) || undefined : undefined;
   const capturedImages = lines.map((line) => line.match(/^DRAMACLIPS_IMAGE\|([^|]*)\|(https?:\/\/[^|]+)\|(\d+)\|(\d+)$/)).filter((match): match is RegExpMatchArray => Boolean(match));
   const cover = capturedImages.find((match) => /cover/i.test(match[1]) && !/avatar/i.test(match[1])) || capturedImages.find((match) => Number(match[5]) > Number(match[4]) && Number(match[4]) >= 160);
-  return { title, slug: title ? slugify(title) : undefined, publicCode: promoCode, promoCode, language: /中文|Chinese/i.test(languageLine || "") ? "zh" : "en", tags, description, coverUrl: cover?.[2], cpsUrl, chapterCount, freeChapterCount };
+  return { title, slug: title ? slugify(title) : undefined, publicCode: promoCode, promoCode, language: /中文|Chinese/i.test(languageLine || "") ? "zh" : "en", tags, description, coverUrl: cover?.[2], cpsUrl, appCpsUrl, chapterCount, freeChapterCount };
 }
 
 export async function importFromRs(link?: string, detailsText?: string) {

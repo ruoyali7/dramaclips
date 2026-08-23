@@ -28,7 +28,7 @@ type Source = {
   vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
   vizardAssets: { id: string; episodeNumber: number; title: string; videoUrl: string; durationSeconds: number }[];
 };
-type Pack = { source: string; hook: string; caption: string };
+type Pack = { source: string; hook: string; cta?: string; hashtags?: string; hashtagSource?: string; caption: string };
 type Package = {
   id: string;
   dramaSlug: string;
@@ -567,7 +567,13 @@ export function PublishCenter({
     setCreated({
       ...created,
       platforms: created.platforms.map((pack) =>
-        pack.source === source ? { ...pack, [field]: value } : pack,
+        pack.source !== source
+          ? pack
+          : field === "cta"
+            ? { ...pack, cta: value, caption: pack.caption.replace(pack.cta || "", value) }
+            : field === "hashtags"
+              ? { ...pack, hashtags: value, caption: pack.caption.replace(pack.hashtags || "", value) }
+              : { ...pack, [field]: value },
       ),
     });
   }
@@ -1101,6 +1107,25 @@ export function PublishCenter({
                     }
                   />
                 </label>
+                <div className="copy-fields-row">
+                  <label>
+                    <b>CTA</b>
+                    <input
+                      value={pack.cta || ""}
+                      disabled={Boolean(created.yixiaoerAction) || created.status === "published"}
+                      onChange={(e) => editCopy(pack.source, "cta", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <b>Hashtags</b>
+                    <input
+                      value={pack.hashtags || ""}
+                      disabled={Boolean(created.yixiaoerAction) || created.status === "published"}
+                      onChange={(e) => editCopy(pack.source, "hashtags", e.target.value)}
+                    />
+                  </label>
+                </div>
+                {pack.hashtagSource && <small>Hashtag source: {pack.hashtagSource}</small>}
                 <button onClick={() => void copy(pack.caption, pack.source)}>
                   {copied === pack.source ? <Check /> : <Copy />} Copy{" "}
                   {pack.source}

@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { getSupabaseConfig } from "./supabase-config";
 import { createShortLink } from "./analytics-repository";
+import { recommendHashtags } from "./hashtag-recommendation";
 
 export const publishingPlatforms = [
   "tiktok",
@@ -16,6 +17,9 @@ type PlatformPack = {
   shortCode: string;
   url: string;
   hook: string;
+  cta: string;
+  hashtags: string;
+  hashtagSource: string;
   caption: string;
 };
 type Row = {
@@ -105,6 +109,9 @@ function hashTag(value: string) {
     .replace(/[^a-zA-Z0-9]+/g, "")
     .slice(0, 28);
 }
+function uniqueTags(values: string[]) {
+  return Array.from(new Set(values.map(hashTag).filter(Boolean))).slice(0, 7);
+}
 function copyFor(
   source: PublishingPlatform,
   title: string,
@@ -113,34 +120,36 @@ function copyFor(
   promoCode: string,
   description: string,
   tags: string[],
+  hookLabel?: string,
 ) {
   const firstSentence =
     description.match(/^.+?[.!?](?:\s|$)/)?.[0] || description;
   const hookLead: Record<PublishingPlatform, string> = {
-    tiktok: "😱 Wait—this changes everything:",
-    instagram: "✨ The moment everything changed:",
+    tiktok: "😱 The secret is finally out:",
+    instagram: "✨ This changes their relationship:",
     youtube: "👀 You won't expect what happens next:",
-    facebook: "💔 One decision changed the entire story:",
+    facebook: "💔 One decision changes everything:",
     x: "😳 This scene changes everything:",
   };
-  const hook = `${hookLead[source]} ${shorten(firstSentence, source === "x" ? 65 : 150)}`;
-  const titleTag = hashTag(title);
-  const tagSet = [
-    "#ReelShort",
-    "#DramaClips",
-    "#ShortDrama",
-    ...(source === "youtube" ? ["#Shorts"] : []),
-    ...(titleTag ? [`#${titleTag}`] : []),
-    ...tags
-      .slice(0, 2)
-      .map((tag) => `#${hashTag(tag)}`)
-      .filter((tag) => tag !== "#"),
+  const hook = `${hookLead[source]} ${shorten(hookLabel || firstSentence, source === "x" ? 65 : 120)}`;
+  const tagCandidates = [
+    { tag: "ReelShort", relevance: 75, competition: 65 },
+    { tag: "DramaClips", relevance: 95, competition: 45 },
+    { tag: "ShortDrama", relevance: 95, competition: 60 },
+    ...(source === "youtube" ? [{ tag: "Shorts", relevance: 85, competition: 80 }] : []),
+    { tag: title, relevance: 90, competition: 25 },
+    ...tags.slice(0, 3).map((tag) => ({ tag, relevance: 82, competition: 45 })),
+    ...(hookLabel ? [{ tag: hookLabel, relevance: 65, competition: 35 }] : []),
   ];
+  const tagSet = uniqueTags(recommendHashtags(source, tagCandidates).map((candidate) => candidate.tag)).map((tag) => `#${tag}`);
+  const hashtagSource = "catalog-fallback";
   const top = `🔥 Watch now 👉 ${url}`;
   const code = `🔍 Search “${promoCode}” in ReelShort or DramaClips`;
+  const cta = "👉🏻 Continue watching in the app";
+  const hashtags = tagSet.join(" ");
   if (source === "x") {
-    const fixed = `${top}\n${hook}\n${code}\n#ReelShort #ShortDrama`;
-    return { hook, caption: shorten(fixed, 280) };
+    const fixed = `${top}\n${hook}\n${cta}\n${code}\n${hashtags}`;
+    return { hook, cta, hashtags, hashtagSource, caption: shorten(fixed, 280) };
   }
   const descriptionLimit: Record<Exclude<PublishingPlatform, "x">, number> = {
     tiktok: 420,
@@ -154,12 +163,12 @@ function copyFor(
     "🌟 Continue the story here",
     hook,
     `🎬 ${title} · EP ${episode}`,
-    "👉🏻 📲 Download the ReelShort app",
+    cta,
     code,
     `✨ ${story}`,
-    tagSet.join(" "),
+    hashtags,
   ].join("\n");
-  return { hook, caption };
+  return { hook, cta, hashtags, hashtagSource, caption };
 }
 
 export async function createPublishPackage(input: {
@@ -222,6 +231,7 @@ export async function createPublishPackage(input: {
         input.promoCode,
         input.description,
         input.tags,
+        input.videoKind === "hook" ? input.videoLabel : undefined,
       ),
     });
   }

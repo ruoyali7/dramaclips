@@ -1,7 +1,7 @@
 export type Drama = {
   id: string; slug: string; publicCode: string; title: string; hook: string;
   description: string; coverUrl: string; tags: string[]; status: "published" | "paused";
-  routeSlug: string; promoCode?: string; accent: string;
+  routeSlug: string; promoCode?: string; appPromotionUrl?: string; accent: string;
 };
 
 export type Episode = {

@@ -4,7 +4,7 @@ import { CheckCircle2, CloudUpload, ExternalLink, Plus, Trash2 } from "lucide-re
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
-type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean };
+type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean; hasAppCpsUrl: boolean };
 const initial: EpisodeRow[] = [1, 2, 3, 4, 5].map((episodeNumber) => ({ episodeNumber, videoUrl: "" }));
 const acceptedTypes = new Set(["video/mp4", "video/quicktime", "video/x-msvideo", "video/3gpp"]);
 
@@ -63,7 +63,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "Could not read RS Boost details");
       const drama = result.drama as Record<string, unknown>;
-      for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl"] as const) {
+      for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl", "appCpsUrl"] as const) {
         const value = drama[name];
         const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
         if (field && typeof value === "string" && value) field.value = value;
@@ -241,10 +241,11 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     setError("");
     const form = new FormData(event.currentTarget);
     const cpsUrl = String(form.get("cpsUrl") || "").trim();
+    const appCpsUrl = String(form.get("appCpsUrl") || "").trim();
     const body = {
       title: form.get("title"), slug: form.get("slug"), publicCode: form.get("promoCode"), promoCode: form.get("promoCode"),
       language: form.get("language"), tags: String(form.get("tags") || "").split(",").map((item) => item.trim()).filter(Boolean),
-      description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: cpsUrl || undefined,
+      description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: cpsUrl || undefined, appCpsUrl: appCpsUrl || undefined,
       episodes: episodes.map(({ episodeNumber, videoUrl }) => ({ episodeNumber, videoUrl })),
     };
     const response = await fetch(initialDrama ? `/api/admin/dramas/${initialDrama.id}` : "/api/admin/dramas", { method: initialDrama ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -275,7 +276,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
       <div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input className={episode.status === "Ready" ? "ready-url" : ""} type="url" required value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => patchEpisode(index, { videoUrl: event.target.value })} />{episode.status && <small><span>{episode.name}</span><strong>{episode.status === "Ready" ? "Ready · editable" : episode.status === "Uploading" ? `Uploading · ${episode.progress ?? 0}%` : episode.status}</strong></small>}{typeof episode.progress === "number" && <i className={episode.status?.toLowerCase()} style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" aria-label={`Remove episode ${episode.episodeNumber}`} onClick={() => removeEpisode(index)}><Trash2 /></button>}</label>)}</div>
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: rows.length + 1, videoUrl: "" }])} disabled={episodes.length >= 100}><Plus /> Add URL manually</button>}
     </section>
-    <section><span>03 · Watch Full destination</span><p>Use the RS <b>Content Promotion Link</b>, not the App Promotion Link. Viewers are sent here after the free previews.</p><label className="sensitive-field"><b>Content promotion link</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>{initialDrama?.hasCpsUrl ? "An encrypted destination is saved. Enter a new link only to replace it." : "Encrypted server-side and never returned after saving."}</small></label></section>
+    <section><span>03 · RS promotion links</span><p>临时使用 App Promotion Link：用户点击 Full Watch 后自动复制 Content Code，再打开 ReelShort 搜索。</p><label className="sensitive-field"><b>Content promotion link（恢复剧集直达时使用）</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>保存原始剧集 link，不会被临时模式覆盖。</small></label><label className="sensitive-field"><b>App promotion link（当前 Full Watch 使用）</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>打开 ReelShort 后，在搜索框粘贴页面自动复制的 Content Code。</small></label></section>
     {error && <div className="form-error">{error}</div>}
     {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Draft saved"}: {result.title}</b><span>{result.episodeCount} preview episodes ready.</span></div></div>}
     <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & saving…" : initialDrama ? "Save changes" : "Save encrypted draft"}</button>

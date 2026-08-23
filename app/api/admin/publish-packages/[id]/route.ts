@@ -2,7 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {z,ZodError} from "zod";
 import {getPublishPackage,publishingPlatforms,updatePublishPackagePlatforms} from "@/lib/admin/publish-repository";
 
-const platformSchema=z.object({source:z.enum(publishingPlatforms),shortCode:z.string().max(100),url:z.string().url(),hook:z.string().max(500),caption:z.string().max(10000)});
+const platformSchema=z.object({source:z.enum(publishingPlatforms),shortCode:z.string().max(100),url:z.string().url(),hook:z.string().max(500),cta:z.string().max(180).optional(),hashtags:z.string().max(500).optional(),hashtagSource:z.string().max(80).optional(),caption:z.string().max(10000)});
 const schema=z.object({platforms:z.array(platformSchema).min(1).max(5)});
 
 export async function PATCH(request:NextRequest,{params}:{params:Promise<{id:string}>}){
@@ -12,7 +12,7 @@ export async function PATCH(request:NextRequest,{params}:{params:Promise<{id:str
   if(item.yixiaoerAction)return NextResponse.json({message:"Copy cannot be edited while a publish operation is running"},{status:409});
   if(item.status==="published")return NextResponse.json({message:"Published copy is locked"},{status:409});
   const existing=new Map(item.platforms.map(platform=>[platform.source,platform]));
-  const platforms=input.platforms.map(platform=>{const original=existing.get(platform.source);if(!original)throw new Error(`Unknown platform ${platform.source}`);return{...original,hook:platform.hook,caption:platform.caption}});
+  const platforms=input.platforms.map(platform=>{const original=existing.get(platform.source);if(!original)throw new Error(`Unknown platform ${platform.source}`);return{...original,hook:platform.hook,cta:platform.cta||original.cta||"",hashtags:platform.hashtags||original.hashtags||"",caption:platform.caption}});
   return NextResponse.json({package:await updatePublishPackagePlatforms(id,platforms)});
  }catch(error){
   if(error instanceof ZodError)return NextResponse.json({message:"Check the generated copy"},{status:400});
