@@ -64,7 +64,7 @@
 .hook-assets-panel,.hook-generator{background:#fff;border:1px solid #deddd7;padding:26px}
 .hook-section-title,.hook-generator>summary{display:flex;align-items:center;justify-content:space-between;gap:20px}
 .hook-section-title span,.hook-generator>summary span{color:#a06048;text-transform:uppercase;letter-spacing:.12em;font-size:9px}
-.hook-section-title h2,.hook-generator>summary h2{font:25px Georgia,serif;margin:4px 0 0}
+.hook-section-title h2,.hook-generator>summary h2{font-family:var(--font-display),serif;font-size:29px;font-weight:500;letter-spacing:-.02em;margin:4px 0 0}
 .hook-section-title>div:last-child{text-align:right}
 .hook-section-title>div:last-child b,.hook-section-title>div:last-child small{display:block}
 .hook-section-title>div:last-child b{font:24px Georgia,serif}
@@ -89,7 +89,7 @@
 .asset-status.publishing,.asset-status.scheduled{background:#fff4df;color:#8d681f}
 .hook-preview{display:grid;grid-template-columns:minmax(220px,360px) 1fr;gap:24px;padding:18px;background:#faf9f6;border-top:1px solid #e8e6e0}
 .hook-preview video{width:100%;max-height:420px;background:#111}
-.hook-preview h3{font:22px Georgia,serif;margin:14px 0 7px}
+.hook-preview h3{font-family:var(--font-display),serif;font-size:22px;font-weight:500;letter-spacing:-.015em;margin:14px 0 7px}
 .hook-preview p{font-size:10px;color:#777}
 .hook-preview button{display:flex;align-items:center;gap:6px;border:1px solid #cfcac0;background:#fff;padding:9px 12px;margin-top:20px}
 .hook-preview button svg{width:14px}
