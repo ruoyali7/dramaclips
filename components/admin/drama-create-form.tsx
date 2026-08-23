@@ -278,7 +278,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     </section>
     <section><span>03 · RS promotion links</span><p>临时使用 App Promotion Link：用户点击 Full Watch 后自动复制 Content Code，再打开 ReelShort 搜索。</p><label className="sensitive-field"><b>Content promotion link（恢复剧集直达时使用）</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>保存原始剧集 link，不会被临时模式覆盖。</small></label><label className="sensitive-field"><b>App promotion link（当前 Full Watch 使用）</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>打开 ReelShort 后，在搜索框粘贴页面自动复制的 Content Code。</small></label></section>
     {error && <div className="form-error">{error}</div>}
-    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Draft saved"}: {result.title}</b><span>{result.episodeCount} preview episodes ready.</span></div></div>}
-    <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & saving…" : initialDrama ? "Save changes" : "Save encrypted draft"}</button>
+    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published"}: {result.title}</b><span>{result.episodeCount} preview episodes ready and live.</span></div></div>}
+    <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & publishing…" : initialDrama ? "Save changes" : "Publish drama"}</button>
   </form>;
 }
