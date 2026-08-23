@@ -902,9 +902,9 @@ export function PublishCenter({
         <span>03 · Choose delivery</span>
         <div className="delivery-mode-picker">
           {([
-            ["draft", "Save Yixiaoer draft", "Upload and save for review. Nothing is sent to social platforms."],
             ["now", "Publish now", "One click queues publishing to the selected live accounts."],
             ["scheduled", "Schedule publish", "One click schedules Railway to publish at the selected time."],
+            ["draft", "Save Yixiaoer draft", "Upload and save for review. Nothing is sent to social platforms."],
           ] as const).map(([mode, title, description]) => (
             <button
               type="button"
