@@ -209,6 +209,8 @@ export function PublishCenter({
   const [historySize, setHistorySize] = useState(5);
   const [savingCopy, setSavingCopy] = useState(false);
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
+  const [assetPage, setAssetPage] = useState(1);
+  const [assetPageSize, setAssetPageSize] = useState(5);
   const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -257,6 +259,9 @@ export function PublishCenter({
     hookOptions.find((x) => x.id === asset) ||
     (kind === "hook" ? hookOptions[0] : undefined);
   const selectedHookClipId = selectedHook && source?.hooks.some((hook) => hook.id === selectedHook.id) ? selectedHook.id : undefined;
+  const selectedAssetId = asset || (kind === "original"
+    ? String(source?.episodes[0]?.episodeNumber || "")
+    : hookOptions[0]?.id || "");
   const episodeNumber =
     kind === "hook"
       ? selectedHook?.sourceEpisodes[0] || 1
@@ -331,7 +336,7 @@ export function PublishCenter({
       }),
     [sources, recent],
   );
-  const dramaGroups = useMemo(
+  const allDramaGroups = useMemo(
     () =>
       sources
         .filter((item) => assetDramaFilter === "all" || item.id === assetDramaFilter)
@@ -362,6 +367,12 @@ export function PublishCenter({
           };
         }),
     [sources, assetRows, recent, assetDramaFilter],
+  );
+  const assetPages = Math.max(1, Math.ceil(allDramaGroups.length / assetPageSize));
+  const currentAssetPage = Math.min(assetPage, assetPages);
+  const dramaGroups = allDramaGroups.slice(
+    (currentAssetPage - 1) * assetPageSize,
+    currentAssetPage * assetPageSize,
   );
   const activeOperation = created ? operationOf(created) : null;
   const draftSaved = Boolean(
@@ -754,7 +765,10 @@ export function PublishCenter({
         <div className="asset-filters">
           <select
             value={assetDramaFilter}
-            onChange={(e) => setAssetDramaFilter(e.target.value)}
+            onChange={(e) => {
+              setAssetDramaFilter(e.target.value);
+              setAssetPage(1);
+            }}
           >
             <option value="all">All dramas</option>
             {sources.map((item) => (
@@ -763,7 +777,16 @@ export function PublishCenter({
               </option>
             ))}
           </select>
-          <small>One row per drama. Expand only when you need a specific video.</small>
+          <div className="asset-pagination-controls">
+            <label>Per page
+              <select value={assetPageSize} onChange={(e) => { setAssetPageSize(Number(e.target.value)); setAssetPage(1); }}>
+                {[5, 10, 20].map((size) => <option value={size} key={size}>{size}</option>)}
+              </select>
+            </label>
+            <button type="button" disabled={currentAssetPage === 1} onClick={() => setAssetPage((page) => Math.max(1, page - 1))}>Previous</button>
+            <small>Page {currentAssetPage} of {assetPages}</small>
+            <button type="button" disabled={currentAssetPage === assetPages} onClick={() => setAssetPage((page) => Math.min(assetPages, page + 1))}>Next</button>
+          </div>
         </div>
         <div className="drama-ledger-head">
           <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
@@ -821,29 +844,19 @@ export function PublishCenter({
         {kind !== "upload" && (
           <label>
             <b>Specific video</b>
-            <select
-              value={
-                asset ||
-                String(
-                  kind === "original"
-                    ? source?.episodes[0]?.episodeNumber
-                    : hookOptions[0]?.id || "",
-                )
-              }
-              onChange={(e) => changeAsset(e.target.value)}
-            >
+            <div className="specific-video-grid">
               {kind === "original"
                 ? source?.episodes.map((x) => (
-                    <option value={x.episodeNumber} key={x.episodeNumber}>
-                      EP {x.episodeNumber}
-                    </option>
+                    <button type="button" className={selectedAssetId === String(x.episodeNumber) ? "selected" : ""} onClick={() => changeAsset(String(x.episodeNumber))} key={x.episodeNumber}>
+                      <strong>EP {x.episodeNumber}</strong><small>Original episode</small>
+                    </button>
                   ))
                 : hookOptions.map((x) => (
-                    <option value={x.id} key={x.id}>
-                      {x.title} · {x.durationSeconds}s
-                    </option>
+                    <button type="button" className={selectedAssetId === x.id ? "selected" : ""} onClick={() => changeAsset(x.id)} key={x.id}>
+                      <strong>{x.title}</strong><small>{durationLabel(Math.round(x.durationSeconds))}</small>
+                    </button>
                   ))}
-            </select>
+            </div>
           </label>
         )}
         <div className="video-source">
