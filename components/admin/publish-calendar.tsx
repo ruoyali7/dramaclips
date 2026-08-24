@@ -47,14 +47,14 @@ function statusLabel(item: Package) {
 
 export function PublishCalendar({ packages, sources }: { packages: Package[]; sources: Source[] }) {
   const [anchor, setAnchor] = useState(() => new Date());
-  const [view, setView] = useState<"week" | "month">("week");
+  const [view, setView] = useState<"days" | "week" | "month">("days");
   const [selected, setSelected] = useState<Package | null>(null);
   const sourceName = (slug: string) => sources.find((source) => source.slug === slug)?.title || slug;
   const cells = useMemo(() => {
     const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const start = new Date(view === "week" ? anchor : first);
-    start.setDate(start.getDate() - start.getDay());
-    return Array.from({ length: view === "week" ? 7 : 42 }, (_, index) => {
+    const start = new Date(view === "month" ? first : anchor);
+    if (view === "week") start.setDate(start.getDate() - start.getDay());
+    return Array.from({ length: view === "days" ? 4 : view === "week" ? 7 : 42 }, (_, index) => {
       const date = new Date(start);
       date.setDate(start.getDate() + index);
       return date;
@@ -74,17 +74,18 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
   return (
     <section className="publish-calendar">
       <div className="publish-calendar-head">
-        <div><span>Calendar</span><h2>{view === "week" ? `Week of ${cells[0]?.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2></div>
+        <div><span>Calendar</span><h2>{view === "days" ? `${cells[0]?.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${cells[cells.length - 1]?.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : view === "week" ? `Week of ${cells[0]?.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2></div>
         <div className="publish-calendar-actions">
-          <button onClick={() => setAnchor((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - (view === "week" ? 7 : 1)))} aria-label="Previous period"><ChevronLeft /></button>
+          <button onClick={() => setAnchor((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - (view === "days" ? 4 : view === "week" ? 7 : 1)))} aria-label="Previous period"><ChevronLeft /></button>
           <button onClick={() => setAnchor(new Date())}>Today</button>
-          <button onClick={() => setAnchor((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + (view === "week" ? 7 : 1)))} aria-label="Next period"><ChevronRight /></button>
+          <button onClick={() => setAnchor((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + (view === "days" ? 4 : view === "week" ? 7 : 1)))} aria-label="Next period"><ChevronRight /></button>
+          <button className={view === "days" ? "selected" : ""} onClick={() => setView("days")}>4 days</button>
           <button className={view === "week" ? "selected" : ""} onClick={() => setView("week")}>Week</button>
           <button className={view === "month" ? "selected" : ""} onClick={() => setView("month")}>Month</button>
         </div>
       </div>
-      <div className="publish-calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <b key={day}>{day}</b>)}</div>
-      <div className="publish-calendar-grid">
+      <div className={`publish-calendar-weekdays ${view === "days" ? "four-day" : ""}`}>{(view === "days" ? cells : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]).map((day, index) => <b key={typeof day === "string" ? day : index}>{typeof day === "string" ? day : day.toLocaleDateString(undefined, { weekday: "short" })}</b>)}</div>
+      <div className={`publish-calendar-grid ${view === "days" ? "four-day" : ""}`}>
         {cells.map((date) => {
           const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
           const items = byDay.get(key) || [];
