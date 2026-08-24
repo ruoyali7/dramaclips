@@ -158,6 +158,19 @@ function copyFor(
     facebook: 1000,
   };
   const story = shorten(description, descriptionLimit[source]);
+  if (source === "facebook") {
+    const caption = [
+      "Content Promotion Link",
+      "Content Referral Code",
+      top,
+      hook,
+      `🎬 ${title}`,
+      cta,
+      `✨ ${story}`,
+      hashtags,
+    ].join("\n");
+    return { hook, cta, hashtags, hashtagSource, caption };
+  }
   const caption = [
     top,
     code,
