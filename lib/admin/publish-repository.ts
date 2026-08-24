@@ -176,6 +176,7 @@ export async function createPublishPackage(input: {
   title: string;
   promoCode: string;
   description: string;
+  descriptions?: Record<string, string>;
   tags: string[];
   episodeNumber: number;
   videoUrl: string;
@@ -229,7 +230,7 @@ export async function createPublishPackage(input: {
         input.episodeNumber,
         url,
         input.promoCode,
-        input.description,
+        input.descriptions?.[source] || input.description,
         input.tags,
         input.videoKind === "hook" ? input.videoLabel : undefined,
       ),

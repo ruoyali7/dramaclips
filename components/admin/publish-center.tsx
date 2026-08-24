@@ -205,6 +205,9 @@ export function PublishCenter({
   const [copied, setCopied] = useState("");
   const [accounts, setAccounts] = useState<YAccount[]>([]);
   const [accountIds, setAccountIds] = useState<Record<string, string>>({});
+  const [descriptions, setDescriptions] = useState<Record<string, string>>(() =>
+    Object.fromEntries(options.map(([platform]) => [platform, source?.description || ""])),
+  );
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [validated, setValidated] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
@@ -224,6 +227,9 @@ export function PublishCenter({
   useEffect(() => {
     if (yixiaoerReady) void loadAccounts(platforms, accountIds);
   }, [yixiaoerReady, platforms]);
+  useEffect(() => {
+    setDescriptions(Object.fromEntries(options.map(([platform]) => [platform, source?.description || ""])));
+  }, [sourceId]);
   useEffect(() => {
     if (!created || !created.yixiaoerAction) return;
     const timer = window.setInterval(async () => {
@@ -557,6 +563,7 @@ export function PublishCenter({
             ? new Date(scheduledAt).toISOString()
             : undefined,
           platforms,
+          descriptions,
         }),
       });
       const j = await r.json();
@@ -894,13 +901,6 @@ export function PublishCenter({
               controls
               preload="metadata"
             />
-            <div className="publish-description">
-              <div>
-                <b>Post description</b>
-                <small>Used to generate each platform caption</small>
-              </div>
-              <p>{source?.description || "No drama description available."}</p>
-            </div>
           </>
         )}
         {kind === "upload" && (
@@ -990,9 +990,9 @@ export function PublishCenter({
             </label>
           )}
         </div>
-        <details className="account-routing" open={!allAccountsSelected}>
-          <summary><div><b>Publishing accounts</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected</small></div><span>{allAccountsSelected ? "Ready" : "Action required"}</span></summary>
-          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => <label className="yixiaoer-account" key={p}><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label>)}</div>
+        <details className="account-routing">
+          <summary><div><b>Publishing accounts & descriptions</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected · review each platform before publishing</small></div><span>{allAccountsSelected ? "Ready" : "Action required"}</span></summary>
+          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => <section className="account-description" key={p}><label className="yixiaoer-account"><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label><label><b>{yNames[p]} description</b><textarea value={descriptions[p] || ""} onChange={(e) => setDescriptions((current) => ({...current,[p]:e.target.value}))} maxLength={4000}/><small>This text is used inside the final {yNames[p]} caption with its link, CTA and hashtags.</small></label></section>)}</div>
         </details>
         <button
           className="save-draft"
