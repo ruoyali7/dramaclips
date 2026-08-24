@@ -12,7 +12,7 @@ export const publishingPlatforms = [
   "x",
 ] as const;
 export type PublishingPlatform = (typeof publishingPlatforms)[number];
-type PlatformPack = {
+export type PlatformPack = {
   source: PublishingPlatform;
   shortCode: string;
   url: string;
@@ -171,12 +171,36 @@ function copyFor(
   return { hook, cta, hashtags, hashtagSource, caption };
 }
 
+export async function preparePublishingCopy(input: {
+  dramaSlug: string;
+  title: string;
+  promoCode: string;
+  description: string;
+  tags: string[];
+  episodeNumber: number;
+  videoKind: "original" | "hook" | "upload";
+  videoLabel?: string;
+  account?: string;
+  campaign?: string;
+  platforms: PublishingPlatform[];
+  siteUrl: string;
+}) {
+  const packs: PlatformPack[] = [];
+  for (const source of input.platforms) {
+    const link = await createShortLink({dramaSlug:input.dramaSlug,source,account:input.account,campaign:input.campaign,clip:`ep-${String(input.episodeNumber).padStart(2,"0")}`});
+    const url = `${input.siteUrl.replace(/\/$/, "")}/x/${link.code}`;
+    packs.push({source,shortCode:link.code,url,...copyFor(source,input.title,input.episodeNumber,url,input.promoCode,input.description,input.tags,input.videoKind === "hook" ? input.videoLabel : undefined)});
+  }
+  return packs;
+}
+
 export async function createPublishPackage(input: {
   dramaSlug: string;
   title: string;
   promoCode: string;
   description: string;
   descriptions?: Record<string, string>;
+  preparedPlatforms?: PlatformPack[];
   tags: string[];
   episodeNumber: number;
   videoUrl: string;
@@ -210,32 +234,10 @@ export async function createPublishPackage(input: {
       return state === "published" || state === "outcome_unknown";
     });
   });
-  const packs: PlatformPack[] = [];
-  for (const source of input.platforms) {
-    const link = await createShortLink({
-      dramaSlug: input.dramaSlug,
-      source,
-      account: input.account,
-      campaign: input.campaign,
-      clip: `ep-${String(input.episodeNumber).padStart(2, "0")}`,
-    });
-    const url = `${input.siteUrl.replace(/\/$/, "")}/x/${link.code}`;
-    packs.push({
-      source,
-      shortCode: link.code,
-      url,
-      ...copyFor(
-        source,
-        input.title,
-        input.episodeNumber,
-        url,
-        input.promoCode,
-        input.descriptions?.[source] || input.description,
-        input.tags,
-        input.videoKind === "hook" ? input.videoLabel : undefined,
-      ),
-    });
-  }
+  const prepared = input.preparedPlatforms?.filter((pack) => input.platforms.includes(pack.source));
+  const packs = prepared?.length === input.platforms.length
+    ? prepared
+    : await preparePublishingCopy(input);
   const packageBody = {
       drama_slug: input.dramaSlug,
       episode_number: input.episodeNumber,

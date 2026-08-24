@@ -30,7 +30,7 @@ type Source = {
   vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
   vizardAssets: { id: string; episodeNumber: number; title: string; videoUrl: string; durationSeconds: number }[];
 };
-type Pack = { source: string; hook: string; cta?: string; hashtags?: string; hashtagSource?: string; caption: string };
+type Pack = { source: string; shortCode?: string; url?: string; hook: string; cta?: string; hashtags?: string; hashtagSource?: string; caption: string };
 type Package = {
   id: string;
   dramaSlug: string;
@@ -205,9 +205,8 @@ export function PublishCenter({
   const [copied, setCopied] = useState("");
   const [accounts, setAccounts] = useState<YAccount[]>([]);
   const [accountIds, setAccountIds] = useState<Record<string, string>>({});
-  const [descriptions, setDescriptions] = useState<Record<string, string>>(() =>
-    Object.fromEntries(options.map(([platform]) => [platform, source?.description || ""])),
-  );
+  const [previewPacks, setPreviewPacks] = useState<Pack[]>([]);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [validated, setValidated] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
@@ -227,9 +226,7 @@ export function PublishCenter({
   useEffect(() => {
     if (yixiaoerReady) void loadAccounts(platforms, accountIds);
   }, [yixiaoerReady, platforms]);
-  useEffect(() => {
-    setDescriptions(Object.fromEntries(options.map(([platform]) => [platform, source?.description || ""])));
-  }, [sourceId]);
+  useEffect(() => setPreviewPacks([]), [sourceId, asset, kind, platforms, account, campaign]);
   useEffect(() => {
     if (!created || !created.yixiaoerAction) return;
     const timer = window.setInterval(async () => {
@@ -563,7 +560,7 @@ export function PublishCenter({
             ? new Date(scheduledAt).toISOString()
             : undefined,
           platforms,
-          descriptions,
+          preparedPlatforms: previewPacks.length === platforms.length ? previewPacks : undefined,
         }),
       });
       const j = await r.json();
@@ -609,6 +606,25 @@ export function PublishCenter({
       setError(e instanceof Error ? e.message : "Could not load accounts");
     } finally {
       setConnectionBusy(false);
+    }
+  }
+  async function loadCopyPreview() {
+    if (!source || !videoUrl || !platforms.length || previewPacks.length) return;
+    setPreviewBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/publish-copy-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dramaSlug: source.slug, episodeNumber, videoKind: kind, videoLabel, account, campaign, platforms }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.message);
+      setPreviewPacks(json.platforms || []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not generate account copy");
+    } finally {
+      setPreviewBusy(false);
     }
   }
   function editCopy(source: string, field: "hook" | "cta" | "hashtags" | "caption", value: string) {
@@ -990,9 +1006,9 @@ export function PublishCenter({
             </label>
           )}
         </div>
-        <details className="account-routing">
-          <summary><div><b>Publishing accounts & descriptions</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected · review each platform before publishing</small></div><span>{allAccountsSelected ? "Ready" : "Action required"}</span></summary>
-          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => <section className="account-description" key={p}><label className="yixiaoer-account"><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label><label><b>{yNames[p]} description</b><textarea value={descriptions[p] || ""} onChange={(e) => setDescriptions((current) => ({...current,[p]:e.target.value}))} maxLength={4000}/><small>This text is used inside the final {yNames[p]} caption with its link, CTA and hashtags.</small></label></section>)}</div>
+        <details className="account-routing" onToggle={(event) => event.currentTarget.open && void loadCopyPreview()}>
+          <summary><div><b>Publishing accounts & full captions</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected · emoji, Watch now link, search code, CTA and hashtags</small></div><span>{previewBusy ? "Generating…" : allAccountsSelected ? "Ready" : "Action required"}</span></summary>
+          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => {const pack=previewPacks.find((item)=>item.source===p);return <section className="account-description" key={p}><label className="yixiaoer-account"><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label><label><b>{yNames[p]} full caption</b><textarea className="full-caption-preview" value={pack?.caption || ""} placeholder={previewBusy ? "Generating full caption…" : "Open again to generate preview"} onChange={(e) => setPreviewPacks((current) => current.map((item) => item.source===p ? {...item,caption:e.target.value} : item))} maxLength={10000}/><small>{pack ? `${pack.caption.length} characters · ${pack.url}` : "Includes the final tracking link, CTA, search code and hashtags."}</small></label></section>})}</div>
         </details>
         <button
           className="save-draft"
