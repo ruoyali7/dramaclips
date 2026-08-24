@@ -117,6 +117,7 @@ function copyFor(
   title: string,
   episode: number,
   url: string,
+  contentPromotionUrl: string | undefined,
   promoCode: string,
   description: string,
   tags: string[],
@@ -160,8 +161,13 @@ function copyFor(
   const story = shorten(description, descriptionLimit[source]);
   if (source === "facebook") {
     const caption = [
-      "Content Promotion Link",
-      "Content Referral Code",
+      "🎬 Watch this drama on ReelShort:",
+      `Content Promotion Link: ${contentPromotionUrl || "See the official link below"}`,
+      "",
+      "🔍 Search this code in ReelShort:",
+      `Content Referral Code: ${promoCode}`,
+      "",
+      "🔥 Watch the preview and continue on DramaClips:",
       top,
       hook,
       `🎬 ${title}`,
@@ -187,6 +193,7 @@ export async function preparePublishingCopy(input: {
   dramaSlug: string;
   title: string;
   promoCode: string;
+  contentPromotionUrl?: string;
   description: string;
   tags: string[];
   episodeNumber: number;
@@ -201,7 +208,7 @@ export async function preparePublishingCopy(input: {
   for (const source of input.platforms) {
     const link = await createShortLink({dramaSlug:input.dramaSlug,source,account:input.account,campaign:input.campaign,clip:`ep-${String(input.episodeNumber).padStart(2,"0")}`});
     const url = `${input.siteUrl.replace(/\/$/, "")}/x/${link.code}`;
-    packs.push({source,shortCode:link.code,url,...copyFor(source,input.title,input.episodeNumber,url,input.promoCode,input.description,input.tags,input.videoKind === "hook" ? input.videoLabel : undefined)});
+    packs.push({source,shortCode:link.code,url,...copyFor(source,input.title,input.episodeNumber,url,input.contentPromotionUrl,input.promoCode,input.description,input.tags,input.videoKind === "hook" ? input.videoLabel : undefined)});
   }
   return packs;
 }
@@ -210,6 +217,7 @@ export async function createPublishPackage(input: {
   dramaSlug: string;
   title: string;
   promoCode: string;
+  contentPromotionUrl?: string;
   description: string;
   descriptions?: Record<string, string>;
   preparedPlatforms?: PlatformPack[];
