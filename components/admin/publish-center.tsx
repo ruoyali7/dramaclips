@@ -21,6 +21,7 @@ type Source = {
   title: string;
   slug: string;
   language: string;
+  description: string;
   coverUrl: string;
   episodes: { episodeNumber: number; videoUrl: string }[];
   hooks: Hook[];
@@ -886,12 +887,21 @@ export function PublishCenter({
           )}
         </div>
         {videoUrl && (
-          <video
-            className="publish-preview"
-            src={videoUrl}
-            controls
-            preload="metadata"
-          />
+          <>
+            <video
+              className="publish-preview"
+              src={videoUrl}
+              controls
+              preload="metadata"
+            />
+            <div className="publish-description">
+              <div>
+                <b>Post description</b>
+                <small>Used to generate each platform caption</small>
+              </div>
+              <p>{source?.description || "No drama description available."}</p>
+            </div>
+          </>
         )}
         {kind === "upload" && (
           <label className="social-upload">
