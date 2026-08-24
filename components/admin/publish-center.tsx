@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultPublishTime, PublishTimePicker } from "@/components/admin/publish-time-picker";
+import { PublishCalendar } from "@/components/admin/publish-calendar";
 type Hook = {
   id: string;
   title: string;
@@ -215,6 +216,7 @@ export function PublishCenter({
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(5);
+  const [showCalendar, setShowCalendar] = useState(true);
   const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -791,6 +793,16 @@ export function PublishCenter({
     );
   return (
     <div className="publish-center">
+      <section className="publish-calendar-shell">
+        <div className="publish-view-toggle">
+          <b>Publishing overview</b>
+          <div>
+            <button className={showCalendar ? "selected" : ""} onClick={() => setShowCalendar(true)}>Calendar</button>
+            <button className={!showCalendar ? "selected" : ""} onClick={() => setShowCalendar(false)}>List</button>
+          </div>
+        </div>
+        {showCalendar && <PublishCalendar packages={recent} sources={sources} />}
+      </section>
       <section className="asset-library">
         <span>01 · Video asset library</span>
         <div className="publish-summary" aria-label="Publish queue summary">
