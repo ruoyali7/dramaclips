@@ -89,6 +89,7 @@
 .asset-status.publishing,.asset-status.scheduled{background:#fff4df;color:#8d681f}
 .hook-preview{display:grid;grid-template-columns:minmax(220px,360px) 1fr;gap:24px;padding:18px;background:#faf9f6;border-top:1px solid #e8e6e0}
 .hook-preview video{width:100%;max-height:420px;background:#111}
+.review-video-shell{position:relative;background:#111;min-height:220px;display:grid;place-items:center}.review-video-shell video{display:block}.review-video-shell>span{position:absolute;left:12px;bottom:12px;background:#171717d9;color:#fff;padding:6px 9px;font-size:8px}.review-video-shell>button{position:absolute;inset:auto auto 16px 16px!important;margin:0!important;background:#fff!important;color:#171717!important}
 .hook-preview h3{font-family:var(--font-display),serif;font-size:22px;font-weight:500;letter-spacing:-.015em;margin:14px 0 7px}
 .hook-preview p{font-size:10px;color:#777}
 .hook-preview button{display:flex;align-items:center;gap:6px;border:1px solid #cfcac0;background:#fff;padding:9px 12px;margin-top:20px}

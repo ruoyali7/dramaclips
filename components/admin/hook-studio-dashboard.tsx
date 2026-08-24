@@ -53,6 +53,59 @@ const statusLabel = {
   ready: "Saved",
 };
 
+function ReviewVideo({ src }: { src: string }) {
+  const [buffering, setBuffering] = useState(false),
+    [failed, setFailed] = useState(false),
+    videoRef = useRef<HTMLVideoElement>(null),
+    recoveredRef = useRef(false);
+  function retry() {
+    const video = videoRef.current;
+    if (!video) return;
+    const position = video.currentTime;
+    setFailed(false);
+    setBuffering(true);
+    video.load();
+    video.addEventListener(
+      "loadedmetadata",
+      () => {
+        video.currentTime = Math.min(position, video.duration || position);
+        void video.play().catch(() => setFailed(true));
+      },
+      { once: true },
+    );
+  }
+  return (
+    <div className="review-video-shell">
+      <video
+        ref={videoRef}
+        src={src}
+        controls
+        preload="auto"
+        playsInline
+        onLoadStart={() => setBuffering(true)}
+        onWaiting={() => setBuffering(true)}
+        onCanPlay={() => setBuffering(false)}
+        onPlaying={() => setBuffering(false)}
+        onStalled={() => {
+          if (!recoveredRef.current) {
+            recoveredRef.current = true;
+            retry();
+          } else {
+            setBuffering(false);
+            setFailed(true);
+          }
+        }}
+        onError={() => {
+          setBuffering(false);
+          setFailed(true);
+        }}
+      />
+      {buffering && <span>Buffering video…</span>}
+      {failed && <button onClick={retry}>Resume video</button>}
+    </div>
+  );
+}
+
 export function HookStudioDashboard({
   sources,
   assets,
@@ -420,12 +473,7 @@ export function HookStudioDashboard({
                           </button>
                           {selectedId === asset.id && (
                             <div className="hook-preview">
-                              <video
-                                src={asset.videoUrl}
-                                controls
-                                preload="metadata"
-                                playsInline
-                              />
+                              <ReviewVideo src={asset.videoUrl} />
                               <div>
                                 <span
                                   className={`asset-status ${asset.status}`}
