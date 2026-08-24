@@ -161,18 +161,12 @@ function copyFor(
   const story = shorten(description, descriptionLimit[source]);
   if (source === "facebook") {
     const caption = [
-      "🎬 Watch this drama on ReelShort:",
-      `Content Promotion Link: ${contentPromotionUrl || "See the official link below"}`,
-      "",
-      "🔍 Search this code in ReelShort:",
-      `Content Referral Code: ${promoCode}`,
-      "",
-      "🔥 Watch the preview and continue on DramaClips:",
-      top,
+      `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
+      `🔍 Search this code in ReelShort: ${promoCode}`,
+      `🔥 Watch the preview and continue on DramaClips: ${url}`,
       hook,
       `🎬 ${title}`,
-      cta,
-      `✨ ${story}`,
+      `✨ ${shorten(description, 420)}`,
       hashtags,
     ].join("\n");
     return { hook, cta, hashtags, hashtagSource, caption };
