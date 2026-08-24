@@ -82,9 +82,13 @@ def render(asset,candidate,target,cover_duration=.1):
  if duration<8:raise RuntimeError("Render QA rejected a short or black-ended candidate")
  total=duration+cover_duration;fade_start=max(0,duration-.18)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
- def esc(value):return value.replace("\\","\\\\").replace(":","\\:").replace("'","\\'").replace("%","\\%")
- title_filters=",".join(f"drawtext=fontfile={FONT}:text='{esc(line)}':fontcolor=white@0.96:fontsize=42:x=(w-text_w)/2:y={112+index*62}:box=1:boxcolor=black@0.38:boxborderw=16" for index,line in enumerate(title_lines(candidate["title"])))
- overlay=f"{base},drawtext=fontfile={FONT}:text='DramaClips · EP {rng['episodeNumber']}':fontcolor=white@0.62:fontsize=28:x=38:y=42:box=1:boxcolor=black@0.22:boxborderw=10,{title_filters}"
+ def filter_path(value):return str(value).replace("\\","\\\\").replace(":","\\:").replace("'","\\'")
+ episode_text=target.with_suffix(".episode.txt");episode_text.write_text(f"DramaClips · EP {rng['episodeNumber']}",encoding="utf-8")
+ title_files=[]
+ for index,line in enumerate(title_lines(candidate["title"])):
+  text_file=target.with_suffix(f".title-{index}.txt");text_file.write_text(line,encoding="utf-8");title_files.append((index,text_file))
+ title_filters=",".join(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(text_file)}:reload=0:fontcolor=white@0.96:fontsize=42:x=(w-text_w)/2:y={112+index*62}:box=1:boxcolor=black@0.38:boxborderw=16" for index,text_file in title_files)
+ overlay=f"{base},drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(episode_text)}:reload=0:fontcolor=white@0.62:fontsize=28:x=38:y=42:box=1:boxcolor=black@0.22:boxborderw=10,{title_filters}"
  delay_ms=round(cover_duration*1000);graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,adelay={delay_ms}:all=1,apad,atrim=duration={total}[a]"
  command=["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","fast","-crf","23","-maxrate","4M","-bufsize","8M","-force_key_frames","0","-c:a","aac","-b:a","128k","-movflags","+faststart",str(target)]
  rendered=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
