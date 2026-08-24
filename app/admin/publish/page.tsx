@@ -8,7 +8,7 @@ import {
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PublishCenter } from "@/components/admin/publish-center";
 import { listVizardSources } from "@/lib/admin/repository";
-import { listHookClips } from "@/lib/admin/hook-repository";
+import { approveHookCandidate, listHookClips } from "@/lib/admin/hook-repository";
 import { listHookJobs } from "@/lib/admin/hook-job-repository";
 import { yixiaoerConfigured } from "@/lib/admin/yixiaoer";
 import { listVizardAssets, listVizardProjects } from "@/lib/admin/vizard-repository";
@@ -16,7 +16,7 @@ import "../asset-library.css";
 
 export const dynamic = "force-dynamic";
 export default async function Page() {
-  const [base, hooks, hookJobs, yixiaoerReady, vizardProjects, vizardAssets] = await Promise.all([
+  const [base, initialHooks, hookJobs, yixiaoerReady, vizardProjects, vizardAssets] = await Promise.all([
     listVizardSources(),
     listHookClips(),
     listHookJobs(undefined, 100),
@@ -24,29 +24,33 @@ export default async function Page() {
     listVizardProjects(),
     listVizardAssets(),
   ]);
+  const savedCandidateIds = new Set(initialHooks.map((hook) => hook.candidateId).filter(Boolean));
+  await Promise.all(
+    hookJobs.flatMap((job) =>
+      job.candidates
+        .filter((candidate) => candidate.draftUrl && !savedCandidateIds.has(candidate.id))
+        .map((candidate) => approveHookCandidate(job, candidate, candidate.title).catch(() => null)),
+    ),
+  );
+  const hooks = await listHookClips();
+  const persistedCandidateIds = new Set(hooks.map((hook) => hook.candidateId).filter(Boolean));
   const sources = base.map((source) => ({
     ...source,
     hooks: hooks.filter((hook) => hook.dramaSlug === source.slug),
-    draftHooks: hookJobs
-      .filter(
-        (job) => job.dramaSlug === source.slug && job.status === "review_ready",
-      )
+    builtInAssets: hookJobs
+      .filter((job) => job.dramaSlug === source.slug)
       .flatMap((job) =>
         job.candidates
-          .filter(
-            (candidate) =>
-              candidate.draftUrl,
-          )
+          .filter((candidate) => candidate.draftUrl && !persistedCandidateIds.has(candidate.id))
           .map((candidate) => ({
             id: candidate.id,
             title: candidate.title,
             sourceEpisodes: job.sourceEpisodes,
             videoUrl: candidate.draftUrl!,
             durationSeconds: candidate.durationSeconds || 0,
-            score: candidate.score,
-            jobId: job.id,
           })),
       ),
+    draftHooks: [],
     vizardProjects: vizardProjects.filter((project) => project.dramaSlug === source.slug),
     vizardAssets: vizardAssets.filter((asset) => asset.dramaSlug === source.slug && asset.reviewState === "approved"),
   }));

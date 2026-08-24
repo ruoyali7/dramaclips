@@ -24,6 +24,7 @@ type Source = {
   coverUrl: string;
   episodes: { episodeNumber: number; videoUrl: string }[];
   hooks: Hook[];
+  builtInAssets: Hook[];
   draftHooks: DraftHook[];
   vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
   vizardAssets: { id: string; episodeNumber: number; title: string; videoUrl: string; durationSeconds: number }[];
@@ -253,7 +254,7 @@ export function PublishCenter({
     source?.episodes.find((x) => String(x.episodeNumber) === asset) ||
     source?.episodes[0];
   const hookOptions = source
-    ? [...source.hooks, ...source.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))]
+    ? [...source.hooks, ...source.builtInAssets, ...source.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))]
     : [];
   const selectedHook =
     hookOptions.find((x) => x.id === asset) ||
@@ -306,6 +307,18 @@ export function PublishCenter({
             detail: `Saved hook · EP ${hook.sourceEpisodes.join(", ")} · ${Math.round(hook.durationSeconds)}s`,
             videoUrl: hook.videoUrl,
             r2State: "Saved",
+          })),
+          ...item.builtInAssets.map((hook) => ({
+            key: `built-in:${hook.id}`,
+            sourceId: item.id,
+            dramaSlug: item.slug,
+            dramaTitle: item.title,
+            kind: "hook" as const,
+            assetId: hook.id,
+            label: hook.title,
+            detail: `Built-in hook · EP ${hook.sourceEpisodes.join(", ")} · ${Math.round(hook.durationSeconds)}s`,
+            videoUrl: hook.videoUrl,
+            r2State: "Generated",
           })),
           ...item.draftHooks.map((hook) => ({
             key: `draft:${hook.id}`,
@@ -421,7 +434,7 @@ export function PublishCenter({
     const next = sources.find((x) => x.id === id);
     setSourceId(id);
     setKind(nextKind);
-    const nextHooks = next ? [...next.hooks, ...next.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))] : [];
+    const nextHooks = next ? [...next.hooks, ...next.builtInAssets, ...next.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))] : [];
     if (nextKind === "hook" && nextHooks[0]) {
       setAsset(nextHooks[0].id);
       setVideoUrl(nextHooks[0].videoUrl);
@@ -442,7 +455,7 @@ export function PublishCenter({
     const targetAsset = params.get("asset");
     const next = sources.find((item) => item.id === targetSource);
     if (!next || targetKind !== "hook") return;
-    const hooks = [...next.hooks, ...next.vizardAssets.map((item) => ({ id: item.id, title: item.title, sourceEpisodes: [item.episodeNumber], videoUrl: item.videoUrl, durationSeconds: item.durationSeconds }))];
+    const hooks = [...next.hooks, ...next.builtInAssets, ...next.vizardAssets.map((item) => ({ id: item.id, title: item.title, sourceEpisodes: [item.episodeNumber], videoUrl: item.videoUrl, durationSeconds: item.durationSeconds }))];
     const selected = hooks.find((item) => item.id === targetAsset) || hooks[0];
     if (!selected) return;
     setSourceId(next.id);
@@ -798,8 +811,8 @@ export function PublishCenter({
                 <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
                 <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
                 <div className="asset-chips hook-chips">
-                  {group.source.hooks.map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
-                  {!group.source.hooks.length && <small>No saved hooks</small>}
+                  {[...group.source.hooks, ...group.source.builtInAssets].map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
+                  {!group.source.hooks.length && !group.source.builtInAssets.length && <small>No saved hooks</small>}
                   {group.source.draftHooks.length > 0 && <small>{group.source.draftHooks.length} need review</small>}
                 </div>
                 <div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length ? group.publishedPlatforms.join(" · ") : `${group.published} published · ${group.scheduled} scheduled`}</small></div>
@@ -807,7 +820,7 @@ export function PublishCenter({
               </summary>
               <div className="drama-assets-expanded">
                 <div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter((row) => row.kind === "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl) ? "Uploaded to Yixiaoer" : "R2 only"} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}</div></div>
-                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}{!group.source.hooks.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
+                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}{!group.source.hooks.length && !group.source.builtInAssets.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
               </div>
             </details>
           ))}
