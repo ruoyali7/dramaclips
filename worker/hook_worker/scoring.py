@@ -1,4 +1,5 @@
 import re
+import textwrap
 
 SIGNALS={
  "conflict":{"liar","lie","hate","never","stop","leave","kill","fight","betray","cheat","enemy","revenge","ruined","fault"},
@@ -41,6 +42,12 @@ def candidate_title(text,dominant):
  title=" ".join(words[best_start:best_start+9]).strip(" .,!?\"'")
  if len(title)<12:title=" ".join(words[:9]).strip(" .,!?\"'")
  return title[:1].upper()+title[1:72]
+
+def title_lines(title,max_chars=26,max_lines=2):
+ lines=textwrap.wrap(title,width=max_chars,break_long_words=True,break_on_hyphens=False)
+ if len(lines)<=max_lines:return lines
+ kept=lines[:max_lines];kept[-1]=kept[-1][:max(1,max_chars-1)].rstrip()+"…"
+ return kept
 
 def jaccard(a,b):
  aa=set(re.findall(r"[a-z0-9']+",a.lower()));bb=set(re.findall(r"[a-z0-9']+",b.lower()));return len(aa&bb)/max(1,len(aa|bb))

@@ -1,5 +1,5 @@
 import unittest
-from hook_worker.scoring import candidate_title,lexical_components,select_ranked,snap_windows
+from hook_worker.scoring import candidate_title,lexical_components,select_ranked,snap_windows,title_lines
 from hook_worker.direction import parse_direction,score_direction
 
 class ScoringTests(unittest.TestCase):
@@ -44,5 +44,10 @@ class ScoringTests(unittest.TestCase):
   self.assertIn("betrayed",title.lower());self.assertNotEqual(title,"What happens next is shocking")
  def test_candidate_title_falls_back_without_dialogue(self):
   self.assertEqual(candidate_title("visual-scene-episode-1-0-20","cliffhanger"),"A secret is about to come out")
+ def test_render_title_wraps_to_two_bounded_lines(self):
+  lines=title_lines("He cuts everyone the same you want the greatest fighter alive")
+  self.assertEqual(len(lines),2)
+  self.assertTrue(all(len(line)<=26 for line in lines))
+  self.assertTrue(lines[-1].endswith("…"))
 
 if __name__=="__main__":unittest.main()
