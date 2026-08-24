@@ -11,6 +11,7 @@ import "./metricool-export.css";
 import "./remote-import.css";
 import "./rs-extension.css";
 import "./drama-hook-enhancements.css";
+import "./opportunity.css";
 
 export const metadata = { title: "Admin", robots: { index: false, follow: false } };
 export default function Layout({ children }: { children: React.ReactNode }) { return children; }
