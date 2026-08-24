@@ -1,6 +1,6 @@
 # DramaClips PRD：Hook 内容与发布素材优化
 
-状态：Draft，等待实现批准  
+状态：Draft，等待实现批准；实现时以现有 Phase 3 Hook workflow 为基线
 关联 branch：`codex/drama-opportunity-hook-prd`
 
 ## 1. 目标
@@ -38,14 +38,14 @@
 - 以整部 drama 为候选池，不要求每个 episode 产出一个 Hook。
 - 每个候选保留 episode、rough start/end、最终 start/end、候选理由和状态。
 - 生成多个候选后全局排序；允许多个候选来自同一 episode，弱 episode 可以没有结果。
-- 默认输出 Top 3，可配置 5 或 8，但不能因 episode 数量自动填满。
+- V1 默认最多输出 2 个候选，与现有 `hook_candidates.rank` 和 Phase 3 审阅流程一致；后续扩大数量必须先扩展 schema、UI 和审阅容量，不能只改配置。
 - 优先使用现有 transcript/metadata；如果没有可靠的句级时间轴，先保留人工审阅，不把 LLM 时间戳直接当最终剪辑边界。
 - 最终边界优先对齐完整句子、场景切换、音频连续性和有意的 cliffhanger。
 - 支持轻度去除无效停顿；默认不删除有情绪作用的停顿、反应镜头或对白间隔。
 
 ### 4.2 Hook 内容评分
 
-每个候选保存 0–100 的分项和总分：
+每个候选保存 0–100 的分项和总分。V1 的总分必须按以下公式计算并保存 `ranking_version`；若某项无证据，保存 `null`/缺失原因，不得默认为高分：
 
 ```text
 Curiosity Gap          30%
@@ -73,9 +73,9 @@ Emotional Intensity    10%
 - **字幕**：沿用现有字幕能力，保证时间准确、移动端可读、不遮挡脸和关键动作。
 - **Cover text**：3–6 个词，突出冲突/秘密/反转，不复述完整结局。
 - **Caption**：一条可发布 caption，明确冲突和继续观看动机，避免长篇剧情摘要。
-- **Hashtags**：分为 drama/genre/intent 三类，优先少量相关标签；避免重复堆砌、无关热门标签和承诺性夸张标签。
-- **CTA**：支持短句模板，如 `Watch the rest ↓`、`Continue watching`、`Full drama in bio`，可配置但不能过长。
-- **Cover image**：优先从 Hook 中选高冲突表情、对峙或 reveal 前一帧，不默认使用官方海报。
+- **Hashtags**：根据 drama/Hook 内容自动生成少量相关标签；避免重复堆砌、无关热门标签和承诺性夸张标签。不做 hashtag trend crawler 或 performance ranking。
+- **CTA**：优先引导用户进入 DramaClips，再复制 code 到 ReelShort/RS 搜索；保持现有 affiliate 转化路径，不改成泛化的“下载 app”文案。
+- **Cover image**：优先从 Hook 中选高冲突表情、对峙或 reveal 前一帧，不默认使用官方海报；V1 继续使用现有首帧/cover QA 能力，不新增独立图片生成服务。
 
 文字内容必须保留生成依据和可编辑版本，不把 AI 输出直接写死到发布结果中。
 
@@ -110,7 +110,7 @@ Caption 必须与实际片段一致，不得虚构片段中没有的情节；如
 - genre：romance、revenge、billionaire、family 等真实类型
 - intent：shortdrama、dramaclips 等产品相关标签
 
-初始版本只生成少量高相关标签，并允许人工删除/编辑；不承诺平台流量提升，也不把 hashtag 数量作为质量指标。
+初始版本只生成少量高相关标签，并允许人工删除/编辑；不承诺平台流量提升，也不把 hashtag 数量作为质量指标。Hashtag performance analysis 属于后续独立需求，当前不实现。
 
 ## 6. 页面与操作
 
@@ -119,17 +119,16 @@ Caption 必须与实际片段一致，不得虚构片段中没有的情节；如
 - Hook 候选列表：按总分、opening、safety、episode、状态筛选。
 - 候选详情：预览、rough/final 时间、评分拆解、扣分原因、重复候选提示。
 - Copy panel：opening text、cover text、caption、hashtags、CTA 分平台展示，可复制和编辑。
-- Approve flow：人工确认剪辑、文案和 cover 后，才允许进入现有 render/publish 流程。
-- 保留每次修改前后的版本，便于知道发布内容是否是 AI 草稿或人工改稿。
+- Review flow：render 后先保持 draft/review-ready；只有现有 Hook Studio 的明确 approve/save 动作才写入 durable R2 `hook_clips`。Publish Center 只展示已保存的 R2 Hook；人工编辑发布 caption 仍可在 Publish Center 完成。
 
 不新建第二套独立发布流程，不自动发布，不自动批量重试已成功的任务。
 
 ## 7. 数据与接口（概念）
 
-优先复用现有 hook job、drama、episode、publish package 和 analytics 数据。需要扩展时，建议字段或表包含：
+优先复用现有 `hook_generation_jobs`、`hook_candidates`、`hook_clips`、`publish_packages` 和 analytics 数据。除非审计证明现有字段不足，不新建同名平行表。需要扩展时，建议字段或表包含：
 
-- `hook_candidates`：drama、episode、rough/final boundaries、scores、reason、safety、dedupe、review status。
-- `hook_copy_variants`：candidate、platform、opening text、cover text、caption、hashtags、CTA、source/version。
+- `hook_candidates`：沿用现有 `job_id`、`rank`、`source_ranges`、`rendered_ranges`、`score_components`、`risk_assessment`、`review_state`；新增字段必须说明 migration、读写方和回填策略。
+- `hook_copy_variants`：不作为当前范围；沿用 publish package 中可编辑的 caption、CTA 和 hashtags。
 - `hook_assets`：cover、rendered video、subtitle metadata、provider/job references。
 - `hook_review_events`：approve/reject/edit/render/publish 及操作者和时间。
 
@@ -139,7 +138,7 @@ Caption 必须与实际片段一致，不得虚构片段中没有的情节；如
 
 ### Phase 1：现有链路审计与候选 metadata
 
-确认当前 hook worker、评分、方向判断、render、cover、caption 和 publish package 的实际数据流；新增候选统一 metadata 和 review status，不改变成功发布路径。
+确认当前 hook worker、评分、方向判断、render、cover、caption 和 publish package 的实际数据流；先输出字段映射和缺口清单，再新增 metadata。不得在未完成字段映射前新增 migration；不改变成功发布路径。
 
 ### Phase 2：Hook 评分、去重与边界
 
@@ -151,13 +150,13 @@ Caption 必须与实际片段一致，不得虚构片段中没有的情节；如
 
 验收重点：每个平台的文案字段可以独立编辑；生成内容仍能合成为最终 caption；没有真实数据时不声称某个 hashtag “最引流”。
 
-### Phase 4：消费 Hashtag Intelligence 结果
+### Phase 4：简单 Hashtag 生成
 
-消费 `docs/prd-drama-opportunity-ranking.md` 输出的平台 hashtag recommendation；Publish Center 负责显示、编辑、保存实际 hashtag set。没有外部数据时继续使用 catalog fallback，并明确标记来源，不阻塞发布。
+根据 drama title、drama tags、Hook type 和 Hook title 生成少量平台文案 tags；Publish Center 负责显示和编辑。没有外部数据依赖，不建立 crawler、performance snapshot 或 trend ranking。
 
-### Phase 5：效果反馈
+### Phase 5：效果反馈（依赖明确，不属于首批交付）
 
-将发布后的 views、watch-through、landing visits、outbound clicks、orders 和 revenue 与 hook/copy variant 关联，用于验证哪些剪辑和文案真正提高每千次曝光收入。
+将发布后的 views、watch-through、landing visits、outbound clicks、orders 和 revenue 与 hook/copy variant 关联，用于验证哪些剪辑和文案真正提高每千次曝光收入。V1 若没有可靠的平台 post ID、metric snapshot 和 provider conversion/revenue feed，只记录可获得的 DramaClips 内部事件，并标记 `not_attributable`；不得把 redirect 或 tracking event 当作订单/收入。
 
 效果反馈应包含 hashtag set，而不是只记录整条 caption。至少支持比较：
 
@@ -175,11 +174,11 @@ Caption 必须与实际片段一致，不得虚构片段中没有的情节；如
 - [ ] 每个候选有可解释的评分、resolution penalty、opening strength、safety 和 dedupe 状态。
 - [ ] rough/final 时间边界可查看，最终结果不会只依赖未经校正的 LLM timestamp。
 - [ ] Hook 详情可编辑 opening text、cover text、caption、hashtags 和 CTA。
-- [ ] Hashtag 推荐按平台独立生成，并显示来源、时间、相关性/趋势/竞争理由。
-- [ ] Hashtag 推荐在外部来源不可用时仍允许人工输入和正常发布。
-- [ ] 发布记录保存实际使用的 hashtag set，供后续 CTR 和 revenue 分析。
+- [ ] Hashtag 根据 drama/Hook 内容自动生成少量相关 tags。
+- [ ] Hashtag 可人工删除和编辑，不依赖外部趋势 API。
 - [ ] cover 优先从候选片段选择，字幕和文案遵守移动端安全区。
-- [ ] 未经人工 approve 不进入现有发布动作。
+- [ ] 经明确 approve/save 的合格渲染结果保存到 R2，并可在 Publish Center 使用。
+- [ ] 未经明确 approve/save 的 draft 不会出现在 Publish Center。
 - [ ] 不改变已有 publish 成功路径，且不重复发布已确认成功的任务。
 - [ ] 通过相关单元测试、typecheck、build 和 `git diff --check`。
 - [ ] 明确区分 local 验证、migration、deployment 和真实平台效果验证。
