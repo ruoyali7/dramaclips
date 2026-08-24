@@ -143,12 +143,12 @@ function copyFor(
   ];
   const tagSet = uniqueTags(recommendHashtags(source, tagCandidates).map((candidate) => candidate.tag)).map((tag) => `#${tag}`);
   const hashtagSource = "catalog-fallback";
-  const top = `🔥 Watch now 👉 ${url}`;
-  const code = `🔍 Search “${promoCode}” in ReelShort or DramaClips`;
-  const cta = "👉🏻 Continue watching in the app";
+  const top = `🔥 Watch the full drama on DramaClips 👉 ${url}`;
+  const code = `🔍 In ReelShort, search code “${promoCode}”`;
+  const cta = `👉🏻 Continue on DramaClips, or search “${promoCode}” in ReelShort`;
   const hashtags = tagSet.join(" ");
   if (source === "x") {
-    const fixed = `${top}\n${hook}\n${cta}\n${code}\n${hashtags}`;
+    const fixed = `${top}\n${code}\n${hook}\n${cta}\n${hashtags}`;
     return { hook, cta, hashtags, hashtagSource, caption: shorten(fixed, 280) };
   }
   const descriptionLimit: Record<Exclude<PublishingPlatform, "x">, number> = {
@@ -160,11 +160,10 @@ function copyFor(
   const story = shorten(description, descriptionLimit[source]);
   const caption = [
     top,
-    "🌟 Continue the story here",
-    hook,
-    `🎬 ${title} · EP ${episode}`,
-    cta,
     code,
+    hook,
+    `🎬 ${title}`,
+    cta,
     `✨ ${story}`,
     hashtags,
   ].join("\n");
