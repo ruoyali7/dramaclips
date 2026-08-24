@@ -580,7 +580,7 @@ export function HookStudioDashboard({
                 value={direction}
                 onChange={(event) => setDirection(event.target.value)}
                 maxLength={1200}
-                placeholder={'描述你想找的片段，例如：\n男女主单独相处、关系暧昧或互相表白。必须包含 love、kiss 或 jealous 等相关对白。避免打斗。停在关系揭晓前。\n\n可写：人物关系、场景、动作、对白关键词、情绪、必须包含、避免内容、结尾位置。'}
+                placeholder={'描述你想找的片段，例如：\n男女主单独相处、关系暧昧或互相表白。必须包含 love、kiss 或 jealous 等相关对白。避免打斗。停在关系揭晓前。\n\n也可限制时间：从 02:15 开始后面的剧情；或只看 02:15–03:10 内的剧情。'}
               />
               <small>{direction.length}/1200</small>
             </details>

@@ -29,6 +29,16 @@ class ScoringTests(unittest.TestCase):
  def test_blank_direction_preserves_default_path(self):
   result=score_direction(parse_direction(""),"ordinary dialogue",{"tension":0})
   self.assertTrue(result["eligible"]);self.assertIsNone(result["score"])
+ def test_direction_supports_starting_timestamp(self):
+  schema=parse_direction("从 02:15 开始后面的剧情")
+  self.assertEqual(schema["timeRange"],{"start":135,"end":None})
+  self.assertFalse(score_direction(schema,"dialogue",{},100,120)["eligible"])
+  self.assertTrue(score_direction(schema,"dialogue",{},140,160)["eligible"])
+ def test_direction_supports_bounded_timestamp(self):
+  schema=parse_direction("只看 02:15-03:10 内的剧情")
+  self.assertEqual(schema["timeRange"],{"start":135,"end":190})
+  self.assertTrue(score_direction(schema,"dialogue",{},145,165)["eligible"])
+  self.assertFalse(score_direction(schema,"dialogue",{},195,215)["eligible"])
  def test_candidate_title_uses_selected_clip_dialogue(self):
   title=candidate_title("you sent that maid to me but I never betrayed you the truth is different","cliffhanger")
   self.assertIn("betrayed",title.lower());self.assertNotEqual(title,"What happens next is shocking")

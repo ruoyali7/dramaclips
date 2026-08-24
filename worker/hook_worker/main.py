@@ -58,7 +58,7 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
    else:
     tail=max(0,1-(duration-end)/20)
     parts={"dialogue":35,"conflict":0,"reversal":0,"tension":0,"danger":0,"identity":0,"cliffhanger":55+45*tail,"context":60};risk="low";text=f"visual-scene-episode-{episode}-{start}-{end}"
-   direction=score_direction(direction_schema,text,parts);parts["visual"]=0;parts["directionMatch"]=direction["score"] or 0;score=total_score(parts)+(direction["score"] or 0)*.28-direction["penalty"]
+   direction=score_direction(direction_schema,text,parts,start,end);parts["visual"]=0;parts["directionMatch"]=direction["score"] or 0;score=total_score(parts)+(direction["score"] or 0)*.28-direction["penalty"]
    if direction["eligible"] or not direction_schema.get("original"):episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":text,"score":score,"parts":parts,"risk":risk,"path":asset["path"],"direction":direction})
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
