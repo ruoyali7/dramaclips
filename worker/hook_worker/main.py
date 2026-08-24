@@ -46,7 +46,7 @@ def visual_stats(path,start,end):
  cap.release()
  if not samples:return {"score":0,"cover":max(start,end-1),"details":{}}
  best=max(samples,key=lambda item:item[0]);return {"score":round(sum(item[0] for item in samples)/len(samples),2),"cover":round(best[1],3),"details":best[2]}
-def candidates(assets,words,bounds,direction_schema):
+def candidates(assets,words,bounds,direction_schema,max_hooks=6):
  raw=[]
  for asset in assets:
   episode=asset["episodeNumber"];duration=float(probe(asset["path"])["format"]["duration"])
@@ -63,7 +63,7 @@ def candidates(assets,words,bounds,direction_schema):
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
   visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])+(item["direction"]["score"] or 0)*.28-item["direction"]["penalty"]
- ranked=[item for item in select_ranked(raw,2) if item["score"]>=22 and item.get("visual",{}).get("score",0)>=18];out=[]
+ ranked=[item for item in select_ranked(raw,max_hooks) if item["score"]>=22 and item.get("visual",{}).get("score",0)>=18];out=[]
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
@@ -101,19 +101,20 @@ def upload_draft(job,candidate,path):
 def run(job):
  root=Path(tempfile.mkdtemp(prefix="drama-hook-",dir=os.getenv("WORK_DIR","/tmp")));assets=[];words={};bounds={}
  update(job,"downloading",5)
- for a in job["sourceAssets"]:p=root/f"ep-{a['episodeNumber']}.mp4";download(a["videoUrl"],p);assets.append({**a,"path":p})
+ for index,a in enumerate(job["sourceAssets"]):
+  p=root/f"ep-{a['episodeNumber']}.mp4";download(a["videoUrl"],p);assets.append({**a,"path":p});update(job,"downloading",5+round((index+1)/len(job["sourceAssets"])*15))
  update(job,"transcribing",25)
- for a in assets:words[a["episodeNumber"]]=transcribe(a["path"])
+ for index,a in enumerate(assets):words[a["episodeNumber"]]=transcribe(a["path"]);update(job,"transcribing",25+round((index+1)/len(assets)*25))
  update(job,"analyzing",55)
- for a in assets:bounds[a["episodeNumber"]]=scenes(a["path"])
- direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));found=candidates(assets,words,bounds,direction_schema)
+ for index,a in enumerate(assets):bounds[a["episodeNumber"]]=scenes(a["path"]);update(job,"analyzing",55+round((index+1)/len(assets)*10))
+ direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));max_hooks=max(1,min(6,int(job.get("settings",{}).get("maxHooks",6))));found=candidates(assets,words,bounds,direction_schema,max_hooks)
  if found:
   update(job,"rendering",70)
   by_episode={a["episodeNumber"]:a for a in assets}
   for index,candidate in enumerate(found):
    output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,float(job.get("settings",{}).get("coverDuration",.1)))
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
-   update(job,"rendering",80+index*10)
+   update(job,"rendering",min(97,72+round((index+1)/len(found)*25)))
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
 class PublishCanceled(Exception):pass
 class PublishOutcomeUnknown(Exception):pass

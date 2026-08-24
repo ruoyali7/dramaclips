@@ -1,3 +1,183 @@
-import {NextRequest,NextResponse} from "next/server";import {z} from "zod";import {hookJobStatuses} from "@/lib/admin/hook-job-types";import {getHookJob,updateLocalWorkerJob} from "@/lib/admin/hook-job-repository";import {approveHookCandidate} from "@/lib/admin/hook-repository";import {getSupabaseConfig} from "@/lib/admin/supabase-config";
-const candidate=z.object({id:z.string(),rank:z.number().int().min(1).max(2),title:z.string(),hookType:z.string(),sourceRanges:z.array(z.object({episodeNumber:z.number().int(),start:z.number(),end:z.number()})),renderedRanges:z.array(z.object({start:z.number(),end:z.number()})),score:z.number(),scoreComponents:z.record(z.number()),rationale:z.string(),riskLevel:z.enum(["low","medium","high"]),riskAssessment:z.record(z.unknown()),directionMatchScore:z.number().nullish(),directionEvidence:z.record(z.unknown()).optional(),coverSourceTimestamp:z.number(),draftObjectKey:z.string().optional(),draftUrl:z.string().url().optional(),durationSeconds:z.number().optional(),width:z.number().int().optional(),height:z.number().int().optional(),videoCodec:z.string().optional(),audioCodec:z.string().optional(),sizeBytes:z.number().int().optional(),qaResults:z.record(z.unknown()).optional(),reviewState:z.enum(["pending","approved","rejected"])});const schema=z.object({workerId:z.string(),status:z.enum(hookJobStatuses),progress:z.number().int().min(0).max(100),errorCategory:z.string().optional(),errorMessage:z.string().optional(),directionSchema:z.record(z.unknown()).optional(),candidates:z.array(candidate).max(2).optional()});function ok(r:NextRequest){const token=process.env.HOOK_WORKER_TOKEN;return Boolean(token&&(r.headers.get("x-hook-worker-token")===token||r.headers.get("authorization")===`Bearer ${token}`))}
-export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){if(!ok(request))return NextResponse.json({message:"Unauthorized"},{status:401});try{const {id}=await params;const input=schema.parse(await request.json());const config=getSupabaseConfig();if(!config.configured){const localInput={...input,candidates:input.candidates?.map(candidate=>({...candidate,directionMatchScore:candidate.directionMatchScore??undefined}))};const job=await updateLocalWorkerJob(id,input.workerId,localInput);if(input.status==="review_ready")await Promise.all(job.candidates.filter(candidate=>candidate.draftUrl).map(candidate=>approveHookCandidate(job,candidate,candidate.title)));return NextResponse.json({job})}const headers={apikey:config.key,Authorization:`Bearer ${config.key}`,"Content-Type":"application/json",Prefer:"return=representation"};if(input.candidates?.length)await fetch(`${config.url}/rest/v1/hook_candidates?on_conflict=job_id,rank`,{method:"POST",headers:{...headers,Prefer:"resolution=merge-duplicates"},body:JSON.stringify(input.candidates.map(c=>({job_id:id,rank:c.rank,title:c.title,hook_type:c.hookType,source_ranges:c.sourceRanges,rendered_ranges:c.renderedRanges,score:c.score,score_components:c.scoreComponents,rationale:c.rationale,risk_level:c.riskLevel,risk_assessment:c.riskAssessment,direction_match_score:c.directionMatchScore??null,direction_evidence:c.directionEvidence||{},cover_source_timestamp:c.coverSourceTimestamp,draft_object_key:c.draftObjectKey||null,draft_url:c.draftUrl||null,duration_seconds:c.durationSeconds||null,width:c.width||null,height:c.height||null,video_codec:c.videoCodec||null,audio_codec:c.audioCodec||null,size_bytes:c.sizeBytes||null,qa_results:c.qaResults||{},transcript_version:"faster-whisper-1.2",prompt_version:"direction-rule-v1",ranking_version:"grounded-direction-v4",render_version:"ffmpeg-v2",review_state:c.draftUrl?"approved":c.reviewState})))});const terminal=["review_ready","no_result","failed","canceled"].includes(input.status);const response=await fetch(`${config.url}/rest/v1/hook_generation_jobs?id=eq.${id}&lease_owner=eq.${encodeURIComponent(input.workerId)}`,{method:"PATCH",headers,body:JSON.stringify({status:input.status,progress:input.progress,error_category:input.errorCategory||null,error_message:input.errorMessage||null,...(input.directionSchema?{direction_schema:input.directionSchema}:{}),heartbeat_at:new Date().toISOString(),lease_expires_at:terminal?null:new Date(Date.now()+300000).toISOString(),completed_at:terminal?new Date().toISOString():null})});if(!response.ok)throw new Error(`Job update failed (${response.status})`);if(input.status==="review_ready"){const job=await getHookJob(id);if(job)await Promise.all(job.candidates.filter(candidate=>candidate.draftUrl).map(candidate=>approveHookCandidate(job,candidate,candidate.title)))}return NextResponse.json({ok:true})}catch(error){return NextResponse.json({message:error instanceof Error?error.message:"Worker update failed"},{status:409})}}
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { hookJobStatuses } from "@/lib/admin/hook-job-types";
+import {
+  getHookJob,
+  updateLocalWorkerJob,
+} from "@/lib/admin/hook-job-repository";
+import { approveHookCandidate } from "@/lib/admin/hook-repository";
+import { getSupabaseConfig } from "@/lib/admin/supabase-config";
+const candidate = z.object({
+  id: z.string(),
+  rank: z.number().int().min(1).max(6),
+  title: z.string(),
+  hookType: z.string(),
+  sourceRanges: z.array(
+    z.object({
+      episodeNumber: z.number().int(),
+      start: z.number(),
+      end: z.number(),
+    }),
+  ),
+  renderedRanges: z.array(z.object({ start: z.number(), end: z.number() })),
+  score: z.number(),
+  scoreComponents: z.record(z.number()),
+  rationale: z.string(),
+  riskLevel: z.enum(["low", "medium", "high"]),
+  riskAssessment: z.record(z.unknown()),
+  directionMatchScore: z.number().nullish(),
+  directionEvidence: z.record(z.unknown()).optional(),
+  coverSourceTimestamp: z.number(),
+  draftObjectKey: z.string().optional(),
+  draftUrl: z.string().url().optional(),
+  durationSeconds: z.number().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
+  videoCodec: z.string().optional(),
+  audioCodec: z.string().optional(),
+  sizeBytes: z.number().int().optional(),
+  qaResults: z.record(z.unknown()).optional(),
+  reviewState: z.enum(["pending", "approved", "rejected"]),
+});
+const schema = z.object({
+  workerId: z.string(),
+  status: z.enum(hookJobStatuses),
+  progress: z.number().int().min(0).max(100),
+  errorCategory: z.string().optional(),
+  errorMessage: z.string().optional(),
+  directionSchema: z.record(z.unknown()).optional(),
+  candidates: z.array(candidate).max(6).optional(),
+});
+function ok(r: NextRequest) {
+  const token = process.env.HOOK_WORKER_TOKEN;
+  return Boolean(
+    token &&
+    (r.headers.get("x-hook-worker-token") === token ||
+      r.headers.get("authorization") === `Bearer ${token}`),
+  );
+}
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!ok(request))
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  try {
+    const { id } = await params;
+    const input = schema.parse(await request.json());
+    const config = getSupabaseConfig();
+    if (!config.configured) {
+      const localInput = {
+        ...input,
+        candidates: input.candidates?.map((candidate) => ({
+          ...candidate,
+          directionMatchScore: candidate.directionMatchScore ?? undefined,
+        })),
+      };
+      const job = await updateLocalWorkerJob(id, input.workerId, localInput);
+      if (input.status === "review_ready")
+        await Promise.all(
+          job.candidates
+            .filter((candidate) => candidate.draftUrl)
+            .map((candidate) =>
+              approveHookCandidate(job, candidate, candidate.title),
+            ),
+        );
+      return NextResponse.json({ job });
+    }
+    const headers = {
+      apikey: config.key,
+      Authorization: `Bearer ${config.key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    };
+    if (input.candidates?.length)
+      await fetch(
+        `${config.url}/rest/v1/hook_candidates?on_conflict=job_id,rank`,
+        {
+          method: "POST",
+          headers: { ...headers, Prefer: "resolution=merge-duplicates" },
+          body: JSON.stringify(
+            input.candidates.map((c) => ({
+              job_id: id,
+              rank: c.rank,
+              title: c.title,
+              hook_type: c.hookType,
+              source_ranges: c.sourceRanges,
+              rendered_ranges: c.renderedRanges,
+              score: c.score,
+              score_components: c.scoreComponents,
+              rationale: c.rationale,
+              risk_level: c.riskLevel,
+              risk_assessment: c.riskAssessment,
+              direction_match_score: c.directionMatchScore ?? null,
+              direction_evidence: c.directionEvidence || {},
+              cover_source_timestamp: c.coverSourceTimestamp,
+              draft_object_key: c.draftObjectKey || null,
+              draft_url: c.draftUrl || null,
+              duration_seconds: c.durationSeconds || null,
+              width: c.width || null,
+              height: c.height || null,
+              video_codec: c.videoCodec || null,
+              audio_codec: c.audioCodec || null,
+              size_bytes: c.sizeBytes || null,
+              qa_results: c.qaResults || {},
+              transcript_version: "faster-whisper-1.2",
+              prompt_version: "direction-rule-v1",
+              ranking_version: "grounded-direction-v4",
+              render_version: "ffmpeg-v2",
+              review_state: c.draftUrl ? "approved" : c.reviewState,
+            })),
+          ),
+        },
+      );
+    const terminal = [
+      "review_ready",
+      "no_result",
+      "failed",
+      "canceled",
+    ].includes(input.status);
+    const response = await fetch(
+      `${config.url}/rest/v1/hook_generation_jobs?id=eq.${id}&lease_owner=eq.${encodeURIComponent(input.workerId)}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          status: input.status,
+          progress: input.progress,
+          error_category: input.errorCategory || null,
+          error_message: input.errorMessage || null,
+          ...(input.directionSchema
+            ? { direction_schema: input.directionSchema }
+            : {}),
+          heartbeat_at: new Date().toISOString(),
+          lease_expires_at: terminal
+            ? null
+            : new Date(Date.now() + 300000).toISOString(),
+          completed_at: terminal ? new Date().toISOString() : null,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(`Job update failed (${response.status})`);
+    if (input.status === "review_ready") {
+      const job = await getHookJob(id);
+      if (job)
+        await Promise.all(
+          job.candidates
+            .filter((candidate) => candidate.draftUrl)
+            .map((candidate) =>
+              approveHookCandidate(job, candidate, candidate.title),
+            ),
+        );
+    }
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        message:
+          error instanceof Error ? error.message : "Worker update failed",
+      },
+      { status: 409 },
+    );
+  }
+}
