@@ -8,7 +8,7 @@ import type {HookCandidate,HookJob} from "./hook-job-types";
 
 type Range={start:number;end:number;episodeNumber?:number};
 export type HookClip = { id:string; candidateId?:string; dramaSlug:string; title:string; sourceEpisodes:number[]; sourceRanges?:Range[]; renderedRanges?:Range[]; coverSourceTimestamp?:number; videoUrl:string; durationSeconds:number; status:"saved"; createdAt:string };
-type Row={id:string;candidate_id?:string;drama_slug:string;title:string;source_episodes:number[];source_ranges?:Range[];rendered_ranges?:Range[];cover_source_timestamp?:number;video_url:string;duration_seconds:number;status:"saved";created_at:string};
+type Row={id:string;candidate_id?:string;drama_slug:string;title:string;source_episodes:number[];source_ranges?:Range[];rendered_ranges?:Range[];cover_source_timestamp?:number;object_key?:string;video_url:string;duration_seconds:number;status:"saved";created_at:string};
 function localPath(){return process.env.HOOK_CLIP_FILE||path.join(process.cwd(),"data","hook-clips.json")}
 function fromRow(row:Row):HookClip{return{id:row.id,candidateId:row.candidate_id,dramaSlug:row.drama_slug,title:row.title,sourceEpisodes:row.source_episodes,sourceRanges:row.source_ranges,renderedRanges:row.rendered_ranges,coverSourceTimestamp:row.cover_source_timestamp==null?undefined:Number(row.cover_source_timestamp),videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status,createdAt:row.created_at}}
 async function localRows():Promise<HookClip[]>{try{const rows=JSON.parse(await readFile(localPath(),"utf8"));return Array.isArray(rows)?rows:[]}catch{return[]}}
@@ -36,4 +36,27 @@ export async function deletePendingHookCandidate(job:HookJob,candidate:HookCandi
   if(!config.configured)return;
   await request(`hook_candidates?id=eq.${encodeURIComponent(candidate.id)}&job_id=eq.${encodeURIComponent(job.id)}`,{method:"DELETE"});
 }
-export async function deleteHookClip(id:string){const config=getSupabaseConfig();if(!config.configured)throw new Error("Deleting saved hooks requires Supabase");const rows=await request(`hook_clips?id=eq.${encodeURIComponent(id)}&select=*`) as Row[];const clip=rows[0];if(!clip)throw new Error("Hook not found");const active=await request(`publish_packages?hook_clip_id=eq.${encodeURIComponent(id)}&status=in.(scheduled,publishing,published)&select=id`) as {id:string}[];if(active.length)throw new Error("Published or scheduled hooks cannot be deleted");const pathname=decodeURIComponent(new URL(clip.video_url).pathname).replace(/^\//,"");const key=pathname.slice(pathname.indexOf("dramas/"));if(key.startsWith("dramas/"))await deleteSocialVideo(key);await request(`hook_clips?id=eq.${encodeURIComponent(id)}`,{method:"DELETE"});return fromRow(clip)}
+export async function deleteHookClip(id:string){
+  const config=getSupabaseConfig();
+  if(!config.configured){
+    const rows=await localRows();
+    const clip=rows.find(row=>row.id===id);
+    if(!clip)throw new Error("Hook not found");
+    await writeLocal(rows.filter(row=>row.id!==id));
+    return clip;
+  }
+  const rows=await request(`hook_clips?id=eq.${encodeURIComponent(id)}&select=*`) as Row[];
+  const clip=rows[0];
+  if(!clip)throw new Error("Hook not found");
+  const active=await request(`publish_packages?hook_clip_id=eq.${encodeURIComponent(id)}&status=in.(scheduled,publishing,published)&select=id`) as {id:string}[];
+  if(active.length)throw new Error("Published or scheduled hooks cannot be deleted");
+  let objectKey=clip.object_key;
+  if(!objectKey){
+    const pathname=decodeURIComponent(new URL(clip.video_url).pathname).replace(/^\//,"");
+    const marker=pathname.indexOf("dramas/");
+    objectKey=marker>=0?pathname.slice(marker):undefined;
+  }
+  if(objectKey?.startsWith("dramas/")&&objectKey.includes("/social/"))await deleteSocialVideo(objectKey);
+  await request(`hook_clips?id=eq.${encodeURIComponent(id)}`,{method:"DELETE"});
+  return fromRow(clip);
+}
