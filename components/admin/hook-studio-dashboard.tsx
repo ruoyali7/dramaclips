@@ -574,13 +574,13 @@ export function HookStudioDashboard({
             </div>
             <details className="direction-options">
               <summary>
-                Advanced direction <small>Optional</small>
+                Advanced direction <small>Optional · guide scene selection</small>
               </summary>
               <textarea
                 value={direction}
                 onChange={(event) => setDirection(event.target.value)}
                 maxLength={1200}
-                placeholder="想突出的重点、对白、情绪或需要避开的内容…"
+                placeholder={'描述你想找的片段，例如：\n男女主单独相处、关系暧昧或互相表白。必须包含 love、kiss 或 jealous 等相关对白。避免打斗。停在关系揭晓前。\n\n可写：人物关系、场景、动作、对白关键词、情绪、必须包含、避免内容、结尾位置。'}
               />
               <small>{direction.length}/1200</small>
             </details>

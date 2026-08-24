@@ -32,6 +32,16 @@ def lexical_components(tokens,duration,end,episode_duration):
 def total_score(parts):
  return sum(parts.get(k,0)*w for k,w in {"dialogue":.16,"conflict":.15,"reversal":.13,"tension":.14,"danger":.08,"identity":.07,"cliffhanger":.15,"context":.05,"visual":.07}.items())
 
+def candidate_title(text,dominant):
+ words=[word for word in text.split() if word and not word.startswith("visual-scene-")]
+ fallbacks={"conflict":"She finally calls him out","reversal":"The truth changes everything","tension":"The moment they get too close","danger":"One step from disaster","identity":"The secret identity is exposed","cliffhanger":"A secret is about to come out"}
+ if len(words)<4:return fallbacks[dominant]
+ signals={"liar","lied","betray","betrayed","hate","love","kiss","marry","wife","husband","secret","truth","really","never","leave","stop","kill","dead","heir","ceo","pregnant","sorry","want","need"}
+ best_start=max(range(len(words)),key=lambda index:sum(1 for word in words[index:index+9] if word.lower().strip(".,!?\"'") in signals))
+ title=" ".join(words[best_start:best_start+9]).strip(" .,!?\"'")
+ if len(title)<12:title=" ".join(words[:9]).strip(" .,!?\"'")
+ return title[:1].upper()+title[1:72]
+
 def jaccard(a,b):
  aa=set(re.findall(r"[a-z0-9']+",a.lower()));bb=set(re.findall(r"[a-z0-9']+",b.lower()));return len(aa&bb)/max(1,len(aa|bb))
 

@@ -1,5 +1,5 @@
 import unittest
-from hook_worker.scoring import lexical_components,select_ranked,snap_windows
+from hook_worker.scoring import candidate_title,lexical_components,select_ranked,snap_windows
 from hook_worker.direction import parse_direction,score_direction
 
 class ScoringTests(unittest.TestCase):
@@ -29,5 +29,10 @@ class ScoringTests(unittest.TestCase):
  def test_blank_direction_preserves_default_path(self):
   result=score_direction(parse_direction(""),"ordinary dialogue",{"tension":0})
   self.assertTrue(result["eligible"]);self.assertIsNone(result["score"])
+ def test_candidate_title_uses_selected_clip_dialogue(self):
+  title=candidate_title("you sent that maid to me but I never betrayed you the truth is different","cliffhanger")
+  self.assertIn("betrayed",title.lower());self.assertNotEqual(title,"What happens next is shocking")
+ def test_candidate_title_falls_back_without_dialogue(self):
+  self.assertEqual(candidate_title("visual-scene-episode-1-0-20","cliffhanger"),"A secret is about to come out")
 
 if __name__=="__main__":unittest.main()
