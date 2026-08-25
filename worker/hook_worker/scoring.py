@@ -13,13 +13,14 @@ RISK_WORDS={"naked","nude","sex","fuck","bitch","bastard","kill","blood","gun"}
 def normalized_words(words,start,end):
  return [token for w in words if start<=float(w["start"])<=end for token in re.findall(r"[a-z0-9']+|[?]",str(w["word"]).lower())]
 
-def snap_windows(words,scenes,duration,min_seconds=20,max_seconds=42):
+def snap_windows(words,scenes,duration,min_seconds=20,max_seconds=90):
  endings=sorted({min(duration-.35,max(1,float(s["end"]))) for s in scenes} | {max(1,duration-.5)})
  starts=sorted({max(0,float(s["start"])) for s in scenes} | {0})
  windows=[]
  for end in endings:
   eligible=[start for start in starts if min_seconds<=end-start<=max_seconds]
-  start=max(eligible) if eligible else max(0,end-min(38,end))
+  # Prefer the longest complete window that ends at this scene boundary.
+  start=min(eligible) if eligible else max(0,end-max_seconds)
   if end-start>=min_seconds*.7:windows.append((round(start,3),round(end,3)))
  return windows
 
@@ -31,7 +32,7 @@ def lexical_components(tokens,duration,end,episode_duration):
  return {"dialogue":dialogue,"conflict":signal["conflict"],"reversal":signal["reversal"],"tension":signal["tension"],"danger":signal["danger"],"identity":signal["identity"],"cliffhanger":cliffhanger,"context":context},risk
 
 def total_score(parts):
- return sum(parts.get(k,0)*w for k,w in {"dialogue":.16,"conflict":.15,"reversal":.13,"tension":.14,"danger":.08,"identity":.07,"cliffhanger":.15,"context":.05,"visual":.07}.items())
+ return sum(parts.get(k,0)*w for k,w in {"dialogue":.10,"conflict":.10,"reversal":.08,"tension":.10,"danger":.05,"identity":.04,"cliffhanger":.10,"context":.03,"visual":.35}.items())
 
 def candidate_title(text,dominant):
  words=[word for word in text.split() if word and not word.startswith("visual-scene-")]

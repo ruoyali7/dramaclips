@@ -35,14 +35,21 @@ def transcribe(path):
  return [{"start":w.start,"end":w.end,"word":w.word} for s in segments for w in (s.words or [])]
 def scenes(path): return [{"start":a.get_seconds(),"end":b.get_seconds()} for a,b in detect(str(path),ContentDetector(threshold=27.0))]
 def visual_stats(path,start,end):
- cap=cv2.VideoCapture(str(path));cascade=None;samples=[]
+ cap=cv2.VideoCapture(str(path));cascade=None;samples=[];previous=None;motion=[]
  if hasattr(cv2,"CascadeClassifier") and hasattr(cv2,"data"):
   candidate=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml");cascade=None if candidate.empty() else candidate
  for stamp in [start+1.0,start+(end-start)*.35,start+(end-start)*.62,max(start,end-1.0)]:
   cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
   if not ok:continue
-  gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);sharp=min(100,cv2.Laplacian(gray,cv2.CV_64F).var()/4);brightness=float(gray.mean());exposure=max(0,100-abs(brightness-125)*1.15);faces=[] if cascade is None else cascade.detectMultiScale(gray,1.15,5,minSize=(48,48));face=min(100,len(faces)*55)
-  score=sharp*.55+exposure*.30+face*.15;samples.append((score,stamp,{"sharpness":round(sharp,2),"exposure":round(exposure,2),"faces":len(faces),"faceDetectorAvailable":cascade is not None}))
+  gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);hsv=cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+  sharp=min(100,cv2.Laplacian(gray,cv2.CV_64F).var()/4);brightness=float(gray.mean());exposure=max(0,100-abs(brightness-125)*1.15)
+  contrast=min(100,float(gray.std())*2.2);color=min(100,float(hsv[:,:,1].mean())*1.35)
+  faces=[] if cascade is None else cascade.detectMultiScale(gray,1.15,5,minSize=(48,48));face=min(100,len(faces)*55)
+  if previous is not None:motion.append(min(100,float(cv2.absdiff(gray,previous).mean())*3.2))
+  previous=gray
+  # Keep the frame useful as a cover while rewarding readable, active scenes.
+  score=sharp*.28+exposure*.18+contrast*.16+color*.08+face*.18+(motion[-1] if motion else 0)*.12
+  samples.append((score,stamp,{"sharpness":round(sharp,2),"exposure":round(exposure,2),"contrast":round(contrast,2),"color":round(color,2),"motion":round(motion[-1],2) if motion else 0,"faces":len(faces),"faceDetectorAvailable":cascade is not None}))
  cap.release()
  if not samples:return {"score":0,"cover":max(start,end-1),"details":{}}
  best=max(samples,key=lambda item:item[0]);return {"score":round(sum(item[0] for item in samples)/len(samples),2),"cover":round(best[1],3),"details":best[2]}
@@ -62,12 +69,13 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
    if direction["eligible"] or not direction_schema.get("original"):episode_raw.append({"episodeNumber":episode,"start":start,"end":end,"text":text,"score":score,"parts":parts,"risk":risk,"path":asset["path"],"direction":direction})
   raw.extend(sorted(episode_raw,key=lambda item:item["score"],reverse=True)[:3])
  for item in raw:
-  visual=visual_stats(item.pop("path"),item["start"],item["end"]);item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])+(item["direction"]["score"] or 0)*.28-item["direction"]["penalty"]
- ranked=[item for item in select_ranked(raw,max_hooks) if item["score"]>=22 and item.get("visual",{}).get("score",0)>=18];out=[]
+  path=item.pop("path");visual=visual_stats(path,item["start"],item["end"])
+  item["visual"]=visual;item["parts"]["visual"]=visual["score"];item["score"]=total_score(item["parts"])+(item["direction"]["score"] or 0)*.28-item["direction"]["penalty"]
+ ranked=[item for item in select_ranked(raw,max_hooks) if item["score"]>=22 and item.get("visual",{}).get("score",0)>=25];out=[]
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
-  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, dense grounded dialogue, and a sharp readable cover frame.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
+  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, visual quality, and grounded dialogue.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
