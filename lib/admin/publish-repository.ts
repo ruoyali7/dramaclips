@@ -144,7 +144,7 @@ function copyFor(
   ];
   const tagSet = uniqueTags(recommendHashtags(source, tagCandidates).map((candidate) => candidate.tag)).map((tag) => `#${tag}`);
   const hashtagSource = "catalog-fallback";
-  const top = `🔥 Watch the full drama on DramaClips 👉 ${url}`;
+  const top = `🔥 Continue watching on DramaClips 👉 ${url}`;
   const code = `🔍 In ReelShort, search code “${promoCode}”`;
   const cta = `👉🏻 Continue on DramaClips, or search “${promoCode}” in ReelShort`;
   const hashtags = tagSet.join(" ");
