@@ -4,12 +4,15 @@ import { listVizardProjects, saveVizardAsset, updateVizardProject } from "@/lib/
 
 export const maxDuration = 300;
 function value(data: Record<string, unknown>, keys: string[]) { for (const key of keys) if (data[key] != null) return data[key]; return undefined; }
+function nested(data: Record<string, unknown>, keys: string[]) {
+  return value(data, keys) ?? (data.data && typeof data.data === "object" ? value(data.data as Record<string, unknown>, keys) : undefined) ?? (data.result && typeof data.result === "object" ? value(data.result as Record<string, unknown>, keys) : undefined);
+}
 export async function POST(request: NextRequest) {
   const expected = process.env.VIZARD_WEBHOOK_SECRET?.trim(); const supplied = request.headers.get("x-vizard-webhook-secret") || request.nextUrl.searchParams.get("secret");
   if (expected && supplied !== expected) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json() as Record<string, unknown>;
-    const projectId = String(value(body, ["projectId", "project_id", "projectID"]) || (body.project as Record<string, unknown> | undefined)?.projectId || "");
+    const projectId = String(nested(body, ["projectId", "project_id", "projectID"]) || (body.project as Record<string, unknown> | undefined)?.projectId || "");
     if (!projectId) return NextResponse.json({ message: "projectId is required" }, { status: 400 });
     const projects = await listVizardProjects();
     const project = projects.find((item) => item.vizardProjectId === projectId);
@@ -17,9 +20,11 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.VIZARD_API_KEY?.trim(); if (!apiKey) throw new Error("Vizard is not configured");
     const response = await fetch(`https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/query/${encodeURIComponent(projectId)}`, { headers: { VIZARDAI_API_KEY: apiKey }, cache: "no-store" });
     const result = await response.json() as { code?: number; videos?: Record<string, unknown>[] };
-    if (!response.ok || result.code !== 2000 || !result.videos?.length) return NextResponse.json({ accepted: true, status: "processing", code: result.code }, { status: 202 });
+    const payloadVideos = nested(body, ["videos", "clips"]);
+    const videos = result.videos?.length ? result.videos : Array.isArray(payloadVideos) ? payloadVideos as Record<string, unknown>[] : [];
+    if (!response.ok || !videos.length) return NextResponse.json({ accepted: true, status: "processing", code: result.code }, { status: 202 });
     let imported = 0;
-    for (const video of result.videos) {
+    for (const video of videos) {
       const videoId = String(value(video, ["videoId", "video_id"]) || ""); const videoUrl = String(video.videoUrl || ""); if (!videoId || !videoUrl) continue;
       const download = await fetch(videoUrl, { cache: "no-store" }); if (!download.ok) throw new Error(`Vizard clip download returned ${download.status}`);
       const bytes = Buffer.from(await download.arrayBuffer()); const storedUrl = await uploadSocialVideo({ fileName: `vizard-${projectId}-${videoId}.mp4`, slug: project.dramaSlug, bytes });
