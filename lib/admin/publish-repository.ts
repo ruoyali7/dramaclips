@@ -135,7 +135,7 @@ function copyFor(
   const hook = `${hookLead[source]} ${shorten(hookLabel || firstSentence, source === "x" ? 65 : 120)}`;
   const tagCandidates = [
     { tag: "ReelShort", relevance: 75, competition: 65 },
-    { tag: "DramaClips", relevance: 95, competition: 45 },
+    { tag: "DramoraAI", relevance: 95, competition: 45 },
     { tag: "ShortDrama", relevance: 95, competition: 60 },
     ...(source === "youtube" ? [{ tag: "Shorts", relevance: 85, competition: 80 }] : []),
     { tag: title, relevance: 90, competition: 25 },
@@ -144,9 +144,9 @@ function copyFor(
   ];
   const tagSet = uniqueTags(recommendHashtags(source, tagCandidates).map((candidate) => candidate.tag)).map((tag) => `#${tag}`);
   const hashtagSource = "catalog-fallback";
-  const top = `🔥 Continue watching on DramaClips 👉 ${url}`;
+  const top = `🔥 Continue watching on Dramora AI 👉 ${url}`;
   const code = `🔍 In ReelShort, search code “${promoCode}”`;
-  const cta = `👉🏻 Continue on DramaClips, or search “${promoCode}” in ReelShort`;
+  const cta = `👉🏻 Continue on Dramora AI, or search “${promoCode}” in ReelShort`;
   const hashtags = tagSet.join(" ");
   if (source === "x") {
     const fixed = `${top}\n${code}\n${hook}\n${cta}\n${hashtags}`;
@@ -163,7 +163,7 @@ function copyFor(
     const caption = [
       `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
       `🔍 Search this code in ReelShort: ${promoCode}`,
-      `🔥 Watch the preview and continue on DramaClips: ${url}`,
+      `🔥 Watch the preview and continue on Dramora AI: ${url}`,
       hook,
       `🎬 ${title}`,
       `✨ ${shorten(description, 420)}`,

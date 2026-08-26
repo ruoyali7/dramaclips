@@ -91,7 +91,7 @@ def render(asset,candidate,target,cover_duration=.1):
  total=duration+cover_duration;fade_start=max(0,duration-.18)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
  def filter_path(value):return str(value).replace("\\","\\\\").replace(":","\\:").replace("'","\\'")
- episode_text=target.with_suffix(".episode.txt");episode_text.write_text(f"DramaClips · EP {rng['episodeNumber']}",encoding="utf-8")
+ episode_text=target.with_suffix(".episode.txt");episode_text.write_text(f"Dramora AI · EP {rng['episodeNumber']}",encoding="utf-8")
  title_files=[]
  for index,line in enumerate(title_lines(candidate["title"])):
   text_file=target.with_suffix(f".title-{index}.txt");text_file.write_text(line,encoding="utf-8");title_files.append((index,text_file))
@@ -169,7 +169,7 @@ def yixer_video(data):
  return candidate
 def yixer_payload(job,pack,video,cover):
  platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=plain_description(pack["caption"]);title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
- if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramaClips","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
+ if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramoraAI","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
  if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})

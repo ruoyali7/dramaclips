@@ -168,6 +168,13 @@ function deliveryMethod(value: Package) {
   if (value.scheduledAt) return "Scheduled";
   return "Publish now";
 }
+function assetPublishSummary(pack: Package | undefined) {
+  if (!pack) return "Never published";
+  const published = pack.platforms
+    .filter((platform) => platformState(pack, platform.source) === "Published · confirmed")
+    .map((platform) => platform.source);
+  return published.length ? `Published · ${published.join(" · ")}` : packageState(pack);
+}
 function taskCanContinue(value: Package) {
   const state = packageState(value);
   return ![
@@ -265,6 +272,7 @@ export function PublishCenter({
   const selectedHook =
     hookOptions.find((x) => x.id === asset) ||
     (kind === "hook" ? hookOptions[0] : undefined);
+  const selectedHookPackage = selectedHook ? recent.find((pack) => pack.videoUrl === selectedHook.videoUrl) : undefined;
   const selectedHookClipId = selectedHook && source?.hooks.some((hook) => hook.id === selectedHook.id) ? selectedHook.id : undefined;
   const selectedAssetId = asset || (kind === "original"
     ? String(source?.episodes[0]?.episodeNumber || "")
@@ -901,15 +909,22 @@ export function PublishCenter({
                     </button>
                   ))
                 : hookOptions.map((x) => (
+                    (() => {
+                      const latest = recent.find((pack) => pack.videoUrl === x.videoUrl);
+                      return (
                     <button type="button" className={selectedAssetId === x.id ? "selected" : ""} onClick={() => changeAsset(x.id)} key={x.id}>
                       <strong>{x.title}</strong><small>{durationLabel(Math.round(x.durationSeconds))}</small>
+                      <small>{`EP ${x.sourceEpisodes.join(", ")} · ${assetPublishSummary(latest)}`}</small>
                     </button>
+                      );
+                    })()
                   ))}
             </div>
           </label>
         )}
         <div className="video-source">
           <b>{videoLabel}</b>
+          {kind === "hook" && selectedHook && <small>{`EP ${selectedHook.sourceEpisodes.join(", ")} · ${assetPublishSummary(selectedHookPackage)}`}</small>}
           {videoUrl ? (
             <details>
               <summary>
