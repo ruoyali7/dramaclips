@@ -87,8 +87,8 @@ def render(asset,candidate,target,cover_duration=.1):
   stamp=max(rng["start"]+1,rng["end"]-offset);cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
   if ok and float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).mean())<12:clean_end=stamp
   else:break
- cap.release();duration=clean_end-rng["start"]
- if duration<8:raise RuntimeError("Render QA rejected a short or black-ended candidate")
+ cap.release();clean_end=min(clean_end,rng["start"]+90-cover_duration);duration=clean_end-rng["start"]
+ if duration<1:raise RuntimeError("Render QA rejected a short or black-ended candidate")
  total=duration+cover_duration;fade_start=max(0,duration-.18)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
  def filter_path(value):return str(value).replace("\\","\\\\").replace(":","\\:").replace("'","\\'")
@@ -120,8 +120,9 @@ def run(job):
  for index,a in enumerate(assets):words[a["episodeNumber"]]=transcribe(a["path"]);update(job,"transcribing",25+round((index+1)/len(assets)*25))
  update(job,"analyzing",55)
  for index,a in enumerate(assets):bounds[a["episodeNumber"]]=scenes(a["path"]);update(job,"analyzing",55+round((index+1)/len(assets)*10))
- direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));max_hooks=max(1,min(6,int(job.get("settings",{}).get("maxHooks",6))));found=candidates(assets,words,bounds,direction_schema,max_hooks)
+ direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));max_hooks=max(1,min(6,int(job.get("settings",{}).get("maxHooks",6))));candidate_pool=max(max_hooks,min(6,max_hooks*3));found=candidates(assets,words,bounds,direction_schema,candidate_pool)
  found=rerank(found,job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""))
+ found=found[:max_hooks]
  for rank,candidate in enumerate(found,1):candidate["rank"]=rank;candidate["id"]=f"{candidate['sourceRanges'][0]['episodeNumber']}-{rank}"
  if found:
   update(job,"rendering",70)

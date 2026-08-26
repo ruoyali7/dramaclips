@@ -70,7 +70,10 @@ def _request(candidates: list[dict[str, Any]], direction: str) -> list[dict[str,
                         "You rank short-drama hook candidates. Judge story clarity, "
                         "conflict, emotional escalation, and whether the ending creates "
                         "an honest open loop. Return exactly one judgment for every "
-                        "candidate ID. Do not invent facts outside the transcript."
+                        "candidate ID. Duration is automatic with a hard maximum of 90 "
+                        "seconds: prefer a shorter version only when it preserves the "
+                        "complete setup, escalation, and open loop. Do not invent facts "
+                        "outside the transcript."
                     ),
                 }],
             },
@@ -124,6 +127,7 @@ def rerank(candidates: list[dict[str, Any]], direction: str) -> list[dict[str, A
                 "episode": item["sourceRanges"][0]["episodeNumber"],
                 "start": item["sourceRanges"][0]["start"],
                 "end": item["sourceRanges"][0]["end"],
+                "durationSeconds": round(item["sourceRanges"][0]["end"]-item["sourceRanges"][0]["start"],3),
                 "transcript": item.get("transcript", ""),
                 "ruleScore": item.get("score", 0),
             } for item in candidates],
