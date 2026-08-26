@@ -6,6 +6,7 @@ from faster_whisper import WhisperModel
 from scenedetect import detect,ContentDetector
 from .scoring import candidate_title,lexical_components,normalized_words,select_ranked,snap_windows,title_lines,total_score
 from .direction import parse_direction,score_direction
+from .ai_reranker import rerank
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -75,7 +76,7 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
  for rank,item in enumerate(ranked,1):
   dominant=max((key for key in ("conflict","reversal","tension","danger","identity","cliffhanger")),key=lambda key:item["parts"][key]);labels={"conflict":"Conflict confrontation","reversal":"Truth revealed","tension":"Romantic tension","danger":"Immediate danger","identity":"Identity reveal","cliffhanger":"Grounded cliffhanger"}
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
-  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, visual quality, and grounded dialogue.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
+  out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"transcript":item["text"],"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, visual quality, and grounded dialogue.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
@@ -120,6 +121,8 @@ def run(job):
  update(job,"analyzing",55)
  for index,a in enumerate(assets):bounds[a["episodeNumber"]]=scenes(a["path"]);update(job,"analyzing",55+round((index+1)/len(assets)*10))
  direction_schema=parse_direction(job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""));max_hooks=max(1,min(6,int(job.get("settings",{}).get("maxHooks",6))));found=candidates(assets,words,bounds,direction_schema,max_hooks)
+ found=rerank(found,job.get("creativeDirection") or job.get("settings",{}).get("creativeDirection", ""))
+ for rank,candidate in enumerate(found,1):candidate["rank"]=rank;candidate["id"]=f"{candidate['sourceRanges'][0]['episodeNumber']}-{rank}"
  if found:
   update(job,"rendering",70)
   by_episode={a["episodeNumber"]:a for a in assets}
