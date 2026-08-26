@@ -5,12 +5,13 @@ from hook_worker.direction import parse_direction,score_direction
 class ScoringTests(unittest.TestCase):
  def test_windows_snap_to_scene_endings(self):
   windows=snap_windows([], [{"start":0,"end":12},{"start":12,"end":34},{"start":34,"end":61}],61)
-  self.assertIn((0,34.0),windows)
+  self.assertIn((12.0,34.0),windows)
 
- def test_windows_prefer_longer_hook_up_to_90_seconds(self):
+ def test_windows_prefer_nearest_complete_scene_under_45_seconds(self):
   windows=snap_windows([], [{"start":0,"end":30},{"start":30,"end":70},{"start":70,"end":110}],110)
-  self.assertIn((0.0,70.0),windows)
-  self.assertNotIn((0.0,110.0),windows)
+  self.assertIn((30.0,70.0),windows)
+  self.assertTrue(any(start==70.0 and end>=109.5 for start,end in windows))
+  self.assertTrue(all(end-start<=45 for start,end in windows))
  def test_conflict_and_tension_raise_components(self):
   parts,risk=lexical_components("you liar I hate you but I love you kiss me".split(),30,58,60)
   self.assertGreater(parts["conflict"],0);self.assertGreater(parts["tension"],0);self.assertEqual(risk,"low")

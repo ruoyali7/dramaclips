@@ -13,14 +13,15 @@ RISK_WORDS={"naked","nude","sex","fuck","bitch","bastard","kill","blood","gun"}
 def normalized_words(words,start,end):
  return [token for w in words if start<=float(w["start"])<=end for token in re.findall(r"[a-z0-9']+|[?]",str(w["word"]).lower())]
 
-def snap_windows(words,scenes,duration,min_seconds=20,max_seconds=90):
+def snap_windows(words,scenes,duration,min_seconds=18,max_seconds=45):
  endings=sorted({min(duration-.35,max(1,float(s["end"]))) for s in scenes} | {max(1,duration-.5)})
  starts=sorted({max(0,float(s["start"])) for s in scenes} | {0})
  windows=[]
  for end in endings:
   eligible=[start for start in starts if min_seconds<=end-start<=max_seconds]
-  # Prefer the longest complete window that ends at this scene boundary.
-  start=min(eligible) if eligible else max(0,end-max_seconds)
+  # Prefer the nearest complete scene start so hooks stay focused instead of
+  # expanding toward the old 90-second ceiling.
+  start=max(eligible) if eligible else max(0,end-max_seconds)
   if end-start>=min_seconds*.7:windows.append((round(start,3),round(end,3)))
  return windows
 
