@@ -52,7 +52,7 @@ def _request(candidates: list[dict[str, Any]], direction: str) -> list[dict[str,
     payload = {
         "model": model,
         "store": False,
-        "max_output_tokens": 1200,
+        "max_output_tokens": 2400,
         "text": {
             "format": {
                 "type": "json_schema",
@@ -73,7 +73,7 @@ def _request(candidates: list[dict[str, Any]], direction: str) -> list[dict[str,
                         "candidate ID. Duration is automatic with a hard maximum of 90 "
                         "seconds: prefer a shorter version only when it preserves the "
                         "complete setup, escalation, and open loop. Do not invent facts "
-                        "outside the transcript."
+                        "outside the transcript. Keep each reason to one short sentence."
                     ),
                 }],
             },
