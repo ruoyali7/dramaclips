@@ -1,0 +1,11 @@
+.git/
+.next/
+.venv-local-vision/
+.venv-local-vision312/
+node_modules/
+.env*
+coverage/
+data/
+work/
+worker/**/__pycache__/
+worker/**/*.pyc
