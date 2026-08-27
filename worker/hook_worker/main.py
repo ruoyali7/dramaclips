@@ -13,6 +13,7 @@ HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 MODEL=os.getenv("WHISPER_MODEL","small.en")
 FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+ENDING_HOLD_SECONDS=1.8
 def cleanup_worker_temps(max_age=3600):
  root=Path(os.getenv("WORK_DIR","/tmp"));cutoff=time.time()-max_age
  for prefix in ("drama-hook-","drama-publish-","drama-yixer-"):
@@ -78,33 +79,34 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
   direction=item.get("direction",{"score":None,"evidence":{"matched":[],"missing":[],"excluded":[]}});match_text=f" Direction evidence: {', '.join(direction['evidence']['matched'])}." if direction.get("score") is not None else ""
   out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"transcript":item["text"],"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, visual quality, and grounded dialogue.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
-def render(asset,candidate,target,cover_duration=.1):
- source=asset["path"];rng=candidate["sourceRanges"][0];cover=target.with_suffix(".cover.jpg")
- subprocess.check_call(["ffmpeg","-y","-ss",str(candidate["coverSourceTimestamp"]),"-i",str(source),"-frames:v","1","-q:v","2",str(cover)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+def render(asset,candidate,target,drama_cover,content_code,cover_duration=.1):
+ source=asset["path"];rng=candidate["sourceRanges"][0]
  source_duration=float(probe(source)["format"]["duration"])
  cap=cv2.VideoCapture(str(source));clean_end=min(source_duration,rng["end"]+1.2)
  for offset in (.04,.14,.28,.45,.7,1.0):
   stamp=max(rng["start"]+1,rng["end"]-offset);cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
   if ok and float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).mean())<12:clean_end=stamp
   else:break
- cap.release();clean_end=min(clean_end,rng["start"]+90-cover_duration);duration=clean_end-rng["start"]
+ cap.release();clean_end=min(clean_end,rng["start"]+90-cover_duration-ENDING_HOLD_SECONDS);duration=clean_end-rng["start"]
  if duration<1:raise RuntimeError("Render QA rejected a short or black-ended candidate")
- total=duration+cover_duration;fade_start=max(0,duration-.18)
+ total=duration+cover_duration+ENDING_HOLD_SECONDS;fade_start=max(0,duration-.25)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
  def filter_path(value):return str(value).replace("\\","\\\\").replace(":","\\:").replace("'","\\'")
- episode_text=target.with_suffix(".episode.txt");episode_text.write_text(f"Dramora AI · EP {rng['episodeNumber']}",encoding="utf-8")
+ ending_frame=target.with_suffix(".ending.jpg");subprocess.check_call(["ffmpeg","-y","-ss",str(max(rng["start"],clean_end-.04)),"-i",str(source),"-frames:v","1","-q:v","2",str(ending_frame)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ code_text=target.with_suffix(".code.txt");code_text.write_text(content_code,encoding="utf-8")
  title_files=[]
  for index,line in enumerate(title_lines(candidate["title"])):
   text_file=target.with_suffix(f".title-{index}.txt");text_file.write_text(line,encoding="utf-8");title_files.append((index,text_file))
  title_filters=",".join(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(text_file)}:reload=0:fontcolor=white@0.96:fontsize=42:x=(w-text_w)/2:y={112+index*62}:box=1:boxcolor=black@0.38:boxborderw=16" for index,text_file in title_files)
- overlay=f"{base},drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(episode_text)}:reload=0:fontcolor=white@0.62:fontsize=28:x=38:y=42:box=1:boxcolor=black@0.22:boxborderw=10,{title_filters}"
- delay_ms=round(cover_duration*1000);graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},setpts=PTS-STARTPTS[mv];[cv][mv]concat=n=2:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.18,adelay={delay_ms}:all=1,apad,atrim=duration={total}[a]"
- command=["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","fast","-crf","23","-maxrate","4M","-bufsize","8M","-force_key_frames","0","-c:a","aac","-b:a","128k","-movflags","+faststart",str(target)]
+ overlay=f"{base},drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(code_text)}:reload=0:fontcolor=white@0.96:fontsize=34:x=38:y=42:box=1:boxcolor=black@0.52:boxborderw=12,{title_filters}"
+ delay_ms=round(cover_duration*1000);fx_delay_ms=round((cover_duration+duration)*1000)
+ graph=f"[0:v]{overlay},trim=duration={cover_duration},setpts=PTS-STARTPTS[cv];[1:v]{overlay},trim=duration={duration},setpts=PTS-STARTPTS[bodyv];[2:v]{overlay},trim=duration={ENDING_HOLD_SECONDS},setpts=PTS-STARTPTS,eq=saturation=0.52:contrast=1.06:brightness=-0.055,vignette=PI/5[endv];[cv][bodyv][endv]concat=n=3:v=1:a=0[v];[1:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start}:d=0.25,adelay={delay_ms}:all=1,apad,atrim=duration={total}[maina];anoisesrc=color=pink:amplitude=0.025:sample_rate=48000:d={ENDING_HOLD_SECONDS},highpass=f=90,lowpass=f=900,afade=t=in:st=0:d=0.05,afade=t=out:st={ENDING_HOLD_SECONDS-.35}:d=0.35,adelay={fx_delay_ms}:all=1[whoosh];sine=frequency=72:sample_rate=48000:duration=0.9,volume=0.08,afade=t=out:st=0.35:d=0.55,adelay={fx_delay_ms}:all=1[bass];[maina][whoosh][bass]amix=inputs=3:duration=longest:normalize=0,alimiter=limit=0.95,atrim=duration={total}[a]"
+ command=["ffmpeg","-y","-loop","1","-framerate","30","-t",str(cover_duration),"-i",str(drama_cover),"-ss",str(rng["start"]),"-to",str(clean_end),"-i",str(source),"-loop","1","-framerate","30","-t",str(ENDING_HOLD_SECONDS),"-i",str(ending_frame),"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(total),"-c:v","libx264","-preset","fast","-crf","23","-maxrate","4M","-bufsize","8M","-force_key_frames","0","-c:a","aac","-b:a","128k","-movflags","+faststart",str(target)]
  rendered=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
  if rendered.returncode:raise RuntimeError(f"FFmpeg render failed: {rendered.stderr[-1200:]}")
  frame0=target.with_suffix(".frame0.jpg");subprocess.check_call(["ffmpeg","-y","-i",str(target),"-frames:v","1","-q:v","2",str(frame0)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  info=probe(target);video=next(s for s in info["streams"] if s["codec_type"]=="video");audio=next((s for s in info["streams"] if s["codec_type"]=="audio"),{})
- qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.2,"streamsAligned":abs(float(video.get("duration",total))-float(audio.get("duration",total)))<.2,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920,"cleanEndingFrame":clean_end<=source_duration,"audioFadeApplied":bool(audio)}
+ qa={"frameZeroExtracted":frame0.exists() and frame0.stat().st_size>5000,"endingFrameExtracted":ending_frame.exists() and ending_frame.stat().st_size>5000,"dramaCoverApplied":drama_cover.exists(),"contentCodeApplied":bool(content_code),"endingEffectApplied":True,"durationWithinTolerance":abs(float(info["format"]["duration"])-total)<.2,"durationAtMost90Seconds":float(info["format"]["duration"])<=90.05,"streamsAligned":abs(float(video.get("duration",total))-float(audio.get("duration",total)))<.2,"portrait1080x1920":video.get("width")==1080 and video.get("height")==1920,"cleanEndingFrame":clean_end<=source_duration,"audioFadeApplied":bool(audio)}
  if not all(qa.values()):raise RuntimeError(f"Render QA failed: {qa}")
  return {"durationSeconds":round(float(info["format"]["duration"]),2),"width":video["width"],"height":video["height"],"videoCodec":video["codec_name"],"audioCodec":audio.get("codec_name","none"),"sizeBytes":target.stat().st_size,"qaResults":qa}
 def upload_draft(job,candidate,path):
@@ -113,6 +115,9 @@ def upload_draft(job,candidate,path):
  return prepared
 def run(job):
  root=Path(tempfile.mkdtemp(prefix="drama-hook-",dir=os.getenv("WORK_DIR","/tmp")));assets=[];words={};bounds={}
+ settings=job.get("settings",{});content_code=str(settings.get("contentCode","")).strip();cover_url=str(settings.get("coverUrl","")).strip()
+ if not content_code or not cover_url:raise RuntimeError("Hook branding requires contentCode and coverUrl")
+ drama_cover=root/"drama-cover";download(cover_url,drama_cover)
  update(job,"downloading",5)
  for index,a in enumerate(job["sourceAssets"]):
   p=root/f"ep-{a['episodeNumber']}.mp4";download(a["videoUrl"],p);assets.append({**a,"path":p});update(job,"downloading",5+round((index+1)/len(job["sourceAssets"])*15))
@@ -128,7 +133,7 @@ def run(job):
   update(job,"rendering",70)
   by_episode={a["episodeNumber"]:a for a in assets}
   for index,candidate in enumerate(found):
-   output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,float(job.get("settings",{}).get("coverDuration",.1)))
+   output=root/f"hook-{candidate['rank']}.mp4";meta=render(by_episode[candidate["sourceRanges"][0]["episodeNumber"]],candidate,output,drama_cover,content_code,float(settings.get("coverDuration",.1)))
    uploaded=upload_draft(job,candidate,output);candidate.update(meta);candidate["draftObjectKey"]=uploaded["objectKey"];candidate["draftUrl"]=uploaded["publicUrl"]
    update(job,"rendering",min(97,72+round((index+1)/len(found)*25)))
  update(job,"no_result" if not found else "review_ready",100,candidates=found,directionSchema=direction_schema)
