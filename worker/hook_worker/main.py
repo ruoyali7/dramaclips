@@ -7,6 +7,7 @@ from scenedetect import detect,ContentDetector
 from .scoring import candidate_title,lexical_components,normalized_words,select_ranked,snap_windows,title_lines,total_score
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
+from .media import extract_ending_frame,video_timing
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -84,7 +85,7 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
  return out
 def render(asset,candidate,target,drama_cover,content_code,cover_duration=.1):
  source=asset["path"];rng=candidate["sourceRanges"][0]
- source_duration=float(probe(source)["format"]["duration"])
+ source_duration,source_fps=video_timing(probe(source))
  cap=cv2.VideoCapture(str(source));clean_end=min(source_duration,rng["end"]+1.2)
  for offset in (.04,.14,.28,.45,.7,1.0):
   stamp=max(rng["start"]+1,rng["end"]-offset);cap.set(cv2.CAP_PROP_POS_MSEC,stamp*1000);ok,frame=cap.read()
@@ -95,7 +96,7 @@ def render(asset,candidate,target,drama_cover,content_code,cover_duration=.1):
  total=duration+cover_duration+ENDING_HOLD_SECONDS;fade_start=max(0,duration-.25)
  base="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p"
  def filter_path(value):return str(value).replace("\\","\\\\").replace(":","\\:").replace("'","\\'")
- ending_frame=target.with_suffix(".ending.jpg");subprocess.check_call(["ffmpeg","-y","-ss",str(max(rng["start"],clean_end-.04)),"-i",str(source),"-frames:v","1","-q:v","2",str(ending_frame)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ ending_frame=target.with_suffix(".ending.jpg");extract_ending_frame(source,ending_frame,rng["start"],clean_end,source_duration,source_fps)
  code_text=target.with_suffix(".code.txt");code_text.write_text(f"DramoraAI\n{content_code}",encoding="utf-8")
  title_files=[]
  for index,line in enumerate(title_lines(candidate["title"])):

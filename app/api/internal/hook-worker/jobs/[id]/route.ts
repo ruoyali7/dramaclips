@@ -125,7 +125,7 @@ export async function POST(
               transcript_version: "faster-whisper-1.2",
               prompt_version: "direction-rule-v1",
               ranking_version: "grounded-direction-v4",
-              render_version: "ffmpeg-v5-prism-ending",
+              render_version: "ffmpeg-v6-safe-ending-frame",
               review_state: c.draftUrl ? "approved" : c.reviewState,
             })),
           ),
