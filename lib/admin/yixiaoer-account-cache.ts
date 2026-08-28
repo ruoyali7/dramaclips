@@ -9,7 +9,8 @@ async function request(path:string,init:RequestInit={}){
   if(!config.configured)throw new Error("Supabase is required for Yixiaoer account cache");
   const response=await fetch(`${config.url}/rest/v1/${path}`,{...init,headers:{apikey:config.key,Authorization:`Bearer ${config.key}`,"Content-Type":"application/json",...init.headers},cache:"no-store"});
   if(!response.ok)throw new Error(`Yixiaoer account cache failed (${response.status})`);
-  return response.status===204?null:response.json();
+  const body=await response.text();
+  return body?JSON.parse(body):null;
 }
 
 export async function getCachedYixiaoerAccounts(){
