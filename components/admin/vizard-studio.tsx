@@ -3,7 +3,7 @@
 import { CheckCircle2, CircleAlert, LoaderCircle, Scissors } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type Source = { id: string; title: string; slug: string; language: string; episodes: { episodeNumber: number; videoUrl: string }[] };
+type Source = { id: string; title: string; slug: string; language: string; coverUrl?: string; episodes: { episodeNumber: number; videoUrl: string }[] };
 type QueueRow = { episodeNumber: number; videoUrl: string; selected: boolean; state: "ready" | "submitting" | "done" | "failed"; detail?: string };
 type Project = { id: string; episodeNumber: number; projectName: string; vizardProjectId: string; status: string; finalVideoUrl?: string; finalLabel?: string; settings: Record<string, unknown>; editInfo: Record<string, unknown> };
 
@@ -15,6 +15,7 @@ export function VizardStudio({ sources, initialSourceId, selectedEpisodeNumbers 
   const [countdown, setCountdown] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectBusy, setProjectBusy] = useState("");
+  useEffect(() => { if (initialSourceId) setSourceId(initialSourceId); }, [initialSourceId]);
   useEffect(() => { if (!source) return; void fetch(`/api/admin/vizard/projects?dramaSlug=${encodeURIComponent(source.slug)}`, { cache: "no-store" }).then((r) => r.json()).then((data) => setProjects(data.projects || [])).catch(() => setProjects([])); }, [source]);
   const queue = useMemo(() => queues[sourceId] || source?.episodes.map((episode) => ({ ...episode, selected: selectedEpisodeNumbers.includes(episode.episodeNumber), state: "ready" as const })) || [], [queues, source, sourceId, selectedEpisodeNumbers]);
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== "ready"), [projects]);
@@ -58,7 +59,7 @@ export function VizardStudio({ sources, initialSourceId, selectedEpisodeNumbers 
   async function saveProject(event: React.FormEvent<HTMLFormElement>, project: Project) { event.preventDefault(); if (!source) return; setProjectBusy(project.id); const form = new FormData(event.currentTarget); const editInfo = { notes: String(form.get("notes") || ""), template: String(form.get("template") || ""), subtitleStyle: String(form.get("subtitleStyle") || ""), selectedRanges: String(form.get("selectedRanges") || "") }; const response = await fetch("/api/admin/vizard/projects", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: project.id, status: "ready", finalVideoUrl: String(form.get("finalVideoUrl") || ""), finalLabel: String(form.get("finalLabel") || ""), editInfo }) }); const data = await response.json(); if (response.ok) setProjects((items) => items.map((item) => item.id === project.id ? data.project : item)); setProjectBusy(""); }
   return <><form className="vizard-studio" onSubmit={start}>
     <section className="vizard-settings"><span>01 · Source & clip settings</span>
-      <label><b>Drama</b><select value={sourceId} onChange={(event) => setSourceId(event.target.value)} disabled={running}>{sources.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      <div className="generator-selected-drama"><img src={source?.coverUrl} alt=""/><div><small>Selected drama</small><b>{source?.title}</b></div><button type="button" onClick={()=>document.querySelector(".drama-hook-library")?.scrollIntoView({behavior:"smooth",block:"start"})}>Choose from library ↑</button></div>
       <div className="vizard-grid"><label><b>Language</b><select name="language" defaultValue={source?.language || "auto"}><option value="auto">Auto detect</option><option value="en">English</option><option value="zh">Chinese</option><option value="es">Spanish</option></select></label><label><b>Clip length</b><select name="preferLength" defaultValue="0"><option value="0">Auto</option><option value="1">Under 30 sec</option><option value="2">30–60 sec</option><option value="3">60–90 sec</option><option value="4">90 sec–3 min</option></select></label><label><b>Max clips / episode</b><input name="maxClipNumber" type="number" min="1" max="20" defaultValue="1" /></label><label><b>Ratio</b><select name="ratio" defaultValue="1"><option value="1">9:16</option><option value="2">1:1</option><option value="3">4:5</option><option value="4">16:9</option></select></label><label><b>Model</b><select name="clipModel" defaultValue="clip_v1"><option value="clip_v1">Clip v1</option><option value="clip_v2">Clip v2</option></select></label></div>
       <div className="vizard-switches"><label><input type="checkbox" name="subtitles" /> Auto subtitles</label><label><input type="checkbox" name="headline" defaultChecked /> AI headline / hook</label></div>
     </section>

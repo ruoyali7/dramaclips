@@ -20,5 +20,9 @@ export default async function Page(){
  ].filter(asset=>asset.dramaId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
  const analyzed=new Map<string,Set<number>>();const mark=(dramaId:string,numbers:number[])=>{const set=analyzed.get(dramaId)||new Set<number>();numbers.forEach(number=>set.add(number));analyzed.set(dramaId,set)};for(const asset of assets)mark(asset.dramaId,asset.sourceEpisodes);for(const job of jobs)if(job.status==="review_ready")mark(job.dramaId,job.sourceEpisodes);for(const project of vizardProjects)if(project.status==="ready")mark(project.dramaId,[project.episodeNumber]);
  const dashboardSources=sources.map(source=>({...source,analyzedEpisodes:Array.from(analyzed.get(source.id)||[]).sort((a,b)=>a-b)}));
- return <AdminShell active="Hook Studio"><div className="admin-title"><div><p>Hook operations</p><h1>Hook Studio</h1></div></div><HookStudioDashboard sources={dashboardSources} assets={assets}/></AdminShell>
+ const generationHistory=[
+  ...jobs.map(job=>{const source=sourceMap.get(job.dramaSlug);return{id:job.id,method:"Built-in" as const,dramaId:job.dramaId,dramaTitle:source?.title||job.dramaSlug,coverUrl:source?.coverUrl||"",sourceEpisodes:job.sourceEpisodes,status:job.status,progress:job.progress,resultCount:job.candidates.filter(candidate=>Boolean(candidate.draftUrl)).length,createdAt:job.createdAt,errorMessage:job.errorMessage}}),
+  ...vizardProjects.map(project=>{const source=sourceMap.get(project.dramaSlug);return{id:project.id,method:"Vizard" as const,dramaId:project.dramaId,dramaTitle:source?.title||project.dramaSlug,coverUrl:source?.coverUrl||"",sourceEpisodes:[project.episodeNumber],status:project.status,progress:project.status==="ready"?100:project.status==="failed"?0:10,resultCount:project.status==="ready"?1:0,createdAt:project.submittedAt}}),
+ ].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+ return <AdminShell active="Hook Studio"><div className="admin-title"><div><p>Hook operations</p><h1>Hook Studio</h1></div></div><HookStudioDashboard sources={dashboardSources} assets={assets} generationHistory={generationHistory}/></AdminShell>
 }
