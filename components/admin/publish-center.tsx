@@ -9,6 +9,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultPublishTime, PublishTimePicker } from "@/components/admin/publish-time-picker";
 import { PublishCalendar } from "@/components/admin/publish-calendar";
+import { DramaLibraryExpanded } from "@/components/admin/drama-library-expanded";
+import type { LibraryAsset } from "@/lib/admin/asset-library";
 type Hook = {
   id: string;
   title: string;
@@ -30,6 +32,7 @@ type Source = {
   draftHooks: DraftHook[];
   vizardProjects: { id: string; episodeNumber: number; finalVideoUrl?: string; finalLabel?: string; editInfo: Record<string, unknown> }[];
   vizardAssets: { id: string; episodeNumber: number; title: string; videoUrl: string; durationSeconds: number }[];
+  libraryAssets: LibraryAsset[];
 };
 type Pack = { source: string; shortCode?: string; url?: string; hook: string; cta?: string; hashtags?: string; hashtagSource?: string; caption: string };
 type Package = {
@@ -39,6 +42,7 @@ type Package = {
   videoUrl: string;
   videoKind: string;
   videoLabel?: string;
+  hookClipId?: string;
   scheduledAt?: string;
   status: string;
   platforms: Pack[];
@@ -183,6 +187,15 @@ function assetPublishSummary(pack: Package | undefined) {
     .map((platform) => platform.source);
   return published.length ? `Published · ${published.join(" · ")}` : packageState(pack);
 }
+function assetStatusClass(pack: Package | undefined) {
+  if (!pack) return "asset-ready";
+  if (pack.status === "published") return "asset-published";
+  if (pack.status === "failed" || pack.status === "outcome_unknown")
+    return "asset-failed";
+  if (pack.status === "scheduled" || pack.yixiaoerAction)
+    return "asset-scheduled";
+  return "asset-ready";
+}
 function taskCanContinue(value: Package) {
   const state = packageState(value);
   return ![
@@ -306,41 +319,17 @@ export function PublishCenter({
     () =>
       sources.flatMap((item) => {
         const rows: AssetRow[] = [
-          ...item.episodes.map((ep) => ({
-            key: `original:${item.id}:${ep.episodeNumber}`,
+          ...item.libraryAssets.map((asset) => ({
+            key: asset.id,
             sourceId: item.id,
             dramaSlug: item.slug,
             dramaTitle: item.title,
-            kind: "original" as const,
-            assetId: String(ep.episodeNumber),
-            label: `EP ${ep.episodeNumber}`,
-            detail: "Original episode",
-            videoUrl: ep.videoUrl,
-            r2State: "Available",
-          })),
-          ...item.hooks.map((hook) => ({
-            key: `hook:${hook.id}`,
-            sourceId: item.id,
-            dramaSlug: item.slug,
-            dramaTitle: item.title,
-            kind: "hook" as const,
-            assetId: hook.id,
-            label: hook.title,
-            detail: `Saved hook · EP ${hook.sourceEpisodes.join(", ")} · ${Math.round(hook.durationSeconds)}s`,
-            videoUrl: hook.videoUrl,
-            r2State: "Saved",
-          })),
-          ...item.builtInAssets.map((hook) => ({
-            key: `built-in:${hook.id}`,
-            sourceId: item.id,
-            dramaSlug: item.slug,
-            dramaTitle: item.title,
-            kind: "hook" as const,
-            assetId: hook.id,
-            label: hook.title,
-            detail: `Built-in hook · EP ${hook.sourceEpisodes.join(", ")} · ${Math.round(hook.durationSeconds)}s`,
-            videoUrl: hook.videoUrl,
-            r2State: "Generated",
+            kind: asset.kind as "original" | "hook",
+            assetId: asset.kind === "original" ? String(asset.episodeNumber) : asset.id,
+            label: asset.kind === "original" ? `EP ${asset.episodeNumber}` : asset.title,
+            detail: asset.kind === "original" ? "Original episode" : `${asset.source === "vizard" ? "Vizard" : "Saved"} hook · EP ${asset.episodeNumber} · ${Math.round(asset.durationSeconds)}s`,
+            videoUrl: asset.videoUrl,
+            r2State: asset.kind === "original" ? "Available" : "Saved",
           })),
           ...item.draftHooks.map((hook) => ({
             key: `draft:${hook.id}`,
@@ -353,15 +342,6 @@ export function PublishCenter({
             detail: `Review needed · EP ${hook.sourceEpisodes.join(", ")} · score ${Math.round(hook.score)}`,
             videoUrl: hook.videoUrl,
             r2State: "Draft",
-          })),
-          ...item.vizardProjects.filter((project) => project.finalVideoUrl).map((project) => ({
-            key: `vizard:${project.id}`, sourceId: item.id, dramaSlug: item.slug, dramaTitle: item.title,
-            kind: "vizard" as const, assetId: project.id, label: project.finalLabel || `Vizard · EP ${project.episodeNumber}`,
-            detail: `Vizard edit · EP ${project.episodeNumber}`, videoUrl: project.finalVideoUrl!, r2State: "Final",
-          })),
-          ...item.vizardAssets.map((asset) => ({
-            key: `vizard-clip:${asset.id}`, sourceId: item.id, dramaSlug: item.slug, dramaTitle: item.title,
-            kind: "vizard" as const, assetId: asset.id, label: asset.title, detail: `Vizard clip · EP ${asset.episodeNumber} · ${Math.round(asset.durationSeconds)}s`, videoUrl: asset.videoUrl, r2State: "R2",
           })),
         ];
         return rows.map((row) => ({
@@ -437,10 +417,18 @@ export function PublishCenter({
   const attentionCount = recent.filter(
     (item) => item.status === "failed" || item.status === "outcome_unknown",
   ).length;
-  const activeCount = recent.filter(
-    (item) => Boolean(item.yixiaoerAction) && item.status !== "scheduled",
-  ).length;
   const scheduledCount = recent.filter((item) => item.status === "scheduled").length;
+  const unpublishedHookCount = assetRows.filter(
+    (row) => row.kind !== "original" && row.kind !== "draft" && row.latest?.status !== "published",
+  ).length;
+  const today = new Date();
+  const publishedTodayCount = recent.filter((item) => {
+    if (item.status !== "published") return false;
+    const publishedAt = new Date(item.yixiaoerUpdatedAt || item.createdAt);
+    return publishedAt.getFullYear() === today.getFullYear()
+      && publishedAt.getMonth() === today.getMonth()
+      && publishedAt.getDate() === today.getDate();
+  }).length;
   const supportedAccountPlatforms = (created?.platforms.map((pack) => pack.source) || platforms)
     .filter((platform) => Boolean(yNames[platform]));
   const selectedAccountCount = supportedAccountPlatforms.filter((platform) =>
@@ -754,10 +742,18 @@ export function PublishCenter({
   }
   function openPackage(item: Package) {
     const next = sources.find((x) => x.slug === item.dramaSlug);
+    const libraryAsset = next?.libraryAssets.find((asset) => asset.videoUrl === item.videoUrl);
+    const resolvedKind = libraryAsset?.kind || item.videoKind;
     const nextPlatforms = item.platforms.map((pack) => pack.source);
     if (next) setSourceId(next.id);
-    setKind(item.videoKind as "original" | "hook" | "upload");
-    setAsset(item.videoKind === "original" ? String(item.episodeNumber) : "");
+    setKind(resolvedKind as "original" | "hook" | "upload");
+    setAsset(
+      resolvedKind === "original"
+        ? String(libraryAsset?.episodeNumber || item.episodeNumber)
+        : resolvedKind === "hook"
+          ? libraryAsset?.id || item.hookClipId || ""
+          : "",
+    );
     setVideoUrl(item.videoUrl);
     setPlatforms(nextPlatforms);
     setCreated(item);
@@ -796,7 +792,7 @@ export function PublishCenter({
       return;
     }
     setSourceId(row.sourceId);
-    setKind(row.kind === "vizard" ? "upload" : row.kind);
+    setKind(row.kind === "original" ? "original" : "hook");
     setAsset(row.assetId);
     setVideoUrl(row.videoUrl);
     setCreated(null);
@@ -833,10 +829,41 @@ export function PublishCenter({
       <section className="asset-library">
         <span>01 · Video asset library</span>
         <div className="publish-summary" aria-label="Publish queue summary">
-          <span><b>{recent.length}</b><small>Results</small></span>
-          <span><b>{activeCount}</b><small>Processing</small></span>
+          <span><b>{unpublishedHookCount}</b><small>Saved hooks left</small></span>
+          <span><b>{publishedTodayCount}</b><small>Published today</small></span>
           <span><b>{scheduledCount}</b><small>Scheduled</small></span>
-          <span className={attentionCount ? "attention" : ""}><b>{attentionCount}</b><small>Needs attention</small></span>
+          <span className={attentionCount ? "attention" : ""}><b>{attentionCount}</b><small>Failed</small></span>
+        </div>
+        <div className="drama-ledger-head">
+          <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
+        </div>
+        <div className="drama-ledger">
+          {dramaGroups.map((group) => (
+            <details className={`drama-asset-row ${sourceId === group.source.id ? "current" : ""}`} key={group.source.id}>
+              <summary onClick={() => sourceId !== group.source.id && resetFor(group.source.id, kind === "upload" ? "original" : kind)}>
+                <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
+                <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
+                <div className="asset-chips hook-chips">
+                  {[...group.source.hooks, ...group.source.builtInAssets].map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
+                  {!group.source.hooks.length && !group.source.builtInAssets.length && <small>No saved hooks</small>}
+                  {group.source.draftHooks.length > 0 && <small>{group.source.draftHooks.length} need review</small>}
+                </div>
+                <div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length ? group.publishedPlatforms.join(" · ") : `${group.published} published · ${group.scheduled} scheduled`}</small></div>
+                <div className="drama-status">{group.processing ? <span className="working">Processing</span> : group.scheduled ? <span className="scheduled">Scheduled</span> : group.failed ? <span className="failed">Needs attention</span> : group.published ? <span className="published">Published</span> : <span>Ready</span>}<small>Expand details</small></div>
+              </summary>
+              <DramaLibraryExpanded
+                episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber) }; })}
+                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.latest ? packageState(row.latest) : "Saved" }))}
+                previewEpisode={libraryPreviewKey.startsWith(`episode:${group.source.id}:`) ? Number(libraryPreviewKey.split(":").at(-1)) : null}
+                onPreviewEpisode={(episode) => setLibraryPreviewKey((current) => current === `episode:${group.source.id}:${episode.episodeNumber}` ? "" : `episode:${group.source.id}:${episode.episodeNumber}`)}
+                selectedHookId={group.assets.some((row) => row.key === libraryPreviewKey) ? libraryPreviewKey : null}
+                onSelectHook={(hook) => setLibraryPreviewKey((current) => current === hook.id ? "" : hook.id)}
+                renderHookPreview={(hook) => { const row = group.assets.find((item) => item.key === hook.id); return row ? <div className="compact-hook-preview"><video src={row.videoUrl} controls preload="metadata" playsInline/><div><h3>{row.label}</h3><p>{row.detail}</p><button type="button" onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? "View result" : "Publish"}</button></div></div> : null; }}
+                actions={<><b>Publishing</b><small>{group.uploaded.size} uploaded · {group.published} published · {group.scheduled} scheduled</small></>}
+              />
+            </details>
+          ))}
+          {!dramaGroups.length && <p className="asset-empty">No drama matches this filter.</p>}
         </div>
         <div className="asset-filters">
           <select
@@ -848,9 +875,7 @@ export function PublishCenter({
           >
             <option value="all">All dramas</option>
             {sources.map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.title}
-              </option>
+              <option value={item.id} key={item.id}>{item.title}</option>
             ))}
           </select>
           <div className="asset-pagination-controls">
@@ -864,44 +889,14 @@ export function PublishCenter({
             <button type="button" disabled={currentAssetPage === assetPages} onClick={() => setAssetPage((page) => Math.min(assetPages, page + 1))}>Next</button>
           </div>
         </div>
-        <div className="drama-ledger-head">
-          <b>Drama</b><b>Episodes</b><b>Hooks</b><b>Distribution</b><b>Status</b>
-        </div>
-        <div className="drama-ledger">
-          {dramaGroups.map((group) => (
-            <details className="drama-asset-row" key={group.source.id}>
-              <summary>
-                <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
-                <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
-                <div className="asset-chips hook-chips">
-                  {[...group.source.hooks, ...group.source.builtInAssets].map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
-                  {!group.source.hooks.length && !group.source.builtInAssets.length && <small>No saved hooks</small>}
-                  {group.source.draftHooks.length > 0 && <small>{group.source.draftHooks.length} need review</small>}
-                </div>
-                <div><b>{group.uploaded.size} uploaded</b><small>{group.publishedPlatforms.length ? group.publishedPlatforms.join(" · ") : `${group.published} published · ${group.scheduled} scheduled`}</small></div>
-                <div className="drama-status">{group.processing ? <span className="working">Processing</span> : group.scheduled ? <span className="scheduled">Scheduled</span> : group.failed ? <span className="failed">Needs attention</span> : group.published ? <span className="published">Published</span> : <span>Ready</span>}<small>Expand details</small></div>
-              </summary>
-              <div className="drama-assets-expanded">
-                <div className="expanded-section"><b>Original episodes</b><div>{group.assets.filter((row) => row.kind === "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{group.uploaded.has(row.videoUrl) ? "Uploaded to Yixiaoer" : "R2 only"} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}</div></div>
-                <div className="expanded-section"><b>Hooks</b><div>{group.assets.filter((row) => row.kind !== "original").map((row) => <article key={row.key}><span>{row.label}</span><small>{row.detail} · {row.latest ? packageState(row.latest) : "Never published"}</small><button onClick={() => setLibraryPreviewKey(libraryPreviewKey === row.key ? "" : row.key)}>Preview</button><button onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? taskCanContinue(row.latest) ? "Continue edit" : "View result" : "Publish"}</button>{libraryPreviewKey === row.key && <video className="asset-inline-preview" src={row.videoUrl} controls preload="metadata" playsInline/>}</article>)}{!group.source.hooks.length && !group.source.builtInAssets.length && !group.source.draftHooks.length && <p>No hooks generated yet.</p>}</div></div>
-              </div>
-            </details>
-          ))}
-          {!dramaGroups.length && <p className="asset-empty">No drama matches this filter.</p>}
-        </div>
       </section>
       <section className="publish-compose asset-selection">
         <span>02 · Exact video asset</span>
-        <label>
-          <b>Drama</b>
-          <select value={sourceId} onChange={(e) => resetFor(e.target.value)}>
-            {sources.map((x) => (
-              <option value={x.id} key={x.id}>
-                {x.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="selected-drama-compact">
+          <img src={source?.coverUrl} alt="" />
+          <div><small>Selected drama</small><b>{source?.title}</b></div>
+          <button type="button" onClick={() => document.querySelector(".asset-library")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Choose from library ↑</button>
+        </div>
         <div className="asset-kind">
           {(["original", "hook", "upload"] as const).map((x) => (
             <button
@@ -922,16 +917,19 @@ export function PublishCenter({
             <b>Specific video</b>
             <div className="specific-video-grid">
               {kind === "original"
-                ? source?.episodes.map((x) => (
-                    <button type="button" className={selectedAssetId === String(x.episodeNumber) ? "selected" : ""} onClick={() => changeAsset(String(x.episodeNumber))} key={x.episodeNumber}>
-                      <strong>EP {x.episodeNumber}</strong><small>Original episode</small>
-                    </button>
-                  ))
+                ? source?.episodes.map((x) => {
+                    const latest = recent.find((pack) => pack.videoUrl === x.videoUrl);
+                    return (
+                      <button type="button" className={`${assetStatusClass(latest)} ${selectedAssetId === String(x.episodeNumber) ? "selected" : ""}`} onClick={() => changeAsset(String(x.episodeNumber))} key={x.episodeNumber}>
+                        <strong>EP {x.episodeNumber}</strong><small>Original episode</small><small>{assetPublishSummary(latest)}</small>
+                      </button>
+                    );
+                  })
                 : hookOptions.map((x) => (
                     (() => {
                       const latest = recent.find((pack) => pack.videoUrl === x.videoUrl);
                       return (
-                    <button type="button" className={selectedAssetId === x.id ? "selected" : ""} onClick={() => changeAsset(x.id)} key={x.id}>
+                    <button type="button" className={`${assetStatusClass(latest)} ${selectedAssetId === x.id ? "selected" : ""}`} onClick={() => changeAsset(x.id)} key={x.id}>
                       <strong>{x.title}</strong><small>{durationLabel(Math.round(x.durationSeconds))}</small>
                       <small>{`EP ${x.sourceEpisodes.join(", ")} · ${assetPublishSummary(latest)}`}</small>
                     </button>
@@ -1271,16 +1269,27 @@ export function PublishCenter({
           </div>
           {historyItems.map((x) => {
             const uploaded = Boolean(Object.keys(x.yixiaoerVideo || {}).length);
+            const sourceInfo = sources.find((item) => item.slug === x.dramaSlug);
+            const matchedAsset = assetRows.find(
+              (row) => row.videoUrl === x.videoUrl && row.kind !== "draft",
+            );
+            const resolvedKind = matchedAsset?.kind === "hook" ? "hook" : x.videoKind;
+            const assetDescription = resolvedKind === "hook"
+              ? `Saved hook · EP ${matchedAsset?.detail.match(/EP (\d+)/)?.[1] || x.episodeNumber}${matchedAsset?.detail.startsWith("Vizard") ? " · Vizard" : ""}`
+              : resolvedKind === "original"
+                ? `Original episode · EP ${x.episodeNumber}`
+                : "Manual upload";
             return (
               <details key={x.id}>
                 <summary>
-                  <b>
-                    {x.dramaSlug}
-                    <small>
-                      {x.videoLabel || `EP ${x.episodeNumber}`}
-                      {x.id === created?.id ? " · Open" : ""}
-                    </small>
-                  </b>
+                  <div className="history-task-identity">
+                    <img src={sourceInfo?.coverUrl} alt="" />
+                    <b>
+                      {sourceInfo?.title || x.dramaSlug}
+                      <small>{matchedAsset?.label || x.videoLabel || `EP ${x.episodeNumber}`}</small>
+                      <small>{assetDescription}{x.id === created?.id ? " · Open" : ""}</small>
+                    </b>
+                  </div>
                   <span>{deliveryMethod(x)}</span>
                   <span>
                     {uploaded

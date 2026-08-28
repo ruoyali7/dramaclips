@@ -1,0 +1,45 @@
+.compact-hook-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 12px;
+  background: #fff;
+  border-bottom: 1px solid #e5e2db;
+}
+
+.compact-hook-preview video {
+  width: min(260px, 100%);
+  height: 330px;
+  object-fit: contain;
+  background: #111;
+}
+
+.compact-hook-preview > div {
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.compact-hook-preview h3 {
+  max-width: 360px;
+  margin: 0 0 7px;
+  font: 18px/1.2 var(--font-display), serif;
+}
+
+.compact-hook-preview p {
+  color: #777;
+  font-size: 9px;
+}
+
+.compact-hook-preview button {
+  border: 1px solid #171717;
+  background: #171717;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 8px;
+}
+
+@media (max-width: 650px) {
+  .compact-hook-preview { display: block; }
+  .compact-hook-preview video { height: auto; max-height: 330px; }
+  .compact-hook-preview > div { padding-top: 10px; }
+}

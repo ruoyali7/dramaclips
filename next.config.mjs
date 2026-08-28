@@ -1,6 +1,7 @@
 const remotePatterns = [
   { protocol: "https", hostname: "images.unsplash.com" },
-  { protocol: "https", hostname: "v-img.crazymaplestudios.com" }
+  { protocol: "https", hostname: "v-img.crazymaplestudios.com" },
+  { protocol: "https", hostname: "**.r2.dev" }
 ];
 
 try {
@@ -12,6 +13,7 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   images: { remotePatterns },
   poweredByHeader: false,
   outputFileTracingIncludes: {

@@ -28,8 +28,10 @@
 .hook-library-expanded{background:#faf9f6;border-top:1px solid #e8e6e0;padding:16px;display:grid;grid-template-columns:1fr 1.4fr auto;gap:22px;align-items:start}
 .hook-library-expanded>div>b{display:block;text-transform:uppercase;letter-spacing:.08em;font-size:8px;color:#777;margin-bottom:8px}
 .hook-video-links{display:flex;flex-wrap:wrap;gap:6px}
-.hook-video-links a{display:flex;align-items:center;gap:3px;border:1px solid #dedbd3;background:#fff;padding:6px 8px;font-size:8px}
+.hook-video-links button{display:flex;align-items:center;gap:4px;border:1px solid #dedbd3;background:#fff;padding:6px 8px;font-size:8px;cursor:pointer;color:#555}
+.hook-video-links button:nth-child(4n+1){background:#edf6ff;border-color:#cfe3f5;color:#34658a}.hook-video-links button:nth-child(4n+2){background:#fff4df;border-color:#f0dfb8;color:#8d681f}.hook-video-links button:nth-child(4n+3){background:#f5efff;border-color:#dfd2f3;color:#684c8b}.hook-video-links button:nth-child(4n){background:#edf8f0;border-color:#cfe7d6;color:#34724c}
 .hook-video-links svg,.hook-saved-list svg{width:11px}
+.hook-episode-preview{display:grid;gap:6px;margin-top:10px}.hook-episode-preview video{width:min(240px,100%);max-height:300px;background:#111}.hook-episode-preview b{font-size:8px;color:#777}
 .hook-saved-list a{display:grid;grid-template-columns:1fr auto;gap:3px 8px;border-top:1px solid #e8e5de;padding:8px 0;font-size:9px}
 .hook-saved-list a small{grid-column:1;color:#888;font-size:8px}
 .hook-saved-list a svg{grid-column:2;grid-row:1/3}
@@ -48,7 +50,7 @@
 .hook-library-expanded{grid-template-columns:1fr}
 }
 
-.hook-episode-chips i.analyzed,.hook-video-links a.analyzed{background:#e8f5ec;color:#34724c;border-color:#cfe5d6}
+.hook-episode-chips i.analyzed,.hook-video-links button.analyzed{background:#e8f5ec;color:#34724c;border-color:#cfe5d6}
 .hook-workflow-status span.working{background:#fff4df;color:#8d681f}
 .hook-workflow-status span.review{background:#fff1e9;color:#a05034}
 .hook-workflow-status span.failed{background:#fff0ec;color:#a34430}

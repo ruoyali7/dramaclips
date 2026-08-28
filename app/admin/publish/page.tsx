@@ -11,18 +11,20 @@ import { listVizardSources } from "@/lib/admin/repository";
 import { approveHookCandidate, listHookClips } from "@/lib/admin/hook-repository";
 import { listHookJobs } from "@/lib/admin/hook-job-repository";
 import { yixiaoerConfigured } from "@/lib/admin/yixiaoer";
-import { listVizardAssets, listVizardProjects } from "@/lib/admin/vizard-repository";
+import { listVizardProjects } from "@/lib/admin/vizard-repository";
+import { listLibraryAssets } from "@/lib/admin/asset-library";
 import "../asset-library.css";
+import "../compact-hook-preview.css";
+import "../publish-library-refinements.css";
 
 export const dynamic = "force-dynamic";
 export default async function Page() {
-  const [base, initialHooks, hookJobs, yixiaoerReady, vizardProjects, vizardAssets] = await Promise.all([
+  const [base, initialHooks, hookJobs, yixiaoerReady, vizardProjects] = await Promise.all([
     listVizardSources(),
     listHookClips(),
     listHookJobs(undefined, 100),
     yixiaoerConfigured(),
     listVizardProjects(),
-    listVizardAssets(),
   ]);
   const savedCandidateIds = new Set(initialHooks.map((hook) => hook.candidateId).filter(Boolean));
   await Promise.all(
@@ -32,11 +34,15 @@ export default async function Page() {
         .map((candidate) => approveHookCandidate(job, candidate, candidate.title).catch(() => null)),
     ),
   );
-  const hooks = await listHookClips();
-  const persistedCandidateIds = new Set(hooks.map((hook) => hook.candidateId).filter(Boolean));
+  const libraryAssets = await listLibraryAssets();
+  const hooks = libraryAssets.filter((asset) => asset.kind === "hook");
+  const persistedCandidateIds = new Set(initialHooks.map((hook) => hook.candidateId).filter(Boolean));
   const sources = base.map((source) => ({
     ...source,
-    hooks: hooks.filter((hook) => hook.dramaSlug === source.slug),
+    libraryAssets: libraryAssets.filter((asset) => asset.dramaSlug === source.slug),
+    hooks: hooks.filter((hook) => hook.dramaSlug === source.slug).map((hook) => ({
+      id: hook.id, title: hook.title, sourceEpisodes: [hook.episodeNumber], videoUrl: hook.videoUrl, durationSeconds: hook.durationSeconds,
+    })),
     builtInAssets: hookJobs
       .filter((job) => job.dramaSlug === source.slug)
       .flatMap((job) =>
@@ -52,7 +58,7 @@ export default async function Page() {
       ),
     draftHooks: [],
     vizardProjects: vizardProjects.filter((project) => project.dramaSlug === source.slug),
-    vizardAssets: vizardAssets.filter((asset) => asset.dramaSlug === source.slug && asset.reviewState === "approved"),
+    vizardAssets: [],
   }));
   const r2Account = process.env.R2_ACCOUNT_ID?.trim();
   const r2Bucket = process.env.R2_BUCKET_NAME?.trim();
@@ -90,19 +96,10 @@ export default async function Page() {
         <a href="https://www.yixiaoer.cn/" target="_blank" rel="noreferrer">
           Yixiaoer console <ExternalLink />
         </a>
-      </nav>
-      <div className="publish-intro">
-        <div>
-          <b>Choose the exact asset to distribute.</b>
-          <p>
-            See every original and hook in one ledger, then continue the exact
-            asset without generating duplicate uploads.
-          </p>
-        </div>
         <a href="/api/admin/publish-packages/latest/csv" download>
           <Download /> CSV fallback
         </a>
-      </div>
+      </nav>
       <PublishCenter sources={sources} yixiaoerReady={yixiaoerReady} />
     </AdminShell>
   );
