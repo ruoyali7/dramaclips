@@ -8,7 +8,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .upload import retry_upload
+from .upload import primary_publish_channel,retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -168,6 +168,8 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
 def yxer(job,args,heartbeat=None,ambiguous_timeout=False,timeout=900):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
  cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
+ client_id=os.getenv("YIXIAOER_CLIENT_ID","").strip()
+ if client_id:cli_output(["yxer","config","set-local-client-id",client_id,"--json"],env,60,job["apiKey"])
  raw=cli_output(["yxer",*args,"--json"],env,timeout,job["apiKey"],heartbeat,ambiguous_timeout)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
@@ -194,16 +196,17 @@ def yixer_video(data):
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
  if not candidate.get("key"):raise RuntimeError("Yixiaoer upload returned no resource key")
  return candidate
-def yixer_payload(job,pack,video,cover):
+def yixer_payload(job,pack,video,cover,channel):
  platform={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[pack["source"]];caption=plain_description(pack["caption"]);title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";content={"formType":"task"}
  if pack["source"]=="youtube":content.update({"title":title[:100],"description":caption[:5000],"tags":["Shorts","DramoraAI","ShortDrama"],"category":"22","license":"youtube","embeddable":True,"madeForKids":False,"visible":"public","containsSyntheticMedia":False,"fps":10})
  if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
- return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
-def yixer_file(job,payload,platform,command,dry=False,heartbeat=None,ambiguous_timeout=False):
+ return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":channel,"desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
+def yixer_file(job,payload,platform,command,channel,dry=False,heartbeat=None,ambiguous_timeout=False):
  root=Path(tempfile.mkdtemp(prefix="drama-yixer-",dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
- args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
+ channel_args=["--publish-channel",channel,*(["--client-id",os.environ["YIXIAOER_CLIENT_ID"]] if channel=="local" else [])]
+ args=[command,"video",name,str(path),*channel_args] if command=="publish" else [command,name,"video",str(path),*channel_args]
  if dry:args.append("--dry-run")
  return yxer(job,args,heartbeat,ambiguous_timeout)
 def yixer_draft(job,payload,heartbeat=None):
@@ -271,7 +274,7 @@ def run_publish(job):
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
   cover=retry_upload(lambda attempt:yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat,timeout=180)),lambda attempt:publish_update(job,status,33,video={"video":video},results={**results,"_operation":{"stage":"retrying_yixiaoer_cover_upload","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"attempt":attempt,"maxAttempts":2}}))
  assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
- payloads={pack["source"]:yixer_payload(job,pack,video,cover) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
+ channel=primary_publish_channel(os.getenv("YIXIAOER_PRIMARY_CHANNEL","local"),os.getenv("YIXIAOER_CLIENT_ID",""));payloads={pack["source"]:yixer_payload(job,pack,video,cover,channel) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  if control.get("reconcilePlatforms"):
   for source in control["reconcilePlatforms"]:
    prior=results.get(source) if isinstance(results.get(source),dict) else {}
@@ -287,7 +290,14 @@ def run_publish(job):
   def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
   try:
-   checked={"validation":yixer_file(job,payloads[source],source,"validate",heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",True,platform_heartbeat),"state":"validated"}
+   selected_channel=channel
+   try:checked={"validation":yixer_file(job,payloads[source],source,"validate",selected_channel,heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",selected_channel,True,platform_heartbeat),"state":"validated","channel":selected_channel}
+   except PublishCanceled:raise
+   except Exception as local_error:
+    if selected_channel!="local":raise
+    selected_channel="cloud";payloads[source]=yixer_payload(job,pack,video,cover,selected_channel)
+    publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"falling_back_to_cloud","platform":source,"reason":str(local_error)[:240],"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
+    checked={"validation":yixer_file(job,payloads[source],source,"validate",selected_channel,heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",selected_channel,True,platform_heartbeat),"state":"validated","channel":selected_channel,"localFailure":str(local_error)[:500]}
   except PublishCanceled: raise
   except Exception as error:
    results[source]={"state":"failed","error":str(error)[:500]}
@@ -296,7 +306,7 @@ def run_publish(job):
   results[source]=checked;publish_update(job,status,45+int((index+1)/max(1,len(pending))*40),video=assets,payloads=payloads,results=results)
   if action=="publish":
    checked["state"]="submitting";publish_update(job,"publishing",88,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"submitting_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
-   try:response=yixer_file(job,payloads[source],source,"publish",heartbeat=platform_heartbeat,ambiguous_timeout=True)
+   try:response=yixer_file(job,payloads[source],source,"publish",checked["channel"],heartbeat=platform_heartbeat,ambiguous_timeout=True)
    except PublishOutcomeUnknown as error:
     checked["state"]="outcome_unknown";checked["error"]=str(error);results[source]=checked
     publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
@@ -320,7 +330,8 @@ def run_publish(job):
   publish_update(job,status if action!="publish" else "publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
  if control.get("saveDraft"):
   forms=[payloads[p["source"]]["publishArgs"]["accountForms"][0] for p in job["platforms"] if p["source"] in payloads]
-  draft_payload={"action":"save-draft","publishType":"video","platforms":[form["platformName"] for form in forms],"publishChannel":"cloud","desc":f"{job['dramaTitle']} · EP {job['episodeNumber']}","publishArgs":{"video":video,"cover":cover,"coverKey":cover["key"],"accountForms":forms}}
+  draft_channel="cloud" if any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("channel")=="cloud" for p in job["platforms"] if p["source"] in payloads) else channel
+  draft_payload={"action":"save-draft","publishType":"video","platforms":[form["platformName"] for form in forms],"publishChannel":draft_channel,"desc":f"{job['dramaTitle']} · EP {job['episodeNumber']}","publishArgs":{"video":video,"cover":cover,"coverKey":cover["key"],"accountForms":forms}}
   def draft_heartbeat():return cancel_requested(publish_update(job,"validating",92,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"saving_to_yixiaoer_draft","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if draft_heartbeat():raise PublishCanceled("Canceled by user")
   response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}

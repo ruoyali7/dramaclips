@@ -89,6 +89,7 @@ const stageNames: Record<string, string> = {
   retrying_yixiaoer_cover_upload: "Retrying cover upload",
   preparing_platform_validation: "Preparing platform validation",
   validating_platform: "Validating platform",
+  falling_back_to_cloud: "Local unavailable · switching to Cloud",
   submitting_platform: "Submitting to platform",
   reconciling_platform: "Confirming live platform status",
   saving_to_yixiaoer_draft: "Saving to Yixiaoer drafts",

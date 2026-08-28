@@ -1,9 +1,14 @@
 import unittest
 
-from hook_worker.upload import retry_upload
+from hook_worker.upload import primary_publish_channel, retry_upload
 
 
 class UploadRetryTests(unittest.TestCase):
+    def test_local_is_primary_only_with_a_client_id(self):
+        self.assertEqual(primary_publish_channel("local", "client-id"), "local")
+        self.assertEqual(primary_publish_channel("local", ""), "cloud")
+        self.assertEqual(primary_publish_channel("cloud", "client-id"), "cloud")
+
     def test_retries_one_timeout_then_returns_uploaded_resource(self):
         attempts = []
         retries = []
