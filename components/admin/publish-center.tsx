@@ -83,7 +83,10 @@ const stageNames: Record<string, string> = {
   awaiting_scheduled_time: "Waiting for scheduled publish time",
   downloading_from_r2: "Downloading video from R2",
   uploading_to_yixiaoer: "Uploading video to Yixiaoer",
+  retrying_yixiaoer_upload: "Retrying video upload",
+  video_uploaded_to_yixiaoer: "Video uploaded",
   uploading_cover_to_yixiaoer: "Uploading cover to Yixiaoer",
+  retrying_yixiaoer_cover_upload: "Retrying cover upload",
   preparing_platform_validation: "Preparing platform validation",
   validating_platform: "Validating platform",
   submitting_platform: "Submitting to platform",
@@ -95,6 +98,10 @@ function operationOf(value: Package) {
   return operation && typeof operation === "object"
     ? (operation as Record<string, unknown>)
     : null;
+}
+function uploadFailed(value: Package) {
+  const stage=String(operationOf(value)?.stage||"");
+  return value.status==="failed"&&["uploading_to_yixiaoer","retrying_yixiaoer_upload","uploading_cover_to_yixiaoer","retrying_yixiaoer_cover_upload","downloading_from_r2"].includes(stage);
 }
 function durationLabel(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -733,6 +740,17 @@ export function PublishCenter({
       setError(e instanceof Error ? e.message : "Could not update platform operation");
     }
   }
+  async function retryUpload(item: Package) {
+    if (!window.confirm("Retry the failed Yixiaoer upload? Existing uploaded resources will be reused, and no platform post will be duplicated.")) return;
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"retry-upload",accounts:item.yixiaoerAccounts||{}})});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      setRecent((items) => items.map((current) => current.id === item.id ? j.package : current));
+      if (created?.id === item.id) setCreated(j.package);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not retry upload"); }
+  }
   function openPackage(item: Package) {
     const next = sources.find((x) => x.slug === item.dramaSlug);
     const nextPlatforms = item.platforms.map((pack) => pack.source);
@@ -1231,7 +1249,8 @@ export function PublishCenter({
           </details>
           {!created.yixiaoerAction && (created.status === "failed" || created.status === "outcome_unknown") && (
             <div className="failed-platform-actions">
-              <b>Fix the copy above, save edits, then continue only the affected platform.</b>
+              <b>{uploadFailed(created)?"The upload stopped before any platform submission. Retry the same upload task.":"Fix the copy above, save edits, then continue only the affected platform."}</b>
+              {uploadFailed(created) && <button onClick={() => void retryUpload(created)}>Retry upload</button>}
               {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="failed"?<button key={pack.source} onClick={() => void platformAction(created,"retry",pack.source)}>Retry {pack.source}</button>:state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
             </div>
           )}

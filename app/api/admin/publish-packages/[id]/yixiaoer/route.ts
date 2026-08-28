@@ -3,7 +3,7 @@ import {z,ZodError} from "zod";
 import {enqueueYixiaoerPackage,getPublishPackage,requestCancelYixiaoerPackage} from "@/lib/admin/publish-repository";
 import {yixiaoerPlatforms} from "@/lib/admin/yixiaoer";
 
-const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reconcile","retry"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
+const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
   try{
     const input=schema.parse(await request.json());const {id}=await params;
@@ -17,6 +17,12 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     const selected=item.platforms.filter(pack=>yixiaoerPlatforms.includes(pack.source));if(!selected.length)return NextResponse.json({message:"This package has no Yixiaoer-supported platforms"},{status:400});
     for(const pack of selected)if(!input.accounts[pack.source])return NextResponse.json({message:`Choose a Yixiaoer account for ${pack.source}`},{status:400});
     if(item.yixiaoerAction)return NextResponse.json({message:"A Yixiaoer operation is already running"},{status:409});
+    if(input.action==="retry-upload"){
+      const operation=item.yixiaoerResults?._operation as Record<string,unknown>|undefined;const stage=String(operation?.stage||"");
+      if(item.status!=="failed"||(!stage.includes("upload")&&stage!=="downloading_from_r2"))return NextResponse.json({message:"Only a failed upload can be retried here"},{status:409});
+      const intent=item.yixiaoerResults?._intent as Record<string,unknown>|undefined;const draft=intent?.deliveryMode==="draft";
+      return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined})},{status:202});
+    }
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
     if(input.action==="retry") {
       const result=item.yixiaoerResults?.[input.platform!] as Record<string,unknown>|undefined;

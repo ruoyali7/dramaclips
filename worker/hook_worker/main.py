@@ -8,6 +8,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
+from .upload import retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
@@ -164,10 +165,10 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
     try:process.wait(timeout=5)
     except subprocess.TimeoutExpired:process.kill();process.wait()
     raise PublishCanceled("Canceled by user")
-def yxer(job,args,heartbeat=None,ambiguous_timeout=False):
+def yxer(job,args,heartbeat=None,ambiguous_timeout=False,timeout=900):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
  cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
- raw=cli_output(["yxer",*args,"--json"],env,900,job["apiKey"],heartbeat,ambiguous_timeout)
+ raw=cli_output(["yxer",*args,"--json"],env,timeout,job["apiKey"],heartbeat,ambiguous_timeout)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
@@ -258,13 +259,17 @@ def run_publish(job):
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
    return cancel_requested(publish_update(job,status,30,results={**results,"_operation":operation}))
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
-  video=yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat))
+  def upload_video(attempt):
+   publish_update(job,status,30,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}})
+   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=300))
+  video=retry_upload(upload_video,lambda attempt:publish_update(job,status,30,results={**results,"_operation":{"stage":"retrying_yixiaoer_upload","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}}))
+  publish_update(job,status,31,video={"video":video},results={**results,"_operation":{"stage":"video_uploaded_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  if not cover:
   duration=float(probe(local_video)["format"]["duration"]);requested=float(job.get("coverTimestampSeconds") or 0);cover_timestamp=max(0,min(requested,max(0,duration-.1)))
   cover_path=local_video.with_name(f"publish-cover-{job['id']}.jpg");subprocess.check_call(["ffmpeg","-y","-ss",str(cover_timestamp),"-i",str(local_video),"-frames:v","1","-q:v","2",str(cover_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   def cover_heartbeat():return cancel_requested(publish_update(job,status,33,results={**results,"_operation":{"stage":"uploading_cover_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
-  cover=yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat))
+  cover=retry_upload(lambda attempt:yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat,timeout=180)),lambda attempt:publish_update(job,status,33,video={"video":video},results={**results,"_operation":{"stage":"retrying_yixiaoer_cover_upload","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"attempt":attempt,"maxAttempts":2}}))
  assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  payloads={pack["source"]:yixer_payload(job,pack,video,cover) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
  if control.get("reconcilePlatforms"):
@@ -344,7 +349,8 @@ def main():
      if uncertain:
       for value in current_results.values():
        if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
-     publish_update(publish_job,"outcome_unknown" if uncertain else "failed",100,terminal=True,results=current_results,error=str(e)[:900])
+     if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
+     else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
    cleanup_worker_temps()
    if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
