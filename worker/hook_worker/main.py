@@ -171,6 +171,19 @@ def yxer(job,args,heartbeat=None,ambiguous_timeout=False):
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
+def yixiaoer_account_rows(data):
+ if isinstance(data,list):return data
+ if isinstance(data,dict):
+  for key in ("items","list","records","accounts"):
+   if isinstance(data.get(key),list):return data[key]
+ return []
+def sync_yixiaoer_accounts():
+ credential=call("/api/internal/yixiaoer/accounts",{"workerId":WORKER});key=credential["apiKey"]
+ data=yxer({"id":"account-sync","apiKey":key},["accounts","list","--status","1","--all"]);accounts=[]
+ for row in yixiaoer_account_rows(data):
+  account_id=str(row.get("id") or row.get("platformAccountId") or "");status=int(row.get("status",row.get("loginStatus",0)) or 0)
+  if account_id and status==1:accounts.append({"id":account_id,"name":str(row.get("platformAccountName") or row.get("name") or row.get("nickname") or "Account"),"platform":str(row.get("platformName") or ""),"status":status,**({"avatar":row["platformAvatar"]} if isinstance(row.get("platformAvatar"),str) else {})})
+ call("/api/internal/yixiaoer/accounts",{"workerId":WORKER,"accounts":accounts})
 def publish_update(job,status,progress,terminal=False,**extra):return call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
 def plain_description(value):
  import re
@@ -311,8 +324,12 @@ def run_publish(job):
  publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  cleanup_worker_temps(0)
+ next_account_sync=0
  while True:
   try:
+   if time.time()>=next_account_sync:
+    try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
+    except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
    if job:
     worked=True
