@@ -229,6 +229,13 @@ export async function createPublishPackage(input: {
   siteUrl: string;
 }) {
   await request("publish_packages?select=id&limit=0");
+  let hookClipId = input.hookClipId || null;
+  if (hookClipId) {
+    const hookRows = (await request(
+      `hook_clips?id=eq.${encodeURIComponent(hookClipId)}&select=id&limit=1`,
+    )) as { id: string }[];
+    if (!hookRows[0]) hookClipId = null;
+  }
   const priorRows = (await request(
     `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=*&order=created_at.desc&limit=10`,
   )) as Row[];
@@ -258,7 +265,7 @@ export async function createPublishPackage(input: {
       video_url: input.videoUrl,
       video_kind: input.videoKind,
       video_label: input.videoLabel || null,
-      hook_clip_id: input.hookClipId || null,
+      hook_clip_id: hookClipId,
       account: input.account || "main",
       campaign: input.campaign || "organic",
       scheduled_at: input.scheduledAt || null,
