@@ -39,6 +39,7 @@ export function PosterPublisher({ sources }: { sources: PosterSource[] }) {
   const [selectedIds, setSelectedIds] = useState<string[]>(sources.slice(0, 1).map((item) => item.id));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const source = sources.find((item) => item.id === sourceId) || sources[0];
+  const generatedIds = new Set(savedPosts.map((post) => sources.find((item) => item.slug === post.drama_slug)?.id).filter(Boolean) as string[]);
   useEffect(() => { void fetch("/api/admin/cover-posts").then((response) => response.ok ? response.json() : null).then((result) => setSavedPosts(result?.posts || [])).catch(() => null); }, []);
   const image = useMemo(() => {
     if (!source?.coverUrl) return null;
@@ -120,6 +121,19 @@ export function PosterPublisher({ sources }: { sources: PosterSource[] }) {
         <div><span>02 · Poster publishing</span><h2 id="poster-publisher-title">Edit a cover into a post</h2><p>Use the original R2 cover and add a clear content code in the top-left corner.</p></div>
         <button type="button" onClick={() => { setSourceId(sources[0].id); setCode(sources[0].publicCode || ""); }}><RefreshCw /> Reset</button>
       </div>
+      <div className="poster-list" aria-label="Drama cover list">
+        {sources.map((item) => {
+          const generated = generatedIds.has(item.id);
+          return <article className={`poster-list-row${source?.id === item.id ? " selected" : ""}`} key={item.id}>
+            <input aria-label={`Select ${item.title}`} type="checkbox" checked={selectedIds.includes(item.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />
+            <button className="poster-list-cover" type="button" onClick={() => selectSource(item.id)}><img src={item.coverUrl} alt="" /><span>{generated ? "Generated" : "Not generated"}</span></button>
+            <div className="poster-list-copy"><b>{item.title}</b><small>Code · {item.publicCode}</small></div>
+            <button className="poster-list-action" type="button" onClick={() => { selectSource(item.id); window.setTimeout(download, 0); setMessage(generated ? `${item.title} poster downloaded.` : `${item.title} poster generated and downloaded.`); }} title={generated ? "Download poster" : "Generate poster"}>{generated ? <Download /> : "Generate"}</button>
+            <button className="poster-list-caption" type="button" onClick={() => { selectSource(item.id); setMessage("Captions generated below."); }}>Generate captions</button>
+          </article>;
+        })}
+      </div>
+      <div className="poster-list-toolbar"><button className="poster-download" type="button" onClick={() => void downloadBatch()} disabled={busy || selectedIds.length === 0}><Download /> Download selected PNGs ({selectedIds.length})</button></div>
       <div className="poster-publisher-grid">
         <div className="poster-preview-wrap"><canvas ref={canvasRef} aria-label="Generated poster preview" /></div>
         <div className="poster-publisher-form">
