@@ -254,6 +254,7 @@ def download_publish_video(job,status,results):
  return target
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};candidate_video=stored.get("video") or (stored if stored.get("key") else {});video=candidate_video if "publish-video-" in str(candidate_video.get("key") or "") else {};cover=stored.get("cover") if stored.get("coverPackageId")==job["id"] else {};results=job.get("yixiaoerResults") or {};control=results.get("_control") or {};local_video=None
+ if control.get("cancelRequested"):raise PublishCanceled("Canceled by user")
  if not video.get("duration") or not cover:
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
