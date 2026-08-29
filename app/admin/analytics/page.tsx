@@ -10,6 +10,7 @@ const metrics = [
   ["Preview starts · 预览开始", "previewStarts"],
   ["Continue clicks · 继续观看", "watchFullClicks"],
   ["Code copies · 代码复制", "promoCodeCopies"],
+  ["RS redirects · 跳转 RS", "rsRedirects"],
 ] as const;
 
 function zonedDateKey(date: Date) {
@@ -75,10 +76,11 @@ export default async function Page() {
     <div className="admin-title"><div><p>Last 30 days · 最近 30 天</p><h1>Analytics · 数据分析</h1></div></div>
     {summary ? <>
       <div className="stats">
-        <Stat label="Tracked visits" value={summary.visits.toLocaleString()} delta="Page views + short links · 页面访问 + 短链点击" />
+        <Stat label="Tracked visits" value={summary.visits.toLocaleString()} delta={`今日新增 ${today?.visits ?? 0} · Page views + short links`} />
         <Stat label="Unique sessions" value={summary.sessions.toLocaleString()} delta="30-day cookie · 30 天 Cookie" />
-        <Stat label="Continue watching clicks" value={summary.watchFullClicks.toLocaleString()} delta="Full-watch CTA clicks · 继续观看按钮点击" />
-        <Stat label="Code copies" value={summary.promoCodeCopies.toLocaleString()} delta="Content Code copies · Content Code 复制" />
+        <Stat label="Continue watching clicks" value={summary.watchFullClicks.toLocaleString()} delta={`今日新增 ${today?.watchFullClicks ?? 0} · Full-watch CTA`} />
+        <Stat label="Code copies" value={summary.promoCodeCopies.toLocaleString()} delta={`今日新增 ${today?.promoCodeCopies ?? 0} · Content Code`} />
+        <Stat label="RS redirects" value={summary.rsRedirects.toLocaleString()} delta={`今日新增 ${today?.rsRedirects ?? 0} · Jump initiated`} />
       </div>
       {today && yesterday && last7 && previous7 && <div className="analytics-growth">
         <GrowthPanel title="Today · 今天" subtitle={`Today vs yesterday · ${timeZone}`} current={today} previous={yesterday} />

@@ -25,6 +25,7 @@ export function EpisodePlayer({drama,episodes,goHref,contentPromotionHref}:{dram
     if(!contentPromotionHref)return;
     event.preventDefault();
     if(drama.promoCode){try{await navigator.clipboard.writeText(drama.promoCode);track("promo_code_copy",{dramaId:drama.id,dramaSlug:drama.slug,metadata:{reason:"full_cta"}})}catch{/* Continue to the app even when clipboard permission is unavailable. */}}
+    track("rs_redirect_click",{dramaId:drama.id,dramaSlug:drama.slug,metadata:{destination:"content_promotion",position}});
     window.location.assign(contentPromotionHref);
   }
   return <div className="watch-stage"><div className="vertical-player">
