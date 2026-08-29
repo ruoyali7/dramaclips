@@ -14,6 +14,7 @@ type Package = {
   status: string;
   platforms: { source: string }[];
   createdAt: string;
+  yixiaoerUpdatedAt?: string;
   yixiaoerResults?: Record<string, unknown>;
 };
 
@@ -34,7 +35,7 @@ function isDraft(item: Package) {
 }
 
 function eventDate(item: Package) {
-  return new Date(item.scheduledAt || item.createdAt);
+  return new Date(item.scheduledAt || item.yixiaoerUpdatedAt || item.createdAt);
 }
 
 function statusLabel(item: Package) {
