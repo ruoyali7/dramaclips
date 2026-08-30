@@ -4,6 +4,7 @@ import {
   Database,
   Download,
   ExternalLink,
+  Rocket,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PublishCenter } from "@/components/admin/publish-center";
@@ -95,6 +96,9 @@ export default async function Page() {
         </a>
         <a href="https://www.yixiaoer.cn/" target="_blank" rel="noreferrer">
           Yixiaoer console <ExternalLink />
+        </a>
+        <a href="https://railway.app/dashboard" target="_blank" rel="noreferrer">
+          <Rocket /> Railway deploy portal <ExternalLink />
         </a>
         <a href="/api/admin/publish-packages/latest/csv" download>
           <Download /> CSV fallback
