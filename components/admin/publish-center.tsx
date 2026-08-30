@@ -712,14 +712,14 @@ export function PublishCenter({
   ) {
     const message = action === "reconcile"
       ? `Query Yixiaoer for the latest ${platform} result before retrying?`
-      : `Retry publishing to ${platform}? Already confirmed platforms will not be submitted again.`;
+      : `Retry all failed platforms? Already published platforms will not be submitted again.`;
     if (!window.confirm(message)) return;
     setError("");
     try {
       const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, platform, accounts: item.yixiaoerAccounts || {} }),
+        body: JSON.stringify({ action, ...(action === "reconcile" ? { platform } : {}), accounts: item.yixiaoerAccounts || {} }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.message);
@@ -1250,7 +1250,8 @@ export function PublishCenter({
             <div className="failed-platform-actions">
               <b>{uploadFailed(created)?"The upload stopped before any platform submission. Retry the same upload task.":"Fix the copy above, save edits, then continue only the affected platform."}</b>
               {uploadFailed(created) && <button onClick={() => void retryUpload(created)}>Retry upload</button>}
-              {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="failed"?<button key={pack.source} onClick={() => void platformAction(created,"retry",pack.source)}>Retry {pack.source}</button>:state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
+              {created.platforms.some((pack) => {const result=created.yixiaoerResults?.[pack.source];return result&&typeof result==="object"&&(result as Record<string,unknown>).state==="failed";}) && <button onClick={() => void platformAction(created,"retry","all")}>Retry all failed platforms</button>}
+              {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
             </div>
           )}
         </section>

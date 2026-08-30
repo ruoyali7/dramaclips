@@ -9,7 +9,6 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     const input=schema.parse(await request.json());const {id}=await params;
     if(input.action==="cancel")return NextResponse.json({package:await requestCancelYixiaoerPackage(id)},{status:202});
     if(input.action==="reconcile"&&!input.platform)return NextResponse.json({message:"Choose a platform to reconcile"},{status:400});
-    if(input.action==="retry"&&!input.platform)return NextResponse.json({message:"Choose a failed platform to retry"},{status:400});
     if(input.action==="publish"&&!input.confirm)return NextResponse.json({message:"Explicit final confirmation is required"},{status:409});
     const item=await getPublishPackage(id);if(!item)return NextResponse.json({message:"Publish package not found"},{status:404});
     const uncertain=Object.values(item.yixiaoerResults||{}).some(value=>value&&typeof value==="object"&&(value as Record<string,unknown>).state==="outcome_unknown");
@@ -24,12 +23,13 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined})},{status:202});
     }
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
-    if(input.action==="retry") {
-      const result=item.yixiaoerResults?.[input.platform!] as Record<string,unknown>|undefined;
-      if(result?.state!=="failed")return NextResponse.json({message:"Only a confirmed failed platform can be retried"},{status:409});
-    }
+    const retryPlatforms=input.action==="retry"?selected.filter(pack=>{
+      const result=item.yixiaoerResults?.[pack.source];
+      return result&&typeof result==="object"&&(result as Record<string,unknown>).state==="failed";
+    }).map(pack=>pack.source):undefined;
+    if(input.action==="retry"&&!retryPlatforms?.length)return NextResponse.json({message:"No confirmed failed platforms can be retried"},{status:409});
     const action=input.action==="reconcile"||input.action==="retry"?"publish":input.action==="draft"?"validate":input.action;
-    const control=input.action==="reconcile"?{reconcilePlatforms:[input.platform!]}:input.action==="retry"?{retryPlatform:input.platform!}:input.action==="draft"?{saveDraft:true}:undefined;
+    const control=input.action==="reconcile"?{reconcilePlatforms:[input.platform!]}:input.action==="retry"?{retryPlatforms}:input.action==="draft"?{saveDraft:true}:undefined;
     return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action,accounts:input.accounts,control})},{status:202});
   }catch(error){if(error instanceof ZodError)return NextResponse.json({message:"Check action and account selections"},{status:400});return NextResponse.json({message:error instanceof Error?error.message:"Could not queue Yixiaoer operation"},{status:503})}
 }

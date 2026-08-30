@@ -285,7 +285,7 @@ def run_publish(job):
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
   publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
- pending=[p for p in job["platforms"] if p["source"] in payloads and (control.get("retryPlatform")==p["source"] or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
+ pending=[p for p in job["platforms"] if p["source"] in payloads and ((p["source"] in control.get("retryPlatforms",[])) or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
