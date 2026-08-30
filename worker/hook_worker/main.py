@@ -154,6 +154,12 @@ def publish_update(job,status,progress,terminal=False,**extra):return call(f"/ap
 def plain_description(value):
  import re
  return re.sub(r"[ \t]{2,}"," ",re.sub(r"\n{3,}","\n\n",re.sub(r"(^|\s)#[A-Za-z0-9_-]+",r"\1",re.sub(r"<[^>]+>"," ",value)))).strip()
+def publish_channel_args():
+ channel=os.getenv("YIXIAOER_PUBLISH_CHANNEL","cloud").strip() or "cloud"
+ args=["--publish-channel",channel]
+ client_id=os.getenv("YIXIAOER_CLIENT_ID","").strip()
+ if client_id:args.extend(["--client-id",client_id])
+ return channel,args
 def yixer_video(data):
  if not isinstance(data,dict):raise RuntimeError("Yixiaoer upload returned no resource")
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
@@ -165,10 +171,12 @@ def yixer_payload(job,pack,video,cover):
  if pack["source"]=="tiktok":content.update({"description":caption[:2200],"visible":"public","comment":True,"stitch":True,"duet":True,"aigc":False,"business":False,"yourOwn":False,"collaborative":False,"fps":10,"isAdVideo":False})
  if pack["source"]=="facebook":content.update({"title":title[:128],"description":caption[:2048]})
  if pack["source"]=="instagram":content.update({"description":caption[:2200],"share_to_feed":True})
- return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":"cloud","desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
+ channel,_=publish_channel_args()
+ return {"action":"publish","publishType":"video","platforms":[platform],"publishChannel":channel,"desc":title,"publishArgs":{"video":video,"accountForms":[{"platformAccountId":job["yixiaoerAccounts"][pack["source"]],"platformName":platform,"video":video,"cover":cover,"coverKey":cover["key"],"contentPublishForm":content}]}}
 def yixer_file(job,payload,platform,command,dry=False,heartbeat=None,ambiguous_timeout=False):
  root=Path(tempfile.mkdtemp(prefix="drama-yixer-",dir=os.getenv("WORK_DIR","/tmp")));path=root/"payload.json";path.write_text(json.dumps(payload));name={"tiktok":"TikTok","instagram":"Instagram","youtube":"Youtube","facebook":"Facebook"}[platform]
- args=[command,"video",name,str(path),"--publish-channel","cloud"] if command=="publish" else [command,name,"video",str(path),"--publish-channel","cloud"]
+ _,channel_args=publish_channel_args()
+ args=[command,"video",name,str(path),*channel_args] if command=="publish" else [command,name,"video",str(path),*channel_args]
  if dry:args.append("--dry-run")
  return yxer(job,args,heartbeat,ambiguous_timeout)
 def yixer_draft(job,payload,heartbeat=None):
