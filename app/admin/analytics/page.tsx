@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 const timeZone = process.env.ANALYTICS_TIME_ZONE || "America/Los_Angeles";
 const metrics = [
   ["Visits · 访问", "visits"],
+  ["Bio visits · Bio 访问", "bioVisits"],
   ["Preview starts · 预览开始", "previewStarts"],
   ["Continue clicks · 继续观看", "watchFullClicks"],
   ["Code copies · 代码复制", "promoCodeCopies"],
@@ -76,7 +77,7 @@ export default async function Page() {
     <div className="admin-title"><div><p>Last 30 days · 最近 30 天</p><h1>Analytics · 数据分析</h1></div></div>
     {summary ? <>
       <div className="stats">
-        <Stat label="Tracked visits" value={summary.visits.toLocaleString()} delta={`今日新增 ${today?.visits ?? 0} · Page views + short links`} />
+        <Stat label="Tracked visits" value={summary.visits.toLocaleString()} delta={`Bio ${summary.bioVisits.toLocaleString()} · Clip ${summary.clipVisits.toLocaleString()}`} />
         <Stat label="Unique sessions" value={summary.sessions.toLocaleString()} delta="30-day cookie · 30 天 Cookie" />
         <Stat label="Continue watching clicks" value={summary.watchFullClicks.toLocaleString()} delta={`今日新增 ${today?.watchFullClicks ?? 0} · Full-watch CTA`} />
         <Stat label="Code copies" value={summary.promoCodeCopies.toLocaleString()} delta={`今日新增 ${today?.promoCodeCopies ?? 0} · Content Code`} />

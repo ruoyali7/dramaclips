@@ -159,22 +159,11 @@ function copyFor(
     facebook: 1000,
   };
   const story = shorten(description, descriptionLimit[source]);
-  if (source === "tiktok") {
-    const caption = [
-      `📋 Copy Content Code: ${promoCode}`,
-      `👉 Tap the link in bio to continue watching on DramaClips`,
-      hook,
-      `🎬 ${title}`,
-      `✨ ${story}`,
-      hashtags,
-    ].join("\n");
-    return { hook, cta, hashtags, hashtagSource, caption };
-  }
   if (source === "facebook") {
     const caption = [
       `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
       `🔍 Search this code in ReelShort: ${promoCode}`,
-      `🔥 Watch the preview and continue on Dramora AI: ${url}`,
+      `📋 Or save the code and find this drama from the bio link or in ReelShort`,
       hook,
       `🎬 ${title}`,
       `✨ ${shorten(description, 420)}`,
@@ -183,11 +172,10 @@ function copyFor(
     return { hook, cta, hashtags, hashtagSource, caption };
   }
   const caption = [
-    top,
-    code,
+    `📋 Save Content Code: ${promoCode}`,
+    `👉 Use the ${source} bio link to find this drama on DramaClips, or search the code in ReelShort`,
     hook,
     `🎬 ${title}`,
-    cta,
     `✨ ${story}`,
     hashtags,
   ].join("\n");
