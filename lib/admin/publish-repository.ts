@@ -347,6 +347,8 @@ export async function enqueueYixiaoerPackage(
   input: {
     action: "validate" | "publish";
     accounts: Record<string, string>;
+    scheduledAt?: string;
+    clearSchedule?: boolean;
     control?: {
       reconcilePlatforms?: string[];
       retryPlatforms?: string[];
@@ -358,15 +360,15 @@ export async function enqueueYixiaoerPackage(
   if (!item) throw new Error("Publish package not found");
   const scheduled =
     input.action === "publish" &&
-    Boolean(item.scheduledAt) &&
-    new Date(item.scheduledAt as string).getTime() > Date.now();
+    Boolean(input.scheduledAt || (!input.clearSchedule && item.scheduledAt)) &&
+    new Date((input.scheduledAt || item.scheduledAt) as string).getTime() > Date.now();
   const now = new Date().toISOString();
   const results = scheduled
     ? {
         ...item.yixiaoerResults,
         _operation: {
           stage: "awaiting_scheduled_time",
-          scheduledAt: item.scheduledAt,
+          scheduledAt: input.scheduledAt || item.scheduledAt,
           queuedAt: now,
           heartbeatAt: now,
         },
@@ -387,6 +389,7 @@ export async function enqueueYixiaoerPackage(
               ? "scheduled"
               : "publishing",
         yixiaoer_action: input.action,
+        scheduled_at: input.clearSchedule ? null : input.scheduledAt || item.scheduledAt || null,
         yixiaoer_accounts: input.accounts,
         yixiaoer_progress: scheduled ? 0 : 1,
         yixiaoer_error: null,
