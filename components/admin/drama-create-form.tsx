@@ -12,6 +12,14 @@ function naturalFiles(files: File[]) {
   return files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 }
 
+const remoteVideoHosts = new Set(["v-mps.crazymaplestudios.com", "v-out.oss-accelerate.aliyuncs.com"]);
+function isRemoteVideoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && remoteVideoHosts.has(url.hostname) && url.pathname.toLowerCase().endsWith(".mp4");
+  } catch { return false; }
+}
+
 function uploadFile(file: File, uploadUrl: string, onProgress: (value: number) => void) {
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -100,10 +108,10 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     try {
       for (const link of links) {
         const url = new URL(link);
-        if (url.protocol !== "https:" || url.hostname !== "v-mps.crazymaplestudios.com" || !url.pathname.toLowerCase().endsWith(".mp4")) throw new Error();
+        if (!isRemoteVideoUrl(link)) throw new Error();
       }
     } catch {
-      setError("Every URL must be an HTTPS MP4 link from v-mps.crazymaplestudios.com.");
+      setError("Every URL must be an HTTPS MP4 link from an approved source host.");
       return;
     }
     setError("");
@@ -115,7 +123,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     if (uploading) return;
     const slug = slugRef.current?.value.trim() || "";
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) { setError("Enter a valid slug before transferring videos to R2."); slugRef.current?.focus(); return; }
-    const pending = episodes.map((episode, index) => ({ episode, index })).filter(({ episode }) => episode.videoUrl.includes("v-mps.crazymaplestudios.com") && episode.status !== "Ready");
+    const pending = episodes.map((episode, index) => ({ episode, index })).filter(({ episode }) => isRemoteVideoUrl(episode.videoUrl) && episode.status !== "Ready");
     if (!pending.length) { setError("Fill the episode list with source video links first."); return; }
     setError(""); setUploading(true);
     const failures: string[] = [];
@@ -269,7 +277,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
       <div className="cover-upload wide"><label><span>{coverFile ? coverFile.name : "Choose cover image"}</span><small>JPG, PNG, or WebP · 20 MB max</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectCover(event.target.files?.[0])} disabled={uploading} /></label>{coverFile && <button type="button" onClick={() => void uploadCover()} disabled={uploading}>{coverStatus === "Failed" ? "Retry cover upload" : "Upload cover to R2"}</button>}{coverStatus && <div><span>{coverStatus}</span><strong>{coverProgress}%</strong><i className={coverStatus.startsWith("Ready") ? "ready" : coverStatus === "Failed" ? "failed" : ""} style={{width:`${coverProgress}%`}}/></div>}</div>
     </div></section>
     <section><div className="section-heading"><span>02 · Import preview episodes to R2</span><a href={r2DashboardUrl} target="_blank" rel="noreferrer">Open R2 bucket <ExternalLink /></a></div>
-      <div className="remote-link-import"><label><b>Paste source MP4 links</b><textarea value={remoteLinks} onChange={(event)=>setRemoteLinks(event.target.value)} rows={7} placeholder="Paste one v-mps.crazymaplestudios.com MP4 URL per line" /></label><div><button type="button" onClick={fillRemoteLinks} disabled={uploading}>Fill episode list</button><button type="button" onClick={()=>void uploadRemoteLinks()} disabled={uploading||!episodes.some(episode=>episode.videoUrl.includes("v-mps.crazymaplestudios.com"))}>{uploading?"Transferring to R2…":episodes.some(episode=>episode.status==="Failed")?"Retry failed transfers":"Transfer filled links to R2"}</button></div><small>Links are assigned as EP 1, EP 2… in pasted order. The server streams each video directly to R2 and replaces the source URL below with its final R2 URL.</small></div>
+      <div className="remote-link-import"><label><b>Paste source MP4 links</b><textarea value={remoteLinks} onChange={(event)=>setRemoteLinks(event.target.value)} rows={7} placeholder="Paste one source MP4 URL per line" /></label><div><button type="button" onClick={fillRemoteLinks} disabled={uploading}>Fill episode list</button><button type="button" onClick={()=>void uploadRemoteLinks()} disabled={uploading||!episodes.some(episode=>isRemoteVideoUrl(episode.videoUrl))}>{uploading?"Transferring to R2…":episodes.some(episode=>episode.status==="Failed")?"Retry failed transfers":"Transfer filled links to R2"}</button></div><small>Links are assigned as EP 1, EP 2… in pasted order. Approved sources include Crazy Maple and Aliyun OSS signed MP4 links. The server streams each video directly to R2 and replaces the source URL below with its final R2 URL.</small></div>
       <p><b>Local-file fallback:</b> you can still choose downloaded files or a folder instead.</p>
       <label className={`upload-drop ${uploading ? "busy" : ""}`}><CloudUpload /><b>{selectedFiles.length ? `${selectedFiles.length} episode files selected` : "Choose videos or a folder"}</b><small>{selectedFiles.length ? "Review the queue below, then start the R2 upload." : "MP4, MOV, AVI, or 3GP · 10 GB max each"}</small><input type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/3gpp" multiple onChange={(event) => selectFiles(event.target.files)} disabled={uploading} /></label>
       {selectedFiles.length > 0 && <button className="upload-selected" type="button" onClick={() => void uploadSelected()} disabled={uploading}>{uploading ? "Uploading to R2…" : episodes.some((episode) => episode.status === "Failed") ? "Retry failed uploads" : `Upload ${selectedFiles.length} episodes to R2`}</button>}

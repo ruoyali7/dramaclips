@@ -110,9 +110,9 @@ export async function deleteExpiredHookDrafts(keys:string[]){for(const key of ke
 export async function deleteR2Object(objectKey:string){if(!objectKey.startsWith("dramas/")||!objectKey.includes("/social/drafts/"))throw new Error("Only hook draft objects can be deleted");const response=await signedR2Request("DELETE",objectKey);if(!response.ok&&response.status!==404)throw new Error(`R2 delete returned ${response.status}`)}
 export async function deleteSocialVideo(objectKey:string){if(!objectKey.startsWith("dramas/")||!objectKey.includes("/social/"))throw new Error("Only social video objects can be deleted");const response=await signedR2Request("DELETE",objectKey);if(!response.ok&&response.status!==404)throw new Error(`R2 delete returned ${response.status}`)}
 
-const REMOTE_VIDEO_HOST="v-mps.crazymaplestudios.com";
+const REMOTE_VIDEO_HOSTS=new Set(["v-mps.crazymaplestudios.com","v-out.oss-accelerate.aliyuncs.com"]);
 export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeNumber:number}){
-  const source=new URL(input.url);if(source.protocol!=="https:"||source.hostname!==REMOTE_VIDEO_HOST||!source.pathname.toLowerCase().endsWith(".mp4"))throw new Error("Remote video URL is not allowed");
+  const source=new URL(input.url);if(source.protocol!=="https:"||!REMOTE_VIDEO_HOSTS.has(source.hostname)||!source.pathname.toLowerCase().endsWith(".mp4"))throw new Error("Remote video URL is not allowed");
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5*60*1000);
   try{
     const response=await fetch(source,{redirect:"manual",signal:controller.signal,headers:{Accept:"video/mp4,application/octet-stream"}});
