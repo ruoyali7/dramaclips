@@ -91,8 +91,8 @@ export async function POST(
       "Content-Type": "application/json",
       Prefer: "return=representation",
     };
-    if (input.candidates?.length)
-      await fetch(
+    if (input.candidates?.length) {
+      const candidateResponse = await fetch(
         `${config.url}/rest/v1/hook_candidates?on_conflict=job_id,rank`,
         {
           method: "POST",
@@ -131,6 +131,9 @@ export async function POST(
           ),
         },
       );
+      if (!candidateResponse.ok)
+        throw new Error(`Candidate persistence failed (${candidateResponse.status})`);
+    }
     const terminal = [
       "review_ready",
       "no_result",
