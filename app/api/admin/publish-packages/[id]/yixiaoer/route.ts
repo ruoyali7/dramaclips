@@ -3,7 +3,7 @@ import {z,ZodError} from "zod";
 import {enqueueYixiaoerPackage,getPublishPackage,requestCancelYixiaoerPackage} from "@/lib/admin/publish-repository";
 import {yixiaoerPlatforms} from "@/lib/admin/yixiaoer";
 
-const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
+const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),deliveryMode:z.enum(["now","scheduled"]).optional(),scheduledAt:z.string().datetime().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
   try{
     const input=schema.parse(await request.json());const {id}=await params;
@@ -28,8 +28,9 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       return result&&typeof result==="object"&&(result as Record<string,unknown>).state==="failed";
     }).map(pack=>pack.source):undefined;
     if(input.action==="retry"&&!retryPlatforms?.length)return NextResponse.json({message:"No confirmed failed platforms can be retried"},{status:409});
+    if(input.action==="retry"&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
     const action=input.action==="reconcile"||input.action==="retry"?"publish":input.action==="draft"?"validate":input.action;
     const control=input.action==="reconcile"?{reconcilePlatforms:[input.platform!]}:input.action==="retry"?{retryPlatforms}:input.action==="draft"?{saveDraft:true}:undefined;
-    return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action,accounts:input.accounts,control})},{status:202});
+    return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action,accounts:input.accounts,control,scheduledAt:input.action==="retry"&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:input.action==="retry"&&input.deliveryMode==="now"})},{status:202});
   }catch(error){if(error instanceof ZodError)return NextResponse.json({message:"Check action and account selections"},{status:400});return NextResponse.json({message:error instanceof Error?error.message:"Could not queue Yixiaoer operation"},{status:503})}
 }
