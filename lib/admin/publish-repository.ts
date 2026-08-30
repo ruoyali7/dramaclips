@@ -125,14 +125,7 @@ function copyFor(
 ) {
   const firstSentence =
     description.match(/^.+?[.!?](?:\s|$)/)?.[0] || description;
-  const hookLead: Record<PublishingPlatform, string> = {
-    tiktok: "😱 The secret is finally out:",
-    instagram: "✨ This changes their relationship:",
-    youtube: "👀 You won't expect what happens next:",
-    facebook: "💔 One decision changes everything:",
-    x: "😳 This scene changes everything:",
-  };
-  const hook = `${hookLead[source]} ${shorten(hookLabel || firstSentence, source === "x" ? 65 : 120)}`;
+  const hook = shorten(hookLabel || firstSentence, source === "x" ? 65 : 120);
   const tagCandidates = [
     { tag: "ReelShort", relevance: 75, competition: 65 },
     { tag: "DramoraAI", relevance: 95, competition: 45 },
@@ -163,7 +156,7 @@ function copyFor(
     const caption = [
       `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
       `🔍 Search this code in ReelShort: ${promoCode}`,
-      `📋 Or save the code and find this drama from the bio link or in ReelShort`,
+      `👉 Or find the link in bio, or search this code in ReelShort`,
       hook,
       `🎬 ${title}`,
       `✨ ${shorten(description, 420)}`,
