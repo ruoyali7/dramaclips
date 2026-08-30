@@ -847,7 +847,7 @@ export function PublishCenter({
                 <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
                 <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
                 <div className="asset-chips hook-chips">
-                  {[...group.source.hooks, ...group.source.builtInAssets].map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
+                  {[...group.source.hooks, ...group.source.builtInAssets].map((hook) => <i key={hook.id} className={group.publishedVideos.has(hook.videoUrl) || group.source.hooks.some((saved) => saved.id === hook.id) ? "published" : ""}>EP {hook.sourceEpisodes[0]}</i>)}
                   {!group.source.hooks.length && !group.source.builtInAssets.length && <small>No saved hooks</small>}
                   {group.source.draftHooks.length > 0 && <small>{group.source.draftHooks.length} need review</small>}
                 </div>
@@ -856,7 +856,7 @@ export function PublishCenter({
               </summary>
               <DramaLibraryExpanded
                 episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber) }; })}
-                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.latest ? packageState(row.latest) : "Saved" }))}
+                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.kind === "hook" && group.source.hooks.some((hook) => hook.id === row.assetId) ? "Published" : row.latest ? packageState(row.latest) : "Saved" }))}
                 previewEpisode={libraryPreviewKey.startsWith(`episode:${group.source.id}:`) ? Number(libraryPreviewKey.split(":").at(-1)) : null}
                 onPreviewEpisode={(episode) => setLibraryPreviewKey((current) => current === `episode:${group.source.id}:${episode.episodeNumber}` ? "" : `episode:${group.source.id}:${episode.episodeNumber}`)}
                 selectedHookId={group.assets.some((row) => row.key === libraryPreviewKey) ? libraryPreviewKey : null}
