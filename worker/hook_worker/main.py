@@ -191,6 +191,12 @@ def publish_update(job,status,progress,terminal=False,**extra):return call(f"/ap
 def plain_description(value):
  import re
  return re.sub(r"[ \t]{2,}"," ",re.sub(r"\n{3,}","\n\n",re.sub(r"(^|\s)#[A-Za-z0-9_-]+",r"\1",re.sub(r"<[^>]+>"," ",value)))).strip()
+def publish_channel_args():
+ channel=os.getenv("YIXIAOER_PUBLISH_CHANNEL","cloud").strip() or "cloud"
+ args=["--publish-channel",channel]
+ client_id=os.getenv("YIXIAOER_CLIENT_ID","").strip()
+ if client_id:args.extend(["--client-id",client_id])
+ return channel,args
 def yixer_video(data):
  if not isinstance(data,dict):raise RuntimeError("Yixiaoer upload returned no resource")
  candidate=data.get("resource") or data.get("file") or data.get("upload") or data
