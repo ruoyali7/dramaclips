@@ -349,7 +349,7 @@ export async function enqueueYixiaoerPackage(
     accounts: Record<string, string>;
     control?: {
       reconcilePlatforms?: string[];
-      retryPlatform?: string;
+      retryPlatforms?: string[];
       saveDraft?: boolean;
     };
   },
