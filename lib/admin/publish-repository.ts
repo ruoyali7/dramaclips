@@ -159,6 +159,17 @@ function copyFor(
     facebook: 1000,
   };
   const story = shorten(description, descriptionLimit[source]);
+  if (source === "tiktok") {
+    const caption = [
+      `📋 Copy Content Code: ${promoCode}`,
+      `👉 Tap the link in bio to continue watching on DramaClips`,
+      hook,
+      `🎬 ${title}`,
+      `✨ ${story}`,
+      hashtags,
+    ].join("\n");
+    return { hook, cta, hashtags, hashtagSource, caption };
+  }
   if (source === "facebook") {
     const caption = [
       `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
