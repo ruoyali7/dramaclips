@@ -271,7 +271,7 @@ def run_publish(job):
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
   def upload_video(attempt):
    publish_update(job,status,30,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}})
-   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=900))
+   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=300))
   video=retry_upload(upload_video,lambda attempt:publish_update(job,status,30,results={**results,"_operation":{"stage":"retrying_yixiaoer_upload","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}}))
   publish_update(job,status,31,video={"video":video},results={**results,"_operation":{"stage":"video_uploaded_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  if not cover:
