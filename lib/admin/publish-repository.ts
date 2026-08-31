@@ -417,7 +417,7 @@ export async function requestCancelYixiaoerPackage(id: string) {
     void discardedOperation;
     void discardedControl;
     const rows = (await request(
-      `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled`,
+      `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_lease_owner=is.null`,
       {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
@@ -454,6 +454,44 @@ export async function requestCancelYixiaoerPackage(id: string) {
       }),
     },
   )) as Row[];
+  return safe(rows[0]);
+}
+export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string) {
+  const item = await getPublishPackage(id);
+  if (!item) throw new Error("Publish package not found");
+  if (item.status !== "scheduled" || item.yixiaoerAction !== "publish")
+    throw new Error("Only a scheduled publish can be rescheduled");
+  if (item.yixiaoerLeaseOwner)
+    throw new Error("Publishing has already started; cancel it instead");
+  const scheduledTime = new Date(scheduledAt);
+  if (!Number.isFinite(scheduledTime.getTime()) || scheduledTime.getTime() <= Date.now())
+    throw new Error("Choose a scheduled time in the future");
+  const now = new Date().toISOString();
+  const rows = (await request(
+    `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        scheduled_at: scheduledTime.toISOString(),
+        yixiaoer_error: null,
+        yixiaoer_results: {
+          ...item.yixiaoerResults,
+          _operation: {
+            ...((item.yixiaoerResults?._operation as Record<string, unknown>) || {}),
+            stage: "awaiting_scheduled_time",
+            scheduledAt: scheduledTime.toISOString(),
+            rescheduledAt: now,
+            heartbeatAt: now,
+          },
+        },
+        yixiaoer_updated_at: now,
+        updated_at: now,
+      }),
+    },
+  )) as Row[];
+  if (!rows[0])
+    throw new Error("Scheduled publish is already starting; refresh and cancel it instead");
   return safe(rows[0]);
 }
 export async function leaseYixiaoerPackage(

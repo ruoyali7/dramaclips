@@ -1,13 +1,17 @@
 import {NextRequest,NextResponse} from "next/server";
 import {z,ZodError} from "zod";
-import {enqueueYixiaoerPackage,getPublishPackage,requestCancelYixiaoerPackage} from "@/lib/admin/publish-repository";
+import {enqueueYixiaoerPackage,getPublishPackage,requestCancelYixiaoerPackage,rescheduleYixiaoerPackage} from "@/lib/admin/publish-repository";
 import {yixiaoerPlatforms} from "@/lib/admin/yixiaoer";
 
-const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),deliveryMode:z.enum(["now","scheduled"]).optional(),scheduledAt:z.string().datetime().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
+const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reschedule","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),deliveryMode:z.enum(["now","scheduled"]).optional(),scheduledAt:z.string().datetime().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
   try{
     const input=schema.parse(await request.json());const {id}=await params;
     if(input.action==="cancel")return NextResponse.json({package:await requestCancelYixiaoerPackage(id)},{status:202});
+    if(input.action==="reschedule"){
+      if(!input.scheduledAt)return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
+      return NextResponse.json({package:await rescheduleYixiaoerPackage(id,input.scheduledAt)});
+    }
     if(input.action==="reconcile"&&!input.platform)return NextResponse.json({message:"Choose a platform to reconcile"},{status:400});
     if(input.action==="publish"&&!input.confirm)return NextResponse.json({message:"Explicit final confirmation is required"},{status:409});
     const item=await getPublishPackage(id);if(!item)return NextResponse.json({message:"Publish package not found"},{status:404});

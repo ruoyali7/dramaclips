@@ -122,6 +122,11 @@ function localTime(value: unknown, timeZone?: string) {
     timeZoneName: "short",
   }).format(new Date(value));
 }
+function pickerTime(value: string) {
+  const local = new Date(value);
+  const offset = local.getTimezoneOffset() * 60000;
+  return new Date(local.getTime() - offset).toISOString().slice(0, 16);
+}
 function cancelRequested(value: Package) {
   const control = value.yixiaoerResults?._control;
   return Boolean(
@@ -228,6 +233,8 @@ export function PublishCenter({
   const [retryDeliveryMode, setRetryDeliveryMode] = useState<"now" | "scheduled">("now");
   const [retryScheduledAt, setRetryScheduledAt] = useState(defaultPublishTime);
   const [retryOptionsOpen, setRetryOptionsOpen] = useState(false);
+  const [reschedulingId, setReschedulingId] = useState("");
+  const [rescheduleAt, setRescheduleAt] = useState(defaultPublishTime);
   const [created, setCreated] = useState<Package | null>(null);
   const [recent, setRecent] = useState<Package[]>([]);
   const [busy, setBusy] = useState(false);
@@ -677,9 +684,9 @@ export function PublishCenter({
       setSavingCopy(false);
     }
   }
-  async function cancelOperation() {
+  async function cancelPackage(item: Package) {
     if (
-      !created?.yixiaoerAction ||
+      !item.yixiaoerAction ||
       !window.confirm(
         "Stop the current Yixiaoer operation? Nothing will be published after the worker stops.",
       )
@@ -689,7 +696,7 @@ export function PublishCenter({
     setError("");
     try {
       const r = await fetch(
-        `/api/admin/publish-packages/${created.id}/yixiaoer`,
+        `/api/admin/publish-packages/${item.id}/yixiaoer`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -698,12 +705,44 @@ export function PublishCenter({
       );
       const j = await r.json();
       if (!r.ok) throw new Error(j.message);
-      setCreated(j.package);
+      if (created?.id === item.id) setCreated(j.package);
       setRecent((items) =>
         items.map((item) => (item.id === j.package.id ? j.package : item)),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not cancel operation");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+  async function cancelOperation() {
+    if (created) await cancelPackage(created);
+  }
+  function beginReschedule(item: Package) {
+    setReschedulingId(item.id);
+    setRescheduleAt(item.scheduledAt ? pickerTime(item.scheduledAt) : defaultPublishTime());
+    setError("");
+  }
+  async function reschedulePackage(item: Package) {
+    if (new Date(rescheduleAt).getTime() <= Date.now()) {
+      setError("Choose a scheduled time in the future");
+      return;
+    }
+    setConnectionBusy(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "reschedule", scheduledAt: new Date(rescheduleAt).toISOString() }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message);
+      if (created?.id === item.id) setCreated(j.package);
+      setRecent((items) => items.map((current) => current.id === j.package.id ? j.package : current));
+      setReschedulingId("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reschedule publish");
     } finally {
       setConnectionBusy(false);
     }
@@ -769,9 +808,7 @@ export function PublishCenter({
           : "now",
     );
     if (item.scheduledAt) {
-      const local = new Date(item.scheduledAt);
-      const offset = local.getTimezoneOffset() * 60000;
-      setScheduledAt(new Date(local.getTime() - offset).toISOString().slice(0, 16));
+      setScheduledAt(pickerTime(item.scheduledAt));
     }
     setAccountIds(item.yixiaoerAccounts || {});
     setValidated(
@@ -1109,6 +1146,11 @@ export function PublishCenter({
                 </div>
                 <div className="process-actions">
                   <strong>{created.yixiaoerProgress || 0}%</strong>
+                  {created.status === "scheduled" && (
+                    <button className="secondary" onClick={() => beginReschedule(created)} disabled={connectionBusy}>
+                      Reschedule
+                    </button>
+                  )}
                   <button
                     onClick={() => void cancelOperation()}
                     disabled={connectionBusy || cancelRequested(created)}
@@ -1162,6 +1204,17 @@ export function PublishCenter({
                   </>
                 )}
               </div>
+              {created.status === "scheduled" && reschedulingId === created.id && (
+                <div className="reschedule-editor">
+                  <PublishTimePicker value={rescheduleAt} onChange={setRescheduleAt} />
+                  <button onClick={() => void reschedulePackage(created)} disabled={connectionBusy}>
+                    {connectionBusy ? "Saving…" : "Confirm new time"}
+                  </button>
+                  <button className="secondary" onClick={() => setReschedulingId("")} disabled={connectionBusy}>
+                    Keep current time
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <details className="copy-editor">
@@ -1309,14 +1362,31 @@ export function PublishCenter({
                 <div className="monitor-detail">
                   <div className="history-actions">
                     <code>{x.id}</code>
-                    <button onClick={() => openPackage(x)}>
-                      {x.id === created?.id
-                        ? "Currently open"
-                        : taskCanContinue(x)
-                          ? "Open & continue"
-                          : "View details"}
-                    </button>
+                    <div className="history-action-buttons">
+                      <button onClick={() => openPackage(x)}>
+                        {x.id === created?.id
+                          ? "Currently open"
+                          : taskCanContinue(x)
+                            ? "Open & continue"
+                            : "View details"}
+                      </button>
+                      {x.status === "scheduled" && x.yixiaoerAction && (
+                        <>
+                          <button className="secondary" onClick={() => beginReschedule(x)} disabled={connectionBusy}>Reschedule</button>
+                          <button className="danger" onClick={() => void cancelPackage(x)} disabled={connectionBusy}>Cancel</button>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  {x.status === "scheduled" && reschedulingId === x.id && (
+                    <div className="reschedule-editor">
+                      <PublishTimePicker value={rescheduleAt} onChange={setRescheduleAt} />
+                      <button onClick={() => void reschedulePackage(x)} disabled={connectionBusy}>
+                        {connectionBusy ? "Saving…" : "Confirm new time"}
+                      </button>
+                      <button className="secondary" onClick={() => setReschedulingId("")} disabled={connectionBusy}>Keep current time</button>
+                    </div>
+                  )}
                   {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
                   {x.platforms.map((pack) => {
                     const result = x.yixiaoerResults?.[pack.source];
