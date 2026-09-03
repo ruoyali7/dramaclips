@@ -30,6 +30,14 @@ def call(path,payload):
   except ValueError:detail=r.text
   raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
  return r.json()
+def run_vizard_submission(job):
+ settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
+ if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
+ payload={"lang":settings.get("language") or "auto","videoUrl":job["video_url"],"videoType":1,"ext":job["video_url"].split("?")[0].rsplit(".",1)[-1].lower(),"getClips":1,"ratioOfClip":int(settings.get("ratio",1)),"subtitleSwitch":1 if settings.get("subtitles") else 0,"headlineSwitch":1 if settings.get("headline",True) else 0,"emojiSwitch":0,"highlightSwitch":0,"autoBrollSwitch":0,"removeSilenceSwitch":0,"preferLength":[int(settings.get("preferLength",0))],"maxClipNumber":int(settings.get("maxClipNumber",1)),"clipModel":settings.get("clipModel","clip_v1"),"projectName":job["project_name"]}
+ response=requests.post("https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/create",headers={"Content-Type":"application/json","VIZARDAI_API_KEY":key},json=payload,timeout=90)
+ data=response.json() if response.content else {}
+ if not response.ok or data.get("code")!=2000: raise RuntimeError(data.get("errMsg") or f"Vizard request failed ({response.status_code})")
+ call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))})
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -388,6 +396,11 @@ def main():
        if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+   vizard_job=call("/api/internal/vizard-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   if vizard_job:
+    worked=True
+    try:run_vizard_submission(vizard_job)
+    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{vizard_job['id']}",{"workerId":WORKER,"status":"failed","errorMessage":str(e)[:1000]})
    cleanup_worker_temps()
    if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
