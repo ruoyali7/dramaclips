@@ -24,7 +24,8 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const operation=item.yixiaoerResults?._operation as Record<string,unknown>|undefined;const stage=String(operation?.stage||"");
       if(item.status!=="failed"||(!stage.includes("upload")&&stage!=="downloading_from_r2"))return NextResponse.json({message:"Only a failed upload can be retried here"},{status:409});
       const intent=item.yixiaoerResults?._intent as Record<string,unknown>|undefined;const draft=intent?.deliveryMode==="draft";
-      return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined})},{status:202});
+      if(!draft&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
+      return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined,scheduledAt:!draft&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:!draft&&input.deliveryMode==="now"})},{status:202});
     }
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
     const retryPlatforms=input.action==="retry"?selected.filter(pack=>{

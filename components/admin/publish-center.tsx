@@ -775,10 +775,10 @@ export function PublishCenter({
     }
   }
   async function retryUpload(item: Package) {
-    if (!window.confirm("Retry the failed Yixiaoer upload? Existing uploaded resources will be reused, and no platform post will be duplicated.")) return;
+    if (!window.confirm(`${retryDeliveryMode === "scheduled" ? "Schedule" : "Publish"} the failed Yixiaoer upload retry? Existing uploaded resources will be reused, and no platform post will be duplicated.`)) return;
     setError("");
     try {
-      const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"retry-upload",accounts:item.yixiaoerAccounts||{}})});
+      const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"retry-upload",deliveryMode:retryDeliveryMode,scheduledAt:retryDeliveryMode==="scheduled"?new Date(retryScheduledAt).toISOString():undefined,accounts:item.yixiaoerAccounts||{}})});
       const j = await r.json();
       if (!r.ok) throw new Error(j.message);
       setRecent((items) => items.map((current) => current.id === item.id ? j.package : current));
@@ -1309,7 +1309,7 @@ export function PublishCenter({
           {!created.yixiaoerAction && (created.status === "failed" || created.status === "outcome_unknown") && (
             <div className="failed-platform-actions">
               <b>{uploadFailed(created)?"The upload stopped before any platform submission. Retry the same upload task.":"Fix the copy above, save edits, then continue only the affected platform."}</b>
-              {uploadFailed(created) && <button onClick={() => void retryUpload(created)}>Retry upload</button>}
+              {uploadFailed(created) && <><button onClick={() => setRetryOptionsOpen((open) => !open)}>Retry upload</button>{retryOptionsOpen && <div className="retry-options"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void retryUpload(created)}>Confirm retry</button></div>}</>}
               {created.platforms.some((pack) => {const result=created.yixiaoerResults?.[pack.source];return result&&typeof result==="object"&&(result as Record<string,unknown>).state==="failed";}) && <><button onClick={() => setRetryOptionsOpen((open) => !open)}>Retry all failed platforms</button>{retryOptionsOpen && <div className="retry-options"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void platformAction(created,"retry","all")}>Confirm retry</button></div>}</>}
               {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
             </div>
