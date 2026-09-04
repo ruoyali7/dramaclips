@@ -34,10 +34,14 @@ def run_vizard_submission(job):
  settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
  if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
  payload={"lang":settings.get("language") or "auto","videoUrl":job["video_url"],"videoType":1,"ext":job["video_url"].split("?")[0].rsplit(".",1)[-1].lower(),"getClips":1,"ratioOfClip":int(settings.get("ratio",1)),"subtitleSwitch":1 if settings.get("subtitles") else 0,"headlineSwitch":1 if settings.get("headline",True) else 0,"emojiSwitch":0,"highlightSwitch":0,"autoBrollSwitch":0,"removeSilenceSwitch":0,"preferLength":[int(settings.get("preferLength",0))],"maxClipNumber":int(settings.get("maxClipNumber",1)),"clipModel":settings.get("clipModel","clip_v1"),"projectName":job["project_name"]}
- response=requests.post("https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/create",headers={"Content-Type":"application/json","VIZARDAI_API_KEY":key},json=payload,timeout=90)
- data=response.json() if response.content else {}
- if not response.ok or data.get("code")!=2000: raise RuntimeError(data.get("errMsg") or f"Vizard request failed ({response.status_code})")
- call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))})
+ last_error=""
+ for attempt in range(3):
+  if attempt: time.sleep(30)
+  response=requests.post("https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/create",headers={"Content-Type":"application/json","VIZARDAI_API_KEY":key},json=payload,timeout=90)
+  data=response.json() if response.content else {}; last_error=data.get("errMsg") or data.get("message") or f"HTTP {response.status_code}, code {data.get('code')}"
+  if response.ok and data.get("code")==2000:
+   call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))}); return
+ raise RuntimeError(f"Vizard submission failed after 3 attempts: {last_error}")
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
