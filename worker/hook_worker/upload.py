@@ -3,7 +3,7 @@ def retry_upload(operation, on_retry, attempts=2):
         try:
             return operation(attempt)
         except RuntimeError as error:
-            if str(error) != "Yixiaoer CLI timed out" or attempt >= attempts:
+            if not str(error).startswith("Yixiaoer CLI timed out") or attempt >= attempts:
                 raise
             on_retry(attempt + 1)
 

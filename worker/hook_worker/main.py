@@ -148,7 +148,7 @@ def cancel_requested(response):
  package=(response or {}).get("package") or {};control=((package.get("yixiaoerResults") or {}).get("_control") or {})
  return bool(control.get("cancelRequested"))
 def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False):
- process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);deadline=time.time()+timeout
+ started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);deadline=started+timeout
  while True:
   try:
    raw,_=process.communicate(timeout=min(10,max(1,deadline-time.time())))
@@ -157,9 +157,12 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
    return raw
   except subprocess.TimeoutExpired:
    if time.time()>=deadline:
-    process.kill();process.communicate()
+    process.kill()
+    captured,_=process.communicate()
+    detail=(captured or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip()
     if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
-    raise RuntimeError("Yixiaoer CLI timed out")
+    suffix=f"; output: {detail[-1000:]}" if detail else ""
+    raise RuntimeError(f"Yixiaoer CLI timed out after {int(time.time()-started)}s{suffix}")
    if heartbeat and heartbeat():
     process.terminate()
     try:process.wait(timeout=5)
