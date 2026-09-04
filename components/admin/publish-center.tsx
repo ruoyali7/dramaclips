@@ -257,9 +257,26 @@ export function PublishCenter({
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(5);
+  const [expandedLibraryIds, setExpandedLibraryIds] = useState<string[]>([]);
+  const [libraryStateRestored, setLibraryStateRestored] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
   const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
   const resultsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("dramaclips:publish-library") || "{}");
+      if ([5, 10, 20].includes(saved.pageSize)) setAssetPageSize(saved.pageSize);
+      if (Number.isInteger(saved.page) && saved.page > 0) setAssetPage(saved.page);
+      if (typeof saved.filter === "string") setAssetDramaFilter(saved.filter);
+      if (Array.isArray(saved.expandedIds)) setExpandedLibraryIds(saved.expandedIds.filter((id: unknown) => typeof id === "string"));
+      if (typeof saved.previewKey === "string") setLibraryPreviewKey(saved.previewKey);
+    } catch {}
+    setLibraryStateRestored(true);
+  }, []);
+  useEffect(() => {
+    if (!libraryStateRestored) return;
+    window.localStorage.setItem("dramaclips:publish-library", JSON.stringify({ page: assetPage, pageSize: assetPageSize, filter: assetDramaFilter, expandedIds: expandedLibraryIds, previewKey: libraryPreviewKey }));
+  }, [assetPage, assetPageSize, assetDramaFilter, expandedLibraryIds, libraryPreviewKey, libraryStateRestored]);
   useEffect(() => {
     fetch("/api/admin/publish-packages")
       .then(async (r) => (r.ok ? (await r.json()).packages : []))
@@ -891,7 +908,7 @@ export function PublishCenter({
         </div>
         <div className="drama-ledger">
           {dramaGroups.map((group) => (
-            <details className={`drama-asset-row ${sourceId === group.source.id ? "current" : ""}`} key={group.source.id}>
+            <details className={`drama-asset-row ${sourceId === group.source.id ? "current" : ""}`} key={group.source.id} open={expandedLibraryIds.includes(group.source.id)} onToggle={(event)=>{const open=event.currentTarget.open;setExpandedLibraryIds((ids)=>open?ids.includes(group.source.id)?ids:[...ids,group.source.id]:ids.filter((id)=>id!==group.source.id));}}>
               <summary onClick={() => sourceId !== group.source.id && resetFor(group.source.id, kind === "upload" ? "original" : kind)}>
                 <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
                 <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
