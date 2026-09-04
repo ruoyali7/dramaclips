@@ -13,6 +13,7 @@ from .upload import primary_publish_channel,retry_upload
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 SUPABASE_URL=os.getenv("SUPABASE_URL",os.getenv("NEXT_PUBLIC_SUPABASE_URL","")).rstrip("/"); SUPABASE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
 ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
+WORKER_ONESHOT=os.getenv("WORKER_ONESHOT","false").lower() in ("1","true","yes","on")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
@@ -73,6 +74,12 @@ def vizard_loop():
    try:run_vizard_submission(job)
    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
+def process_vizard_once():
+ job=lease("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
+ if not job:return False
+ try:run_vizard_submission(job)
+ except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
+ return True
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -410,7 +417,8 @@ def run_publish(job):
 def main():
  print(f"Vizard-capable hook worker starting; control plane={API}",flush=True)
  cleanup_worker_temps(0)
- threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
+ if not WORKER_ONESHOT:
+  threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
  while True:
   try:
@@ -418,6 +426,7 @@ def main():
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
+   if WORKER_ONESHOT and process_vizard_once():worked=True
    if ENABLE_HOOK_WORKER:
     job=lease("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
     if job:
@@ -436,6 +445,9 @@ def main():
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
    cleanup_worker_temps()
+   if WORKER_ONESHOT:
+    if not worked:return
+    continue
    if not worked:time.sleep(IDLE_POLL_SECONDS)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 if __name__=="__main__":main()
