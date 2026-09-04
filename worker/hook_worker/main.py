@@ -11,8 +11,15 @@ from .media import extract_ending_frame,video_timing
 from .upload import primary_publish_channel,retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
+SUPABASE_URL=os.getenv("SUPABASE_URL",os.getenv("NEXT_PUBLIC_SUPABASE_URL","")).rstrip("/"); SUPABASE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
+SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
+def camelize(value):
+ if isinstance(value,list):return [camelize(item) for item in value]
+ if isinstance(value,dict):
+  return {key.split("_")[0]+"".join(part.title() for part in key.split("_")[1:]):camelize(item) for key,item in value.items()}
+ return value
 MODEL=os.getenv("WHISPER_MODEL","small.en")
 FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 ENDING_HOLD_SECONDS=1.2
@@ -30,6 +37,19 @@ def call(path,payload):
   except ValueError:detail=r.text
   raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
  return r.json()
+def lease(path,payload):
+ rpc={
+  "/api/internal/hook-worker/lease":"lease_hook_generation_job",
+  "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",
+  "/api/internal/vizard-worker/lease":"lease_vizard_submission_job",
+ }.get(path)
+ if not (rpc and SUPABASE_URL and SUPABASE_KEY):return call(path,payload)
+ params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
+ r=requests.post(f"{SUPABASE_URL}/rest/v1/rpc/{rpc}",headers=SUPABASE_HEAD,json=params,timeout=60)
+ if not r.ok:raise RuntimeError(f"Supabase lease {r.status_code}: {r.text[:500]}")
+ row=rows[0] if rows else None
+ if row and rpc!="lease_vizard_submission_job":row=camelize(row)
+ return {"job":row}
 def run_vizard_submission(job):
  settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
  if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
@@ -47,8 +67,8 @@ def run_vizard_submission(job):
 def vizard_loop():
  while True:
   try:
-   job=call("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
-   if not job:time.sleep(5);continue
+   job=lease("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
+   if not job:time.sleep(IDLE_POLL_SECONDS);continue
    try:run_vizard_submission(job)
    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
@@ -396,12 +416,12 @@ def main():
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
-   worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   worked=False;job=lease("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
    if job:
     worked=True
     try:run(job)
     except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
-   publish_job=call("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
+   publish_job=lease("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
    if publish_job:
     worked=True
     try:run_publish(publish_job)
@@ -413,6 +433,6 @@ def main():
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
    cleanup_worker_temps()
-   if not worked:time.sleep(5)
+   if not worked:time.sleep(IDLE_POLL_SECONDS)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 if __name__=="__main__":main()
