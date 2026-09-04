@@ -4,3 +4,4 @@ dockerfilePath = "Dockerfile"
 [deploy]
 restartPolicyType = "ALWAYS"
 restartPolicyMaxRetries = 10
+startCommand = "python -m hook_worker.main"

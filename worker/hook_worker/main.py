@@ -373,6 +373,7 @@ def run_publish(job):
  failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
  publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
+ print(f"Vizard-capable hook worker starting; control plane={API}",flush=True)
  cleanup_worker_temps(0)
  next_account_sync=0
  while True:
