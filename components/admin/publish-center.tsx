@@ -1383,39 +1383,14 @@ export function PublishCenter({
                             ? "Open & continue"
                             : "View details"}
                       </button>
-                      {x.status === "scheduled" && x.yixiaoerAction && (
-                        <>
-                          <button className="secondary" onClick={() => beginReschedule(x)} disabled={connectionBusy}>Reschedule</button>
-                          <button className="danger" onClick={() => void cancelPackage(x)} disabled={connectionBusy}>Cancel</button>
-                        </>
-                      )}
                     </div>
                   </div>
-                  {x.status === "scheduled" && reschedulingId === x.id && (
-                    <div className="reschedule-editor">
-                      <PublishTimePicker value={rescheduleAt} onChange={setRescheduleAt} />
-                      <button onClick={() => void reschedulePackage(x)} disabled={connectionBusy}>
-                        {connectionBusy ? "Saving…" : "Confirm new time"}
-                      </button>
-                      <button className="secondary" onClick={() => setReschedulingId("")} disabled={connectionBusy}>Keep current time</button>
-                    </div>
-                  )}
                   {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
                   {x.platforms.map((pack) => {
-                    const result = x.yixiaoerResults?.[pack.source];
-                    const state = result && typeof result === "object"
-                      ? String((result as Record<string, unknown>).state || "")
-                      : "";
                     return (
                       <div key={pack.source}>
                         <b>{pack.source}</b>
                         <span>{platformState(x, pack.source)}</span>
-                        {state === "outcome_unknown" && Boolean((result as Record<string, unknown>)?.providerRequestId) && (
-                          <button onClick={() => void platformAction(x, "reconcile", pack.source)}>Reconcile</button>
-                        )}
-                        {state === "failed" && (
-                          <button onClick={() => void platformAction(x, "retry", pack.source)}>Retry platform</button>
-                        )}
                       </div>
                     );
                   })}

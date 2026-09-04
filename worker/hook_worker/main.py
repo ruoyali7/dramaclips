@@ -1,5 +1,6 @@
-import json,os,random,shutil,signal,subprocess,tempfile,threading,time,traceback
+import hashlib,json,os,random,shutil,signal,subprocess,tempfile,threading,time,traceback
 from pathlib import Path
+from urllib.parse import quote
 import requests
 import cv2
 from faster_whisper import WhisperModel
@@ -17,11 +18,8 @@ WORKER_ONESHOT=os.getenv("WORKER_ONESHOT","false").lower() in ("1","true","yes",
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
-def camelize(value):
- if isinstance(value,list):return [camelize(item) for item in value]
- if isinstance(value,dict):
-  return {key.split("_")[0]+"".join(part.title() for part in key.split("_")[1:]):camelize(item) for key,item in value.items()}
- return value
+def camelize_row(value):
+ return {key.split("_")[0]+"".join(part.title() for part in key.split("_")[1:]):item for key,item in value.items()}
 MODEL=os.getenv("WHISPER_MODEL","small.en")
 FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 ENDING_HOLD_SECONDS=1.2
@@ -39,10 +37,32 @@ def call(path,payload):
   except ValueError:detail=r.text
   raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
  return r.json()
+def supabase(path,method="GET",payload=None,prefer=None):
+ headers={**SUPABASE_HEAD}
+ if prefer:headers["Prefer"]=prefer
+ r=requests.request(method,f"{SUPABASE_URL}/rest/v1/{path}",headers=headers,json=payload,timeout=60)
+ if not r.ok:raise RuntimeError(f"Supabase {method} {path.split('?')[0]} {r.status_code}: {r.text[:500]}")
+ if not r.content:return None
+ return r.json()
+def yixiaoer_worker_api_key():
+ value=supabase("rpc/get_yixiaoer_worker_api_key",method="POST",payload={})
+ if isinstance(value,str) and value.strip():return value.strip()
+ raise RuntimeError("Yixiaoer worker API key is not configured in Supabase Vault")
+def rendered_cover_timestamp(row):
+ source_time=float(row.get("cover_source_timestamp") or 0);source_ranges=row.get("source_ranges") or [];rendered_ranges=row.get("rendered_ranges") or []
+ for index,source in enumerate(source_ranges):
+  if float(source.get("start",0))<=source_time<=float(source.get("end",0)) and index<len(rendered_ranges):
+   rendered=rendered_ranges[index];value=float(rendered.get("start",0))+source_time-float(source.get("start",0));maximum=max(0,float(row.get("duration_seconds") or 0)-.1);return max(0,min(value,maximum))
+ return 0
+def hydrate_publish_job(row):
+ job=camelize_row(row);dramas=supabase(f"dramas?slug=eq.{quote(str(row['drama_slug']),safe='')}&select=title&limit=1") or []
+ hook_rows=[]
+ if row.get("video_kind")=="hook":
+  identity=f"id=eq.{quote(str(row['hook_clip_id']),safe='')}" if row.get("hook_clip_id") else f"video_url=eq.{quote(str(row['video_url']),safe='')}"
+  hook_rows=supabase(f"hook_clips?{identity}&select=cover_source_timestamp,source_ranges,rendered_ranges,duration_seconds&limit=1") or []
+ job.update({"apiKey":yixiaoer_worker_api_key(),"dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0})
+ return job
 def lease(path,payload):
- # Publish jobs need the latest rotating Yixiaoer key plus drama/cover metadata
- # added by the control plane. Leasing them directly from Supabase omits those fields.
- if path=="/api/internal/publish-worker/lease":return call(path,payload)
  rpc={
   "/api/internal/hook-worker/lease":"lease_hook_generation_job",
   "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",
@@ -50,11 +70,10 @@ def lease(path,payload):
  }.get(path)
  if not (rpc and SUPABASE_URL and SUPABASE_KEY):return call(path,payload)
  params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
- r=requests.post(f"{SUPABASE_URL}/rest/v1/rpc/{rpc}",headers=SUPABASE_HEAD,json=params,timeout=60)
- if not r.ok:raise RuntimeError(f"Supabase lease {r.status_code}: {r.text[:500]}")
- rows=r.json()
+ rows=supabase(f"rpc/{rpc}",method="POST",payload=params)
  row=rows[0] if rows else None
- if row and rpc!="lease_vizard_submission_job":row=camelize(row)
+ if row and rpc=="lease_yixiaoer_publish_job":row=hydrate_publish_job(row)
+ elif row and rpc!="lease_vizard_submission_job":row=camelize_row(row)
  return {"job":row}
 def run_vizard_submission(job):
  settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
@@ -252,13 +271,26 @@ def yixiaoer_account_rows(data):
    if isinstance(data.get(key),list):return data[key]
  return []
 def sync_yixiaoer_accounts():
- credential=call("/api/internal/yixiaoer/accounts",{"workerId":WORKER});key=credential["apiKey"]
+ key=yixiaoer_worker_api_key()
  data=yxer({"id":"account-sync","apiKey":key},["accounts","list","--status","1","--all"]);accounts=[]
  for row in yixiaoer_account_rows(data):
   account_id=str(row.get("id") or row.get("platformAccountId") or "");status=int(row.get("status",row.get("loginStatus",0)) or 0)
   if account_id and status==1:accounts.append({"id":account_id,"name":str(row.get("platformAccountName") or row.get("name") or row.get("nickname") or "Account"),"platform":str(row.get("platformName") or ""),"status":status,**({"avatar":row["platformAvatar"]} if isinstance(row.get("platformAvatar"),str) else {})})
- call("/api/internal/yixiaoer/accounts",{"workerId":WORKER,"accounts":accounts})
-def publish_update(job,status,progress,terminal=False,**extra):return call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
+ supabase("yixiaoer_account_cache?on_conflict=id",method="POST",payload={"id":"active","accounts":accounts,"synced_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())},prefer="resolution=merge-duplicates,return=minimal")
+def publish_update(job,status,progress,terminal=False,**extra):
+ rows=supabase("rpc/update_yixiaoer_publish_job",method="POST",payload={"p_id":job["id"],"p_worker_id":WORKER,"p_status":status,"p_progress":progress,"p_video":extra.get("video"),"p_payloads":extra.get("payloads"),"p_results":extra.get("results"),"p_error":extra.get("error"),"p_terminal":terminal})
+ if not rows:raise RuntimeError("Yixiaoer lease not owned")
+ package=camelize_row(rows[0]);results=extra.get("results")
+ if results:
+  now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime());attempts=[]
+  for pack in package.get("platforms") or []:
+   source=pack.get("source");detail=results.get(source) if source else None
+   if source=="x" or not isinstance(detail,dict):continue
+   state=str(detail.get("state") or "")
+   if state not in ("submitting","submitted","processing","published","failed","outcome_unknown"):continue
+   account_id=str((package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
+  if attempts:supabase("publish_platform_attempts?on_conflict=package_id,platform",method="POST",payload=attempts,prefer="resolution=merge-duplicates")
+ return {"package":package}
 def plain_description(value):
  import re
  return re.sub(r"[ \t]{2,}"," ",re.sub(r"\n{3,}","\n\n",re.sub(r"(^|\s)#[A-Za-z0-9_-]+",r"\1",re.sub(r"<[^>]+>"," ",value)))).strip()
