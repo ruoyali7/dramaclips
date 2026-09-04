@@ -1,4 +1,4 @@
-import json,os,random,shutil,subprocess,tempfile,time,traceback
+import json,os,random,shutil,signal,subprocess,tempfile,time,traceback
 from pathlib import Path
 import requests
 import cv2
@@ -149,25 +149,28 @@ def cancel_requested(response):
  return bool(control.get("cancelRequested"))
 def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False):
  safe_command=" ".join(str(part).replace(secret,"[REDACTED]") for part in command)
- started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);deadline=started+timeout
+ print(f"Starting CLI: {safe_command}",flush=True)
+ started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True);deadline=started+timeout
  while True:
   try:
    raw,_=process.communicate(timeout=min(10,max(1,deadline-time.time())))
    if process.returncode:
     detail=(raw or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip();raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}")
+   print(f"Completed CLI after {int(time.time()-started)}s: {safe_command}",flush=True)
    return raw
   except subprocess.TimeoutExpired:
    if time.time()>=deadline:
-    process.kill()
+    os.killpg(process.pid,signal.SIGKILL)
     captured,_=process.communicate()
     detail=(captured or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip()
+    print(f"Timed out CLI after {int(time.time()-started)}s: {safe_command}",flush=True)
     if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
     suffix=f"; output: {detail[-1000:]}" if detail else ""
     raise RuntimeError(f"Yixiaoer CLI timed out after {int(time.time()-started)}s while running {safe_command}{suffix}")
    if heartbeat and heartbeat():
-    process.terminate()
+    os.killpg(process.pid,signal.SIGTERM)
     try:process.wait(timeout=5)
-    except subprocess.TimeoutExpired:process.kill();process.wait()
+    except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
     raise PublishCanceled("Canceled by user")
 def yxer(job,args,heartbeat=None,ambiguous_timeout=False,timeout=900):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
@@ -275,7 +278,7 @@ def run_publish(job):
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
   def upload_video(attempt):
    publish_update(job,status,30,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}})
-   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=300))
+   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=1800))
   video=retry_upload(upload_video,lambda attempt:publish_update(job,status,30,results={**results,"_operation":{"stage":"retrying_yixiaoer_upload","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}}))
   publish_update(job,status,31,video={"video":video},results={**results,"_operation":{"stage":"video_uploaded_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  if not cover:
