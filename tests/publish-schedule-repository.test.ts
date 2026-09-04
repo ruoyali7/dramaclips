@@ -18,14 +18,17 @@ function response(value:unknown){return Promise.resolve(new Response(JSON.string
 describe("scheduled publish repository actions",()=>{
   beforeEach(()=>vi.stubGlobal("fetch",vi.fn()));
 
-  it("reschedules only while the package is still unleased",async()=>{
+  it("reschedules only while the package is still unleased and clears a stale cancel request",async()=>{
     const next=new Date(Date.now()+3_600_000).toISOString();
-    vi.mocked(fetch).mockImplementationOnce(()=>response([row])).mockImplementationOnce(()=>response([{...row,scheduled_at:next}]));
+    const canceledRow={...row,yixiaoer_results:{...row.yixiaoer_results,_control:{cancelRequested:true,requestedAt:"2026-01-01T00:00:00.000Z"}}};
+    vi.mocked(fetch).mockImplementationOnce(()=>response([canceledRow])).mockImplementationOnce(()=>response([{...canceledRow,scheduled_at:next}]));
     const result=await rescheduleYixiaoerPackage(row.id,next);
     expect(result.scheduledAt).toBe(next);
     const [url,init]=vi.mocked(fetch).mock.calls[1];
     expect(String(url)).toContain("status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null");
-    expect(JSON.parse(String(init?.body))).toMatchObject({scheduled_at:next,yixiaoer_results:{_operation:{stage:"awaiting_scheduled_time",scheduledAt:next}}});
+    const body=JSON.parse(String(init?.body));
+    expect(body).toMatchObject({scheduled_at:next,yixiaoer_results:{_operation:{stage:"awaiting_scheduled_time",scheduledAt:next}}});
+    expect(body.yixiaoer_results).not.toHaveProperty("_control");
   });
 
   it("cancels a waiting schedule with the same lease guard",async()=>{

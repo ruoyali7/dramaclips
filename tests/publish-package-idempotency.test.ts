@@ -48,4 +48,17 @@ describe("publish package idempotency",()=>{
       .rejects.toMatchObject({name:"ExistingPublishPackageError",packageItem:{id:published.id}});
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
   });
+
+  it("clears stale control state whenever a package is enqueued again",async()=>{
+    const retryable={...existing,video_kind:"episode",hook_clip_id:null,status:"failed",yixiaoer_action:null,yixiaoer_results:{_control:{cancelRequested:true},_operation:{stage:"canceled"}}};
+    vi.mocked(fetch)
+      .mockImplementationOnce(()=>response([retryable]))
+      .mockImplementationOnce(()=>response([{...retryable,status:"scheduled"}]));
+
+    await enqueueYixiaoerPackage(retryable.id,{action:"publish",accounts:{tiktok:"account-1"},scheduledAt:"2027-01-02T20:00:00.000Z"});
+
+    const body=JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body));
+    expect(body.yixiaoer_results).not.toHaveProperty("_control");
+    expect(body.yixiaoer_results._operation.stage).toBe("awaiting_scheduled_time");
+  });
 });

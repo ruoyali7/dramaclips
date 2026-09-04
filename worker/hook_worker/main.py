@@ -9,6 +9,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
+from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume
 from .upload import primary_publish_channel,retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
@@ -333,17 +334,24 @@ def find_value(data,names):
    found=find_value(value,names)
    if found:return found
  return None
-def provider_request_id(data):return find_value(data,{"tasksetid","requestid","taskid"})
 def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
 def provider_state(data):
- raw=(find_value(data,{"status","state","publishstatus","taskstatus","stagestatus","stages"}) or "").lower()
+ raw=(find_value(data,{"status","state","publishstatus","taskstatus","tasksetstatus","stagestatus","stages"}) or "").lower()
  if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
  if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
  return "processing"
+def query_publish_status(job,source,request_id,heartbeat):
+ try:return yxer(job,["query","details",request_id],heartbeat)
+ except RuntimeError as error:
+  if source!="facebook" or "x-account-id" not in str(error):raise
+  records=yxer(job,["query","records","--limit","100"],heartbeat)
+  record=find_publish_record(records,request_id)
+  if not record:raise error
+  return {"state":publish_record_state(record),"id":request_id,"record":record,"source":"records.list"}
 def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
  deadline=time.time()+600;last={}
  while time.time()<deadline:
-  last=yxer(job,["query","details",request_id],heartbeat);state=provider_state(last)
+  last=query_publish_status(job,source,request_id,heartbeat);state=provider_state(last)
   results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last),"reconciliation":last}
   publish_update(job,"reconciling",95,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"reconciling_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
   if state=="published":return
@@ -396,11 +404,25 @@ def run_publish(job):
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
   publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
- pending=[p for p in job["platforms"] if p["source"] in payloads and ((p["source"] in control.get("retryPlatforms",[])) or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
+ retry_platforms=set(control.get("retryPlatforms",[]))
+ pending=[p for p in job["platforms"] if p["source"] in payloads and (p["source"] in retry_platforms or not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published"))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
+  prior=results.get(source) if isinstance(results.get(source),dict) else {}
+  if should_resume(prior,source in retry_platforms):
+   request_id=provider_request_id(prior)
+   try:reconcile_publish(job,source,request_id,results,assets,payloads,platform_heartbeat)
+   except PublishOutcomeUnknown as error:
+    results[source]["state"]="outcome_unknown";results[source]["error"]=str(error)
+    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+   except RuntimeError as error:
+    results[source]["state"]="failed";results[source]["error"]=str(error)[:500]
+    publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results)
+    continue
+   publish_update(job,"publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
+   continue
   try:
    selected_channel=channel
    try:checked={"validation":yixer_file(job,payloads[source],source,"validate",selected_channel,heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",selected_channel,True,platform_heartbeat),"state":"validated","channel":selected_channel}

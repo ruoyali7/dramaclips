@@ -390,9 +390,11 @@ export async function enqueueYixiaoerPackage(
     Boolean(input.scheduledAt || (!input.clearSchedule && item.scheduledAt)) &&
     new Date((input.scheduledAt || item.scheduledAt) as string).getTime() > Date.now();
   const now = new Date().toISOString();
+  const { _control: discardedControl, ...baseResults } = item.yixiaoerResults;
+  void discardedControl;
   const results = scheduled
     ? {
-        ...item.yixiaoerResults,
+        ...baseResults,
         _operation: {
           stage: "awaiting_scheduled_time",
           scheduledAt: input.scheduledAt || item.scheduledAt,
@@ -401,8 +403,8 @@ export async function enqueueYixiaoerPackage(
         },
       }
     : input.control
-      ? { ...item.yixiaoerResults, _control: input.control }
-      : item.yixiaoerResults;
+      ? { ...baseResults, _control: input.control }
+      : baseResults;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}`,
     {
@@ -495,6 +497,9 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
   if (!Number.isFinite(scheduledTime.getTime()) || scheduledTime.getTime() <= Date.now())
     throw new Error("Choose a scheduled time in the future");
   const now = new Date().toISOString();
+  const { _control: discardedControl, ...rescheduledResults } =
+    item.yixiaoerResults;
+  void discardedControl;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null`,
     {
@@ -504,7 +509,7 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
         scheduled_at: scheduledTime.toISOString(),
         yixiaoer_error: null,
         yixiaoer_results: {
-          ...item.yixiaoerResults,
+          ...rescheduledResults,
           _operation: {
             ...((item.yixiaoerResults?._operation as Record<string, unknown>) || {}),
             stage: "awaiting_scheduled_time",
