@@ -40,6 +40,9 @@ def call(path,payload):
   raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
  return r.json()
 def lease(path,payload):
+ # Publish jobs need the latest rotating Yixiaoer key plus drama/cover metadata
+ # added by the control plane. Leasing them directly from Supabase omits those fields.
+ if path=="/api/internal/publish-worker/lease":return call(path,payload)
  rpc={
   "/api/internal/hook-worker/lease":"lease_hook_generation_job",
   "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",

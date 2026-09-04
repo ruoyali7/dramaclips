@@ -583,6 +583,15 @@ export function PublishCenter({
         }),
       });
       const j = await r.json();
+      if (r.status === 409 && j.package) {
+        setCreated(j.package);
+        setRecent((items) => [j.package, ...items.filter((item) => item.id !== j.package.id)]);
+        setError(j.message || "This hook already has a publish task. The existing task has been opened.");
+        window.requestAnimationFrame(() =>
+          resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
+        return;
+      }
       if (!r.ok) throw new Error(j.message);
       setCreated(j.package);
       setRecent((x) => [j.package, ...x.filter((item) => item.id !== j.package.id)]);
