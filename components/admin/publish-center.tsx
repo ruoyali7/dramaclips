@@ -112,6 +112,9 @@ function durationLabel(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
+function byteLabel(value: unknown) {
+  return typeof value === "number" ? `${(value / 1024 / 1024).toFixed(1)} MB` : "";
+}
 function localTime(value: unknown, timeZone?: string) {
   if (typeof value !== "string") return "Waiting for heartbeat";
   return new Intl.DateTimeFormat(undefined, {
@@ -1145,7 +1148,7 @@ export function PublishCenter({
                   </b>
                 </div>
                 <div className="process-actions">
-                  <strong>{created.yixiaoerProgress || 0}%</strong>
+                  <strong>{typeof activeOperation?.uploadPercent === "number" ? `Upload ${activeOperation.uploadPercent}%` : `${created.yixiaoerProgress || 0}%`}</strong>
                   {created.status === "scheduled" && (
                     <button className="secondary" onClick={() => beginReschedule(created)} disabled={connectionBusy}>
                       Reschedule
@@ -1186,6 +1189,7 @@ export function PublishCenter({
                 ) : (
                   <>
                     <span>Running · {durationLabel(activeElapsed)}</span>
+                    {typeof activeOperation?.uploadPercent === "number" && <span>Uploaded · {byteLabel(activeOperation.bytesSent)} / {byteLabel(activeOperation.bytesTotal)}</span>}
                     <span>
                       Last heartbeat ·{" "}
                       {localTime(

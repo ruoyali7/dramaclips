@@ -147,6 +147,19 @@ class PublishOutcomeUnknown(Exception):pass
 def cancel_requested(response):
  package=(response or {}).get("package") or {};control=((package.get("yixiaoerResults") or {}).get("_control") or {})
  return bool(control.get("cancelRequested"))
+def process_group_written_bytes(group_id):
+ proc=Path("/proc")
+ if not proc.exists():return None
+ total=0;found=False
+ for entry in proc.iterdir():
+  if not entry.name.isdigit():continue
+  try:
+   fields=(entry/"stat").read_text().rsplit(")",1)[1].split()
+   if int(fields[2])!=group_id:continue
+   values=dict(line.split(":",1) for line in (entry/"io").read_text().splitlines())
+   total+=int(values.get("wchar","0"));found=True
+  except (FileNotFoundError,PermissionError,ValueError,IndexError):continue
+ return total if found else None
 def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False):
  safe_command=" ".join(str(part).replace(secret,"[REDACTED]") for part in command)
  print(f"Starting CLI: {safe_command}",flush=True)
@@ -167,7 +180,7 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
     if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
     suffix=f"; output: {detail[-1000:]}" if detail else ""
     raise RuntimeError(f"Yixiaoer CLI timed out after {int(time.time()-started)}s while running {safe_command}{suffix}")
-   if heartbeat and heartbeat():
+   if heartbeat and heartbeat(process.pid):
     os.killpg(process.pid,signal.SIGTERM)
     try:process.wait(timeout=5)
     except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
@@ -272,8 +285,10 @@ def run_publish(job):
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
   started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
-  def upload_heartbeat():
-   operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started)}
+  video_size=local_video.stat().st_size
+  def upload_heartbeat(process_group=None):
+   sent=process_group_written_bytes(process_group) if process_group else None;percent=min(99,round(sent/video_size*100)) if sent is not None and video_size else None
+   operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesTotal":video_size,**({"bytesSent":min(sent,video_size),"uploadPercent":percent} if sent is not None and percent is not None else {})}
    return cancel_requested(publish_update(job,status,30,results={**results,"_operation":operation}))
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
   def upload_video(attempt):
@@ -284,7 +299,7 @@ def run_publish(job):
  if not cover:
   duration=float(probe(local_video)["format"]["duration"]);requested=float(job.get("coverTimestampSeconds") or 0);cover_timestamp=max(0,min(requested,max(0,duration-.1)))
   cover_path=local_video.with_name(f"publish-cover-{job['id']}.jpg");subprocess.check_call(["ffmpeg","-y","-ss",str(cover_timestamp),"-i",str(local_video),"-frames:v","1","-q:v","2",str(cover_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-  def cover_heartbeat():return cancel_requested(publish_update(job,status,33,results={**results,"_operation":{"stage":"uploading_cover_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  def cover_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,33,results={**results,"_operation":{"stage":"uploading_cover_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
   cover=retry_upload(lambda attempt:yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat,timeout=300)),lambda attempt:publish_update(job,status,33,video={"video":video},results={**results,"_operation":{"stage":"retrying_yixiaoer_cover_upload","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"attempt":attempt,"maxAttempts":2}}))
  assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
@@ -301,7 +316,7 @@ def run_publish(job):
  pending=[p for p in job["platforms"] if p["source"] in payloads and ((p["source"] in control.get("retryPlatforms",[])) or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
-  def platform_heartbeat():return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  def platform_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
   try:
    selected_channel=channel
@@ -346,7 +361,7 @@ def run_publish(job):
   forms=[payloads[p["source"]]["publishArgs"]["accountForms"][0] for p in job["platforms"] if p["source"] in payloads]
   draft_channel="cloud" if any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("channel")=="cloud" for p in job["platforms"] if p["source"] in payloads) else channel
   draft_payload={"action":"save-draft","publishType":"video","platforms":[form["platformName"] for form in forms],"publishChannel":draft_channel,"desc":f"{job['dramaTitle']} · EP {job['episodeNumber']}","publishArgs":{"video":video,"cover":cover,"coverKey":cover["key"],"accountForms":forms}}
-  def draft_heartbeat():return cancel_requested(publish_update(job,"validating",92,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"saving_to_yixiaoer_draft","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
+  def draft_heartbeat(_process_group=None):return cancel_requested(publish_update(job,"validating",92,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"saving_to_yixiaoer_draft","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if draft_heartbeat():raise PublishCanceled("Canceled by user")
   response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
   publish_update(job,"ready",100,terminal=True,video=assets,payloads=payloads,results=results);return
