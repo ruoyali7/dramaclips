@@ -1,4 +1,4 @@
-import json,os,random,shutil,signal,subprocess,tempfile,time,traceback
+import json,os,random,shutil,signal,subprocess,tempfile,threading,time,traceback
 from pathlib import Path
 import requests
 import cv2
@@ -10,7 +10,7 @@ from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
 from .upload import primary_publish_channel,retry_upload
 
-API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
+API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 MODEL=os.getenv("WHISPER_MODEL","small.en")
@@ -37,13 +37,21 @@ def run_vizard_submission(job):
  response=requests.post("https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/create",headers={"Content-Type":"application/json","VIZARDAI_API_KEY":key},json=payload,timeout=90)
  data=response.json() if response.content else {}; error=data.get("errMsg") or data.get("message") or f"HTTP {response.status_code}, code {data.get('code')}"
  if response.ok and data.get("code")==2000:
-  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))}); return
+  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))}); return
  if response.status_code==429 or data.get("code")==4003 or "rate limit" in error.lower():
   retry=response.headers.get("Retry-After","")
   try:retry_seconds=max(60,min(86400,int(retry)))
   except ValueError:retry_seconds=900
-  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":WORKER,"status":"rate_limited","errorMessage":error[:1000],"retryAfterSeconds":retry_seconds}); return
+  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"rate_limited","errorMessage":error[:1000],"retryAfterSeconds":retry_seconds}); return
  raise RuntimeError(error)
+def vizard_loop():
+ while True:
+  try:
+   job=call("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
+   if not job:time.sleep(5);continue
+   try:run_vizard_submission(job)
+   except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
+  except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -381,18 +389,14 @@ def run_publish(job):
 def main():
  print(f"Vizard-capable hook worker starting; control plane={API}",flush=True)
  cleanup_worker_temps(0)
+ threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
  while True:
   try:
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
-   worked=False;vizard_job=call("/api/internal/vizard-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
-   if vizard_job:
-    worked=True
-    try:run_vizard_submission(vizard_job)
-    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{vizard_job['id']}",{"workerId":WORKER,"status":"failed","errorMessage":str(e)[:1000]})
-   job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
    if job:
     worked=True
     try:run(job)
