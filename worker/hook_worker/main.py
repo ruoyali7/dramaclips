@@ -385,7 +385,12 @@ def main():
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
-   worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   worked=False;vizard_job=call("/api/internal/vizard-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+   if vizard_job:
+    worked=True
+    try:run_vizard_submission(vizard_job)
+    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{vizard_job['id']}",{"workerId":WORKER,"status":"failed","errorMessage":str(e)[:1000]})
+   job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
    if job:
     worked=True
     try:run(job)
@@ -401,11 +406,6 @@ def main():
        if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
-   vizard_job=call("/api/internal/vizard-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
-   if vizard_job:
-    worked=True
-    try:run_vizard_submission(vizard_job)
-    except Exception as e:call(f"/api/internal/vizard-worker/jobs/{vizard_job['id']}",{"workerId":WORKER,"status":"failed","errorMessage":str(e)[:1000]})
    cleanup_worker_temps()
    if not worked:time.sleep(5)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
