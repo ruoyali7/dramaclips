@@ -49,6 +49,7 @@ def lease(path,payload):
  params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
  r=requests.post(f"{SUPABASE_URL}/rest/v1/rpc/{rpc}",headers=SUPABASE_HEAD,json=params,timeout=60)
  if not r.ok:raise RuntimeError(f"Supabase lease {r.status_code}: {r.text[:500]}")
+ rows=r.json()
  row=rows[0] if rows else None
  if row and rpc!="lease_vizard_submission_job":row=camelize(row)
  return {"job":row}
