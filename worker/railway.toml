@@ -2,6 +2,5 @@
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 [deploy]
-restartPolicyType = "NEVER"
-startCommand = "python -m hook_worker.main"
-cronSchedule = "*/5 * * * *"
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10
