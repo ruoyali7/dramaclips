@@ -1,1 +1,1 @@
-export function Stat({label,value,delta,down=false}:{label:string;value:string;delta:string;down?:boolean}){return <div className="stat"><span>{label}</span><strong>{value}</strong><small className={down?"down":""}>{delta} <i>vs last 7 days</i></small></div>}
+export function Stat({label,value,delta,down=false}:{label:string;value:string;delta:string;down?:boolean}){return <div className="stat"><span>{label}</span><strong>{value}</strong><small className={down?"down":""}>{delta}</small></div>}

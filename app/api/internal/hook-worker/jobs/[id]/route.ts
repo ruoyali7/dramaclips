@@ -91,8 +91,8 @@ export async function POST(
       "Content-Type": "application/json",
       Prefer: "return=representation",
     };
-    if (input.candidates?.length)
-      await fetch(
+    if (input.candidates?.length) {
+      const candidateResponse = await fetch(
         `${config.url}/rest/v1/hook_candidates?on_conflict=job_id,rank`,
         {
           method: "POST",
@@ -125,12 +125,15 @@ export async function POST(
               transcript_version: "faster-whisper-1.2",
               prompt_version: "direction-rule-v1",
               ranking_version: "grounded-direction-v4",
-              render_version: "ffmpeg-v2",
+              render_version: "ffmpeg-v6-safe-ending-frame",
               review_state: c.draftUrl ? "approved" : c.reviewState,
             })),
           ),
         },
       );
+      if (!candidateResponse.ok)
+        throw new Error(`Candidate persistence failed (${candidateResponse.status})`);
+    }
     const terminal = [
       "review_ready",
       "no_result",

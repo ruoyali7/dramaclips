@@ -13,15 +13,22 @@ RISK_WORDS={"naked","nude","sex","fuck","bitch","bastard","kill","blood","gun"}
 def normalized_words(words,start,end):
  return [token for w in words if start<=float(w["start"])<=end for token in re.findall(r"[a-z0-9']+|[?]",str(w["word"]).lower())]
 
-def snap_windows(words,scenes,duration,min_seconds=20,max_seconds=42):
+def snap_windows(words,scenes,duration,min_seconds=1,max_seconds=90):
  endings=sorted({min(duration-.35,max(1,float(s["end"]))) for s in scenes} | {max(1,duration-.5)})
  starts=sorted({max(0,float(s["start"])) for s in scenes} | {0})
  windows=[]
  for end in endings:
   eligible=[start for start in starts if min_seconds<=end-start<=max_seconds]
-  start=max(eligible) if eligible else max(0,end-min(38,end))
-  if end-start>=min_seconds*.7:windows.append((round(start,3),round(end,3)))
- return windows
+  if eligible:
+   # Keep scene-complete alternatives at several natural durations. The
+   # reranker chooses the concise version only when it preserves the story.
+   for target in (8,15,25,45,70,90):
+    start=min(eligible,key=lambda value:abs((end-value)-target))
+    windows.append((round(start,3),round(end,3)))
+  else:
+   start=max(0,end-max_seconds)
+   if end-start>=min_seconds*.7:windows.append((round(start,3),round(end,3)))
+ return sorted(set(windows))
 
 def lexical_components(tokens,duration,end,episode_duration):
  text=" ".join(tokens);count=max(1,len(tokens));signal={name:min(100,100*sum(text.count(term) for term in terms)/max(2,count*.045)) for name,terms in SIGNALS.items()}
@@ -31,7 +38,7 @@ def lexical_components(tokens,duration,end,episode_duration):
  return {"dialogue":dialogue,"conflict":signal["conflict"],"reversal":signal["reversal"],"tension":signal["tension"],"danger":signal["danger"],"identity":signal["identity"],"cliffhanger":cliffhanger,"context":context},risk
 
 def total_score(parts):
- return sum(parts.get(k,0)*w for k,w in {"dialogue":.16,"conflict":.15,"reversal":.13,"tension":.14,"danger":.08,"identity":.07,"cliffhanger":.15,"context":.05,"visual":.07}.items())
+ return sum(parts.get(k,0)*w for k,w in {"dialogue":.10,"conflict":.10,"reversal":.08,"tension":.10,"danger":.05,"identity":.04,"cliffhanger":.10,"context":.03,"visual":.35}.items())
 
 def candidate_title(text,dominant):
  words=[word for word in text.split() if word and not word.startswith("visual-scene-")]
@@ -56,7 +63,7 @@ def select_ranked(raw,limit=2,threshold=22):
  chosen=[]
  for item in sorted(raw,key=lambda x:x["score"],reverse=True):
   if item["score"]<threshold:continue
-  duplicate=any(item["episodeNumber"]==old["episodeNumber"] and max(0,min(item["end"],old["end"])-max(item["start"],old["start"]))/max(1,min(item["end"]-item["start"],old["end"]-old["start"]))>.55 or jaccard(item["text"],old["text"])>.72 for old in chosen)
+  duplicate=any((min(item["end"]-item["start"],old["end"]-old["start"])/max(1,max(item["end"]-item["start"],old["end"]-old["start"]))>.75) and (item["episodeNumber"]==old["episodeNumber"] and max(0,min(item["end"],old["end"])-max(item["start"],old["start"]))/max(1,min(item["end"]-item["start"],old["end"]-old["start"]))>.55 or jaccard(item["text"],old["text"])>.72) for old in chosen)
   if not duplicate:chosen.append(item)
   if len(chosen)>=limit:break
  return chosen

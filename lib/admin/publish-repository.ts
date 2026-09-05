@@ -125,17 +125,10 @@ function copyFor(
 ) {
   const firstSentence =
     description.match(/^.+?[.!?](?:\s|$)/)?.[0] || description;
-  const hookLead: Record<PublishingPlatform, string> = {
-    tiktok: "😱 The secret is finally out:",
-    instagram: "✨ This changes their relationship:",
-    youtube: "👀 You won't expect what happens next:",
-    facebook: "💔 One decision changes everything:",
-    x: "😳 This scene changes everything:",
-  };
-  const hook = `${hookLead[source]} ${shorten(hookLabel || firstSentence, source === "x" ? 65 : 120)}`;
+  const hook = shorten(hookLabel || firstSentence, source === "x" ? 65 : 120);
   const tagCandidates = [
     { tag: "ReelShort", relevance: 75, competition: 65 },
-    { tag: "DramaClips", relevance: 95, competition: 45 },
+    { tag: "DramoraAI", relevance: 95, competition: 45 },
     { tag: "ShortDrama", relevance: 95, competition: 60 },
     ...(source === "youtube" ? [{ tag: "Shorts", relevance: 85, competition: 80 }] : []),
     { tag: title, relevance: 90, competition: 25 },
@@ -144,9 +137,9 @@ function copyFor(
   ];
   const tagSet = uniqueTags(recommendHashtags(source, tagCandidates).map((candidate) => candidate.tag)).map((tag) => `#${tag}`);
   const hashtagSource = "catalog-fallback";
-  const top = `🔥 Watch the full drama on DramaClips 👉 ${url}`;
+  const top = `🔥 Continue watching on Dramora AI 👉 ${url}`;
   const code = `🔍 In ReelShort, search code “${promoCode}”`;
-  const cta = `👉🏻 Continue on DramaClips, or search “${promoCode}” in ReelShort`;
+  const cta = `👉🏻 Continue on Dramora AI, or search “${promoCode}” in ReelShort`;
   const hashtags = tagSet.join(" ");
   if (source === "x") {
     const fixed = `${top}\n${code}\n${hook}\n${cta}\n${hashtags}`;
@@ -163,7 +156,7 @@ function copyFor(
     const caption = [
       `🎬 Watch this drama on ReelShort: ${contentPromotionUrl || ""}`.trim(),
       `🔍 Search this code in ReelShort: ${promoCode}`,
-      `🔥 Watch the preview and continue on DramaClips: ${url}`,
+      `👉 Or find the link in bio, or search this code in ReelShort`,
       hook,
       `🎬 ${title}`,
       `✨ ${shorten(description, 420)}`,
@@ -172,11 +165,10 @@ function copyFor(
     return { hook, cta, hashtags, hashtagSource, caption };
   }
   const caption = [
-    top,
-    code,
+    `📋 Save Content Code: ${promoCode}`,
+    `👉 Use the ${source} bio link to find this drama on DramaClips, or search the code in ReelShort`,
     hook,
     `🎬 ${title}`,
-    cta,
     `✨ ${story}`,
     hashtags,
   ].join("\n");
@@ -229,6 +221,13 @@ export async function createPublishPackage(input: {
   siteUrl: string;
 }) {
   await request("publish_packages?select=id&limit=0");
+  let hookClipId = input.hookClipId || null;
+  if (hookClipId) {
+    const hookRows = (await request(
+      `hook_clips?id=eq.${encodeURIComponent(hookClipId)}&select=id&limit=1`,
+    )) as { id: string }[];
+    if (!hookRows[0]) hookClipId = null;
+  }
   const priorRows = (await request(
     `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=*&order=created_at.desc&limit=10`,
   )) as Row[];
@@ -258,7 +257,7 @@ export async function createPublishPackage(input: {
       video_url: input.videoUrl,
       video_kind: input.videoKind,
       video_label: input.videoLabel || null,
-      hook_clip_id: input.hookClipId || null,
+      hook_clip_id: hookClipId,
       account: input.account || "main",
       campaign: input.campaign || "organic",
       scheduled_at: input.scheduledAt || null,
@@ -418,7 +417,7 @@ export async function requestCancelYixiaoerPackage(id: string) {
     void discardedOperation;
     void discardedControl;
     const rows = (await request(
-      `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled`,
+      `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_lease_owner=is.null`,
       {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
@@ -455,6 +454,44 @@ export async function requestCancelYixiaoerPackage(id: string) {
       }),
     },
   )) as Row[];
+  return safe(rows[0]);
+}
+export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string) {
+  const item = await getPublishPackage(id);
+  if (!item) throw new Error("Publish package not found");
+  if (item.status !== "scheduled" || item.yixiaoerAction !== "publish")
+    throw new Error("Only a scheduled publish can be rescheduled");
+  if (item.yixiaoerLeaseOwner)
+    throw new Error("Publishing has already started; cancel it instead");
+  const scheduledTime = new Date(scheduledAt);
+  if (!Number.isFinite(scheduledTime.getTime()) || scheduledTime.getTime() <= Date.now())
+    throw new Error("Choose a scheduled time in the future");
+  const now = new Date().toISOString();
+  const rows = (await request(
+    `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        scheduled_at: scheduledTime.toISOString(),
+        yixiaoer_error: null,
+        yixiaoer_results: {
+          ...item.yixiaoerResults,
+          _operation: {
+            ...((item.yixiaoerResults?._operation as Record<string, unknown>) || {}),
+            stage: "awaiting_scheduled_time",
+            scheduledAt: scheduledTime.toISOString(),
+            rescheduledAt: now,
+            heartbeatAt: now,
+          },
+        },
+        yixiaoer_updated_at: now,
+        updated_at: now,
+      }),
+    },
+  )) as Row[];
+  if (!rows[0])
+    throw new Error("Scheduled publish is already starting; refresh and cancel it instead");
   return safe(rows[0]);
 }
 export async function leaseYixiaoerPackage(

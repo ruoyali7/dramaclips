@@ -1,5 +1,6 @@
 node_modules
 .next
+.next-dev
 .env
 .env.local
 coverage
@@ -12,5 +13,7 @@ data/*.json
 work/
 worker/**/__pycache__/
 worker/**/*.pyc
+.venv-local-vision/
+.venv-local-vision312/
 .vercel
 .env*

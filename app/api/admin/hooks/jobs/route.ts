@@ -57,7 +57,11 @@ export async function POST(request: NextRequest) {
       dramaId: source.id,
       dramaSlug: source.slug,
       sourceAssets,
-      settings: input.settings,
+      settings: {
+        ...input.settings,
+        contentCode: source.promoCode || source.publicCode,
+        coverUrl: source.coverUrl,
+      },
       forceNew: input.forceNew,
     });
     return NextResponse.json({ job }, { status: 202 });

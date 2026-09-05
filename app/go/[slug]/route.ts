@@ -4,6 +4,7 @@ import { getRedirectConfig } from "@/lib/catalog";
 import { detectDevice, selectDestination } from "@/lib/redirect";
 import { parseTracking } from "@/lib/tracking";
 import { recordTrackingEvent } from "@/lib/admin/analytics-repository";
+import { isAdminRequest } from "@/lib/admin/admin-session";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   };
   // A production adapter writes this record to Supabase. Never log the destination URL.
   if (process.env.NODE_ENV === "development") console.info("[redirect]", JSON.stringify(click));
-  try { await recordTrackingEvent({name:"redirect_success",sessionId,dramaId:drama.id,dramaSlug:drama.slug,shortCode:request.nextUrl.searchParams.get("sl")||undefined,source:tracking.source,account:tracking.account,campaign:tracking.campaign,clip:tracking.clip,device,metadata:{outcome:"redirect_success"}}); } catch { /* Redirect remains available if analytics is unavailable. */ }
+  if (!isAdminRequest(request)) try { await recordTrackingEvent({name:"redirect_success",sessionId,dramaId:drama.id,dramaSlug:drama.slug,shortCode:request.nextUrl.searchParams.get("sl")||undefined,source:tracking.source,account:tracking.account,campaign:tracking.campaign,clip:tracking.clip,device,metadata:{outcome:"redirect_success"}}); } catch { /* Redirect remains available if analytics is unavailable. */ }
 
   const response = NextResponse.redirect(destination.url, { status: 302, headers: responseHeaders });
   response.cookies.set("db_session", sessionId, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 60 * 60 * 24 * 30, path: "/" });

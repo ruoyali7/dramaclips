@@ -107,6 +107,7 @@ export function HookStudio({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [previewEpisode, setPreviewEpisode] = useState<number | null>(null);
   const [libraryFilter, setLibraryFilter] = useState<
     "all" | "needs-hooks" | "has-hooks"
   >("all");
@@ -845,7 +846,8 @@ export function HookStudio({
                     <b>Episode coverage</b>
                     <div className="hook-video-links">
                       {item.episodes.map((episode) => (
-                        <a
+                        <button
+                          type="button"
                           className={
                             item.analyzedEpisodes.includes(
                               episode.episodeNumber,
@@ -853,16 +855,25 @@ export function HookStudio({
                               ? "analyzed"
                               : ""
                           }
-                          href={episode.videoUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                          onClick={() => setPreviewEpisode((current) => current === episode.episodeNumber ? null : episode.episodeNumber)}
                           key={episode.episodeNumber}
                         >
                           EP {episode.episodeNumber}
-                          <ExternalLink />
-                        </a>
+                          <Eye />
+                        </button>
                       ))}
                     </div>
+                    {previewEpisode != null && item.episodes.some((episode) => episode.episodeNumber === previewEpisode) && (
+                      <div className="hook-episode-preview">
+                        <video
+                          src={item.episodes.find((episode) => episode.episodeNumber === previewEpisode)?.videoUrl}
+                          controls
+                          preload="metadata"
+                          playsInline
+                        />
+                        <b>EP {previewEpisode} preview</b>
+                      </div>
+                    )}
                     <p>
                       {item.analyzedEpisodes.length
                         ? `Analyzed EP ${item.analyzedEpisodes.join(", ")}.`

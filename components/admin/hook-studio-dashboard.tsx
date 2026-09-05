@@ -45,6 +45,19 @@ type Job = {
   progress: number;
   errorMessage?: string;
 };
+type GenerationHistory = {
+  id: string;
+  method: "Built-in" | "Vizard";
+  dramaId: string;
+  dramaTitle: string;
+  coverUrl: string;
+  sourceEpisodes: number[];
+  status: string;
+  progress: number;
+  resultCount: number;
+  createdAt: string;
+  errorMessage?: string;
+};
 const statusLabel = {
   published: "Published",
   publishing: "Publishing",
@@ -109,9 +122,11 @@ function ReviewVideo({ src }: { src: string }) {
 export function HookStudioDashboard({
   sources,
   assets,
+  generationHistory,
 }: {
   sources: Source[];
   assets: Asset[];
+  generationHistory: GenerationHistory[];
 }) {
   const [pageSize, setPageSize] = useState(5),
     [page, setPage] = useState(1),
@@ -126,7 +141,8 @@ export function HookStudioDashboard({
       episode: Episode;
     } | null>(null),
     [direction, setDirection] = useState(""),
-    [method, setMethod] = useState<"built-in" | "vizard">("built-in"),
+    [method, setMethod] = useState<"built-in" | "vizard">("vizard"),
+    [historyPage, setHistoryPage] = useState(1),
     [busy, setBusy] = useState(false),
     [job, setJob] = useState<Job | null>(null),
     [error, setError] = useState("");
@@ -186,13 +202,23 @@ export function HookStudioDashboard({
     if (!selected.length) return;
     setSourceId(item.id);
     setEpisodes(selected);
-    setMethod("built-in");
+    setMethod("vizard");
     if (generatorRef.current) {
       generatorRef.current.open = true;
       generatorRef.current.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
+    }
+  }
+  function openGenerationHistory(item: GenerationHistory) {
+    setSourceId(item.dramaId);
+    setEpisodes(item.sourceEpisodes);
+    setMethod(item.method === "Vizard" ? "vizard" : "built-in");
+    if (item.method === "Built-in") setJob({id:item.id,status:item.status,progress:item.progress,errorMessage:item.errorMessage});
+    if (generatorRef.current) {
+      generatorRef.current.open = true;
+      generatorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
   async function generate() {
@@ -320,8 +346,8 @@ export function HookStudioDashboard({
             ).length,
             selectedEpisodes = episodeSelections[item.id] || [];
           return (
-            <details className="drama-library-row" key={item.id}>
-              <summary>
+            <details className={`drama-library-row${item.id===sourceId?" current":""}`} key={item.id}>
+              <summary onClick={()=>{if(item.id!==sourceId){setSourceId(item.id);setEpisodes([]);}}}>
                 <span className="hook-drama-cell">
                   <img src={item.coverUrl} alt="" />
                   <div>
@@ -581,22 +607,7 @@ export function HookStudioDashboard({
           />
         ) : (
           <div className="built-in-generator">
-            <label>
-              <b>Drama</b>
-              <select
-                value={sourceId}
-                onChange={(event) => {
-                  setSourceId(event.target.value);
-                  setEpisodes([]);
-                }}
-              >
-                {sources.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="generator-selected-drama"><img src={source?.coverUrl} alt=""/><div><small>Selected drama</small><b>{source?.title}</b></div><button type="button" onClick={()=>document.querySelector(".drama-hook-library")?.scrollIntoView({behavior:"smooth",block:"start"})}>Choose from library ↑</button></div>
             <div>
               <b>Episodes · up to 15 · maximum 6 qualified hooks</b>
               <div className="generator-episodes">
@@ -651,6 +662,13 @@ export function HookStudioDashboard({
           </div>
         )}
       </details>
+      <section className="hook-generation-history">
+        <div className="hook-section-title"><div><span>03 · Hook generation history</span><h2>Recent generation tasks</h2></div><div><b>{generationHistory.length}</b><small>Built-in + Vizard</small></div></div>
+        <div className="hook-history-head"><b>Task</b><b>Generator</b><b>Progress</b><b>Result</b></div>
+        {generationHistory.slice((historyPage-1)*5,historyPage*5).map(item=><button className="hook-history-row" key={`${item.method}-${item.id}`} onClick={()=>openGenerationHistory(item)}><span><img src={item.coverUrl} alt=""/><i><strong>{item.dramaTitle}</strong><small>EP {item.sourceEpisodes.join(", ")} · {new Date(item.createdAt).toLocaleString()}</small></i></span><span>{item.method}</span><span><b>{item.progress}%</b><small>{item.status.replaceAll("_"," ")}</small></span><span className={item.status==="failed"?"failed":item.status==="ready"||item.status==="review_ready"?"ready":""}><b>{item.resultCount} hook{item.resultCount===1?"":"s"}</b><small>{item.errorMessage||"Open task"}</small></span></button>)}
+        {!generationHistory.length&&<p className="hook-library-empty">No hook generation history yet.</p>}
+        {generationHistory.length>5&&<div className="hook-pagination"><button disabled={historyPage===1} onClick={()=>setHistoryPage(value=>value-1)}><ChevronLeft/> Previous</button><span>{historyPage} / {Math.ceil(generationHistory.length/5)}</span><button disabled={historyPage===Math.ceil(generationHistory.length/5)} onClick={()=>setHistoryPage(value=>value+1)}>Next <ChevronRight/></button></div>}
+      </section>
     </div>
   );
 }

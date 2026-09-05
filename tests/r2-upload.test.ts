@@ -21,4 +21,8 @@ describe("R2 upload validation", () => {
   it("rejects insecure Crazy Maple source URLs", async () => {
     await expect(copyRemoteVideoToR2({ url: "http://v-mps.crazymaplestudios.com/episode.mp4", slug: "test-drama", episodeNumber: 1 })).rejects.toThrow("URL is not allowed");
   });
+
+  it("rejects unapproved Aliyun source hosts", async () => {
+    await expect(copyRemoteVideoToR2({ url: "https://example.com/episode.mp4?x-oss-signature=test", slug: "test-drama", episodeNumber: 2 })).rejects.toThrow("URL is not allowed");
+  });
 });

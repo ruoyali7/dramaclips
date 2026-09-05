@@ -1,0 +1,24 @@
+.publish-summary{justify-content:flex-end;gap:6px;margin:8px 0 14px}
+.publish-summary span{min-width:76px;padding:7px 9px}
+.publish-summary b{font-size:13px}
+.publish-summary small{font-size:7px;white-space:nowrap}
+.asset-filters{margin:16px 0 0;padding-top:14px;border-top:1px solid #e8e6e0}
+.drama-asset-row.current>summary{box-shadow:inset 3px 0 #171717;padding-left:9px}
+.selected-drama-compact{display:flex;align-items:center;gap:10px;border:1px solid #dad8d1;padding:8px 10px;margin-bottom:14px}
+.selected-drama-compact img{width:32px;height:42px;object-fit:cover;background:#eee}
+.selected-drama-compact div{min-width:0;flex:1}
+.selected-drama-compact small,.selected-drama-compact b{display:block}
+.selected-drama-compact small{color:#888;font-size:8px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.selected-drama-compact b{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.selected-drama-compact button{border:0;background:transparent;color:#a06048;font-size:8px;padding:7px;white-space:nowrap}
+.specific-video-grid button.asset-ready{background:#f2f1ed;border-color:#deddd7}
+.specific-video-grid button.asset-scheduled{background:#fff4df;border-color:#ead5a8}
+.specific-video-grid button.asset-published{background:#e8f5ec;border-color:#b7dec2}
+.specific-video-grid button.asset-failed{background:#fff0ec;border-color:#e3b5a8}
+.specific-video-grid button.selected{outline:2px solid #171717;outline-offset:2px;border-color:#171717}
+.history-task-identity{display:flex;align-items:center;gap:10px;min-width:0}
+.history-task-identity img{width:34px;height:46px;object-fit:cover;border-radius:2px;background:#eee;flex:0 0 auto}
+.history-task-identity b{min-width:0;font-size:10px;line-height:1.25}
+.history-task-identity>b>small:first-of-type{color:#373632;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-task-identity>b>small:last-of-type{font-size:8px}
+@media(max-width:650px){.publish-summary{justify-content:flex-start;overflow-x:auto}.selected-drama-compact{align-items:flex-start}.selected-drama-compact button{white-space:normal}}
