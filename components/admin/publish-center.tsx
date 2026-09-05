@@ -257,9 +257,26 @@ export function PublishCenter({
   const [assetDramaFilter, setAssetDramaFilter] = useState("all");
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(5);
+  const [expandedLibraryIds, setExpandedLibraryIds] = useState<string[]>([]);
+  const [libraryStateRestored, setLibraryStateRestored] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
   const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
   const resultsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("dramaclips:publish-library") || "{}");
+      if ([5, 10, 20].includes(saved.pageSize)) setAssetPageSize(saved.pageSize);
+      if (Number.isInteger(saved.page) && saved.page > 0) setAssetPage(saved.page);
+      if (typeof saved.filter === "string") setAssetDramaFilter(saved.filter);
+      if (Array.isArray(saved.expandedIds)) setExpandedLibraryIds(saved.expandedIds.filter((id: unknown) => typeof id === "string"));
+      if (typeof saved.previewKey === "string") setLibraryPreviewKey(saved.previewKey);
+    } catch {}
+    setLibraryStateRestored(true);
+  }, []);
+  useEffect(() => {
+    if (!libraryStateRestored) return;
+    window.localStorage.setItem("dramaclips:publish-library", JSON.stringify({ page: assetPage, pageSize: assetPageSize, filter: assetDramaFilter, expandedIds: expandedLibraryIds, previewKey: libraryPreviewKey }));
+  }, [assetPage, assetPageSize, assetDramaFilter, expandedLibraryIds, libraryPreviewKey, libraryStateRestored]);
   useEffect(() => {
     fetch("/api/admin/publish-packages")
       .then(async (r) => (r.ok ? (await r.json()).packages : []))
@@ -583,6 +600,15 @@ export function PublishCenter({
         }),
       });
       const j = await r.json();
+      if (r.status === 409 && j.package) {
+        setCreated(j.package);
+        setRecent((items) => [j.package, ...items.filter((item) => item.id !== j.package.id)]);
+        setError(j.message || "This hook already has a publish task. The existing task has been opened.");
+        window.requestAnimationFrame(() =>
+          resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
+        return;
+      }
       if (!r.ok) throw new Error(j.message);
       setCreated(j.package);
       setRecent((x) => [j.package, ...x.filter((item) => item.id !== j.package.id)]);
@@ -882,7 +908,7 @@ export function PublishCenter({
         </div>
         <div className="drama-ledger">
           {dramaGroups.map((group) => (
-            <details className={`drama-asset-row ${sourceId === group.source.id ? "current" : ""}`} key={group.source.id}>
+            <details className={`drama-asset-row ${sourceId === group.source.id ? "current" : ""}`} key={group.source.id} open={expandedLibraryIds.includes(group.source.id)} onToggle={(event)=>{const open=event.currentTarget.open;setExpandedLibraryIds((ids)=>open?ids.includes(group.source.id)?ids:[...ids,group.source.id]:ids.filter((id)=>id!==group.source.id));}}>
               <summary onClick={() => sourceId !== group.source.id && resetFor(group.source.id, kind === "upload" ? "original" : kind)}>
                 <div className="drama-cell"><img src={group.source.coverUrl} alt=""/><div><b>{group.source.title}</b><small>{group.source.slug}</small></div></div>
                 <div className="asset-chips">{group.source.episodes.map((ep) => <i key={ep.episodeNumber} className={group.publishedVideos.has(ep.videoUrl) ? "published" : ""}>EP {ep.episodeNumber}</i>)}</div>
@@ -1374,39 +1400,14 @@ export function PublishCenter({
                             ? "Open & continue"
                             : "View details"}
                       </button>
-                      {x.status === "scheduled" && x.yixiaoerAction && (
-                        <>
-                          <button className="secondary" onClick={() => beginReschedule(x)} disabled={connectionBusy}>Reschedule</button>
-                          <button className="danger" onClick={() => void cancelPackage(x)} disabled={connectionBusy}>Cancel</button>
-                        </>
-                      )}
                     </div>
                   </div>
-                  {x.status === "scheduled" && reschedulingId === x.id && (
-                    <div className="reschedule-editor">
-                      <PublishTimePicker value={rescheduleAt} onChange={setRescheduleAt} />
-                      <button onClick={() => void reschedulePackage(x)} disabled={connectionBusy}>
-                        {connectionBusy ? "Saving…" : "Confirm new time"}
-                      </button>
-                      <button className="secondary" onClick={() => setReschedulingId("")} disabled={connectionBusy}>Keep current time</button>
-                    </div>
-                  )}
                   {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
                   {x.platforms.map((pack) => {
-                    const result = x.yixiaoerResults?.[pack.source];
-                    const state = result && typeof result === "object"
-                      ? String((result as Record<string, unknown>).state || "")
-                      : "";
                     return (
                       <div key={pack.source}>
                         <b>{pack.source}</b>
                         <span>{platformState(x, pack.source)}</span>
-                        {state === "outcome_unknown" && Boolean((result as Record<string, unknown>)?.providerRequestId) && (
-                          <button onClick={() => void platformAction(x, "reconcile", pack.source)}>Reconcile</button>
-                        )}
-                        {state === "failed" && (
-                          <button onClick={() => void platformAction(x, "retry", pack.source)}>Retry platform</button>
-                        )}
                       </div>
                     );
                   })}

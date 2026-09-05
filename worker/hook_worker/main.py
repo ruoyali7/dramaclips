@@ -1,5 +1,6 @@
-import json,os,random,shutil,signal,subprocess,tempfile,time,traceback
+import hashlib,json,os,random,shutil,signal,subprocess,tempfile,threading,time,traceback
 from pathlib import Path
+from urllib.parse import quote
 import requests
 import cv2
 from faster_whisper import WhisperModel
@@ -8,11 +9,18 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
+from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
 from .upload import primary_publish_channel,retry_upload
 
-API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local")
+API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
+SUPABASE_URL=os.getenv("SUPABASE_URL",os.getenv("NEXT_PUBLIC_SUPABASE_URL","")).rstrip("/"); SUPABASE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
+ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
+WORKER_ONESHOT=os.getenv("WORKER_ONESHOT","false").lower() in ("1","true","yes","on")
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
+SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
+def camelize_row(value):
+ return {key.split("_")[0]+"".join(part.title() for part in key.split("_")[1:]):item for key,item in value.items()}
 MODEL=os.getenv("WHISPER_MODEL","small.en")
 FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 ENDING_HOLD_SECONDS=1.2
@@ -30,6 +38,72 @@ def call(path,payload):
   except ValueError:detail=r.text
   raise RuntimeError(f"Control plane {r.status_code}: {detail or r.reason}")
  return r.json()
+def supabase(path,method="GET",payload=None,prefer=None):
+ headers={**SUPABASE_HEAD}
+ if prefer:headers["Prefer"]=prefer
+ r=requests.request(method,f"{SUPABASE_URL}/rest/v1/{path}",headers=headers,json=payload,timeout=60)
+ if not r.ok:raise RuntimeError(f"Supabase {method} {path.split('?')[0]} {r.status_code}: {r.text[:500]}")
+ if not r.content:return None
+ return r.json()
+def yixiaoer_worker_api_key():
+ value=supabase("rpc/get_yixiaoer_worker_api_key",method="POST",payload={})
+ if isinstance(value,str) and value.strip():return value.strip()
+ raise RuntimeError("Yixiaoer worker API key is not configured in Supabase Vault")
+def rendered_cover_timestamp(row):
+ source_time=float(row.get("cover_source_timestamp") or 0);source_ranges=row.get("source_ranges") or [];rendered_ranges=row.get("rendered_ranges") or []
+ for index,source in enumerate(source_ranges):
+  if float(source.get("start",0))<=source_time<=float(source.get("end",0)) and index<len(rendered_ranges):
+   rendered=rendered_ranges[index];value=float(rendered.get("start",0))+source_time-float(source.get("start",0));maximum=max(0,float(row.get("duration_seconds") or 0)-.1);return max(0,min(value,maximum))
+ return 0
+def hydrate_publish_job(row):
+ job=camelize_row(row);dramas=supabase(f"dramas?slug=eq.{quote(str(row['drama_slug']),safe='')}&select=title&limit=1") or []
+ hook_rows=[]
+ if row.get("video_kind")=="hook":
+  identity=f"id=eq.{quote(str(row['hook_clip_id']),safe='')}" if row.get("hook_clip_id") else f"video_url=eq.{quote(str(row['video_url']),safe='')}"
+  hook_rows=supabase(f"hook_clips?{identity}&select=cover_source_timestamp,source_ranges,rendered_ranges,duration_seconds&limit=1") or []
+ job.update({"apiKey":yixiaoer_worker_api_key(),"dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0})
+ return job
+def lease(path,payload):
+ rpc={
+  "/api/internal/hook-worker/lease":"lease_hook_generation_job",
+  "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",
+  "/api/internal/vizard-worker/lease":"lease_vizard_submission_job",
+ }.get(path)
+ if not (rpc and SUPABASE_URL and SUPABASE_KEY):return call(path,payload)
+ params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
+ rows=supabase(f"rpc/{rpc}",method="POST",payload=params)
+ row=rows[0] if rows else None
+ if row and rpc=="lease_yixiaoer_publish_job":row=hydrate_publish_job(row)
+ elif row and rpc!="lease_vizard_submission_job":row=camelize_row(row)
+ return {"job":row}
+def run_vizard_submission(job):
+ settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
+ if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
+ payload={"lang":settings.get("language") or "auto","videoUrl":job["video_url"],"videoType":1,"ext":job["video_url"].split("?")[0].rsplit(".",1)[-1].lower(),"getClips":1,"ratioOfClip":int(settings.get("ratio",1)),"subtitleSwitch":1 if settings.get("subtitles") else 0,"headlineSwitch":1 if settings.get("headline",True) else 0,"emojiSwitch":0,"highlightSwitch":0,"autoBrollSwitch":0,"removeSilenceSwitch":0,"preferLength":[int(settings.get("preferLength",0))],"maxClipNumber":int(settings.get("maxClipNumber",1)),"clipModel":settings.get("clipModel","clip_v1"),"projectName":job["project_name"]}
+ response=requests.post("https://elb-api.vizard.ai/hvizard-server-front/open-api/v1/project/create",headers={"Content-Type":"application/json","VIZARDAI_API_KEY":key},json=payload,timeout=90)
+ data=response.json() if response.content else {}; error=data.get("errMsg") or data.get("message") or f"HTTP {response.status_code}, code {data.get('code')}"
+ if response.ok and data.get("code")==2000:
+  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"submitted","vizardProjectId":str(data.get("projectId"))}); return
+ if response.status_code==429 or data.get("code")==4003 or "rate limit" in error.lower():
+  retry=response.headers.get("Retry-After","")
+  try:retry_seconds=max(60,min(86400,int(retry)))
+  except ValueError:retry_seconds=900
+  call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"rate_limited","errorMessage":error[:1000],"retryAfterSeconds":retry_seconds}); return
+ raise RuntimeError(error)
+def vizard_loop():
+ while True:
+  try:
+   job=lease("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
+   if not job:time.sleep(IDLE_POLL_SECONDS);continue
+   try:run_vizard_submission(job)
+   except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
+  except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
+def process_vizard_once():
+ job=lease("/api/internal/vizard-worker/lease",{"workerId":VIZARD_WORKER,"leaseSeconds":300}).get("job")
+ if not job:return False
+ try:run_vizard_submission(job)
+ except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
+ return True
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -198,13 +272,26 @@ def yixiaoer_account_rows(data):
    if isinstance(data.get(key),list):return data[key]
  return []
 def sync_yixiaoer_accounts():
- credential=call("/api/internal/yixiaoer/accounts",{"workerId":WORKER});key=credential["apiKey"]
+ key=yixiaoer_worker_api_key()
  data=yxer({"id":"account-sync","apiKey":key},["accounts","list","--status","1","--all"]);accounts=[]
  for row in yixiaoer_account_rows(data):
   account_id=str(row.get("id") or row.get("platformAccountId") or "");status=int(row.get("status",row.get("loginStatus",0)) or 0)
   if account_id and status==1:accounts.append({"id":account_id,"name":str(row.get("platformAccountName") or row.get("name") or row.get("nickname") or "Account"),"platform":str(row.get("platformName") or ""),"status":status,**({"avatar":row["platformAvatar"]} if isinstance(row.get("platformAvatar"),str) else {})})
- call("/api/internal/yixiaoer/accounts",{"workerId":WORKER,"accounts":accounts})
-def publish_update(job,status,progress,terminal=False,**extra):return call(f"/api/internal/publish-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,"terminal":terminal,**extra})
+ supabase("yixiaoer_account_cache?on_conflict=id",method="POST",payload={"id":"active","accounts":accounts,"synced_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())},prefer="resolution=merge-duplicates,return=minimal")
+def publish_update(job,status,progress,terminal=False,**extra):
+ rows=supabase("rpc/update_yixiaoer_publish_job",method="POST",payload={"p_id":job["id"],"p_worker_id":WORKER,"p_status":status,"p_progress":progress,"p_video":extra.get("video"),"p_payloads":extra.get("payloads"),"p_results":extra.get("results"),"p_error":extra.get("error"),"p_terminal":terminal})
+ if not rows:raise RuntimeError("Yixiaoer lease not owned")
+ package=camelize_row(rows[0]);results=extra.get("results")
+ if results:
+  now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime());attempts=[]
+  for pack in package.get("platforms") or []:
+   source=pack.get("source");detail=results.get(source) if source else None
+   if source=="x" or not isinstance(detail,dict):continue
+   state=str(detail.get("state") or "")
+   if state not in ("submitting","submitted","processing","published","failed","outcome_unknown"):continue
+   account_id=str((package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
+  if attempts:supabase("publish_platform_attempts?on_conflict=package_id,platform",method="POST",payload=attempts,prefer="resolution=merge-duplicates")
+ return {"package":package}
 def plain_description(value):
  import re
  return re.sub(r"[ \t]{2,}"," ",re.sub(r"\n{3,}","\n\n",re.sub(r"(^|\s)#[A-Za-z0-9_-]+",r"\1",re.sub(r"<[^>]+>"," ",value)))).strip()
@@ -247,17 +334,24 @@ def find_value(data,names):
    found=find_value(value,names)
    if found:return found
  return None
-def provider_request_id(data):return find_value(data,{"tasksetid","requestid","taskid"})
 def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
 def provider_state(data):
- raw=(find_value(data,{"status","state","publishstatus","taskstatus","stagestatus","stages"}) or "").lower()
+ raw=(find_value(data,{"status","state","publishstatus","taskstatus","tasksetstatus","stagestatus","stages"}) or "").lower()
  if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
  if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
  return "processing"
+def query_publish_status(job,source,request_id,heartbeat):
+ try:return yxer(job,["query","details",request_id],heartbeat)
+ except RuntimeError as error:
+  if source!="facebook" or "x-account-id" not in str(error):raise
+  records=yxer(job,["query","records","--limit","100"],heartbeat)
+  record=find_publish_record(records,request_id)
+  if not record:raise error
+  return {"state":publish_record_state(record),"id":request_id,"record":record,"source":"records.list"}
 def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
  deadline=time.time()+600;last={}
  while time.time()<deadline:
-  last=yxer(job,["query","details",request_id],heartbeat);state=provider_state(last)
+  last=query_publish_status(job,source,request_id,heartbeat);state=provider_state(last)
   results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last),"reconciliation":last}
   publish_update(job,"reconciling",95,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"reconciling_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
   if state=="published":return
@@ -310,11 +404,25 @@ def run_publish(job):
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
   publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
- pending=[p for p in job["platforms"] if p["source"] in payloads and ((p["source"] in control.get("retryPlatforms",[])) or not (action=="publish" and isinstance(results.get(p["source"]),dict) and (results[p["source"]].get("state")=="published" or results[p["source"]].get("publish"))))]
+ retry_platforms=set(control.get("retryPlatforms",[]))
+ pending=[p for p in job["platforms"] if p["source"] in payloads and (p["source"] in retry_platforms or not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published"))]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))
   if platform_heartbeat():raise PublishCanceled("Canceled by user")
+  prior=results.get(source) if isinstance(results.get(source),dict) else {}
+  if should_resume(prior,source in retry_platforms):
+   request_id=provider_request_id(prior)
+   try:reconcile_publish(job,source,request_id,results,assets,payloads,platform_heartbeat)
+   except PublishOutcomeUnknown as error:
+    results[source]["state"]="outcome_unknown";results[source]["error"]=str(error)
+    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+   except RuntimeError as error:
+    results[source]["state"]="failed";results[source]["error"]=str(error)[:500]
+    publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results)
+    continue
+   publish_update(job,"publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
+   continue
   try:
    selected_channel=channel
    try:checked={"validation":yixer_file(job,payloads[source],source,"validate",selected_channel,heartbeat=platform_heartbeat),"preview":yixer_file(job,payloads[source],source,"publish",selected_channel,True,platform_heartbeat),"state":"validated","channel":selected_channel}
@@ -365,19 +473,25 @@ def run_publish(job):
  failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
  publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
+ print(f"Vizard-capable hook worker starting; control plane={API}",flush=True)
  cleanup_worker_temps(0)
+ if not WORKER_ONESHOT:
+  threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
  while True:
   try:
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
-   worked=False;job=call("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
-   if job:
-    worked=True
-    try:run(job)
-    except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
-   publish_job=call("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
+   worked=False
+   if WORKER_ONESHOT and process_vizard_once():worked=True
+   if ENABLE_HOOK_WORKER:
+    job=lease("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
+    if job:
+     worked=True
+     try:run(job)
+     except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
+   publish_job=lease("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
    if publish_job:
     worked=True
     try:run_publish(publish_job)
@@ -386,9 +500,13 @@ def main():
      if uncertain:
       for value in current_results.values():
        if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
-     if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
-     else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+   current_results["_operation"] = terminal_operation(current_results, "outcome_unknown" if uncertain else "failed", str(e)[:900])
+   if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
+   else:publish_update(publish_job,"failed",100,terminal=True,results=current_results,error=str(e)[:900])
    cleanup_worker_temps()
-   if not worked:time.sleep(5)
+   if WORKER_ONESHOT:
+    if not worked:return
+    continue
+   if not worked:time.sleep(IDLE_POLL_SECONDS)
   except Exception:traceback.print_exc();time.sleep(5+random.random()*3)
 if __name__=="__main__":main()

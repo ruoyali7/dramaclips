@@ -50,6 +50,13 @@ type Row = {
   updated_at: string;
 };
 
+export class ExistingPublishPackageError extends Error {
+  constructor(public readonly packageItem: ReturnType<typeof safe>) {
+    super("This hook already has a publish task. Open the existing task to retry, edit copy, or change its schedule.");
+    this.name = "ExistingPublishPackageError";
+  }
+}
+
 async function request(path: string, init: RequestInit = {}) {
   const config = getSupabaseConfig();
   if (!config.configured) throw new Error("Supabase is not configured");
@@ -231,6 +238,13 @@ export async function createPublishPackage(input: {
   const priorRows = (await request(
     `publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&select=*&order=created_at.desc&limit=10`,
   )) as Row[];
+  const hookRows = hookClipId
+    ? (await request(
+        `publish_packages?hook_clip_id=eq.${encodeURIComponent(hookClipId)}&select=*&order=created_at.desc&limit=1`,
+      )) as Row[]
+    : [];
+  const existingHookPackage = hookRows[0] || (input.videoKind === "hook" ? priorRows[0] : undefined);
+  if (existingHookPackage) throw new ExistingPublishPackageError(safe(existingHookPackage));
   const reusable = priorRows.find((row) => {
     const stored = row.yixiaoer_video || {};
     const video = (stored.video || stored) as Record<string, unknown>;
@@ -239,14 +253,6 @@ export async function createPublishPackage(input: {
   const reusableVideo = reusable
     ? { video: (reusable.yixiaoer_video?.video || reusable.yixiaoer_video) as Record<string, unknown> }
     : {};
-  const replaceableFailure = priorRows.find((row) => {
-    if (row.status !== "failed" || row.yixiaoer_action) return false;
-    return !Object.values(row.yixiaoer_results || {}).some((value) => {
-      if (!value || typeof value !== "object") return false;
-      const state = String((value as Record<string, unknown>).state || "");
-      return state === "published" || state === "outcome_unknown";
-    });
-  });
   const prepared = input.preparedPlatforms?.filter((pack) => input.platforms.includes(pack.source));
   const packs = prepared?.length === input.platforms.length
     ? prepared
@@ -274,11 +280,21 @@ export async function createPublishPackage(input: {
       yixiaoer_lease_expires_at: null,
       updated_at: new Date().toISOString(),
     };
-  const rows = (await request(replaceableFailure ? `publish_packages?id=eq.${encodeURIComponent(replaceableFailure.id)}` : "publish_packages", {
-    method: replaceableFailure ? "PATCH" : "POST",
+  let rows: Row[];
+  try {
+    rows = (await request("publish_packages", {
+    method: "POST",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify(packageBody),
-  })) as Row[];
+    })) as Row[];
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith("Supabase 409:")) throw error;
+    const conflicts = hookClipId
+      ? (await request(`publish_packages?hook_clip_id=eq.${encodeURIComponent(hookClipId)}&select=*&order=created_at.desc&limit=1`)) as Row[]
+      : (await request(`publish_packages?video_url=eq.${encodeURIComponent(input.videoUrl)}&video_kind=eq.hook&select=*&order=created_at.desc&limit=1`)) as Row[];
+    if (!conflicts[0]) throw error;
+    throw new ExistingPublishPackageError(safe(conflicts[0]));
+  }
   return safe(rows[0]);
 }
 export async function listPublishPackages() {
@@ -357,14 +373,28 @@ export async function enqueueYixiaoerPackage(
 ) {
   const item = await getPublishPackage(id);
   if (!item) throw new Error("Publish package not found");
+  if (item.videoKind === "hook") {
+    const identity = item.hookClipId
+      ? `hook_clip_id=eq.${encodeURIComponent(item.hookClipId)}`
+      : `video_url=eq.${encodeURIComponent(item.videoUrl)}&video_kind=eq.hook`;
+    const related = (await request(
+      `publish_packages?${identity}&id=neq.${encodeURIComponent(id)}&select=*&order=created_at.desc&limit=20`,
+    )) as Row[];
+    const conflict = related.find((row) =>
+      ["ready","validating","publishing","submitted","reconciling","scheduled","published","outcome_unknown"].includes(row.status),
+    );
+    if (conflict) throw new ExistingPublishPackageError(safe(conflict));
+  }
   const scheduled =
     input.action === "publish" &&
     Boolean(input.scheduledAt || (!input.clearSchedule && item.scheduledAt)) &&
     new Date((input.scheduledAt || item.scheduledAt) as string).getTime() > Date.now();
   const now = new Date().toISOString();
+  const { _control: discardedControl, ...baseResults } = item.yixiaoerResults;
+  void discardedControl;
   const results = scheduled
     ? {
-        ...item.yixiaoerResults,
+        ...baseResults,
         _operation: {
           stage: "awaiting_scheduled_time",
           scheduledAt: input.scheduledAt || item.scheduledAt,
@@ -373,8 +403,8 @@ export async function enqueueYixiaoerPackage(
         },
       }
     : input.control
-      ? { ...item.yixiaoerResults, _control: input.control }
-      : item.yixiaoerResults;
+      ? { ...baseResults, _control: input.control }
+      : baseResults;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}`,
     {
@@ -467,6 +497,9 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
   if (!Number.isFinite(scheduledTime.getTime()) || scheduledTime.getTime() <= Date.now())
     throw new Error("Choose a scheduled time in the future");
   const now = new Date().toISOString();
+  const { _control: discardedControl, ...rescheduledResults } =
+    item.yixiaoerResults;
+  void discardedControl;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null`,
     {
@@ -476,7 +509,7 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
         scheduled_at: scheduledTime.toISOString(),
         yixiaoer_error: null,
         yixiaoer_results: {
-          ...item.yixiaoerResults,
+          ...rescheduledResults,
           _operation: {
             ...((item.yixiaoerResults?._operation as Record<string, unknown>) || {}),
             stage: "awaiting_scheduled_time",

@@ -12,11 +12,23 @@ export type VizardProject = {
 };
 export type VizardAsset = { id: string; projectId: string; dramaSlug: string; episodeNumber: number; vizardVideoId: string; title: string; videoUrl: string; objectKey: string; durationSeconds: number; transcript?: string; viralScore?: string; viralReason?: string; clipEditorUrl?: string; metadata: Record<string, unknown>; reviewState:"pending"|"approved"; createdAt: string };
 type Row = Record<string, any>;
+export type VizardSubmissionInput = { dramaId: string; dramaSlug: string; episodeNumber: number; projectName: string; videoUrl: string; settings: Record<string, unknown> };
 const local: VizardProject[] = [];
 async function request(path: string, init: RequestInit = {}) {
   const config = getSupabaseConfig(); if (!config.configured) return null;
   const response = await fetch(`${config.url}/rest/v1/${path}`, { ...init, headers: { apikey: config.key, Authorization: `Bearer ${config.key}`, "Content-Type": "application/json", ...init.headers }, cache: "no-store" });
   if (!response.ok) throw new Error(`Supabase ${response.status}`); return response.status === 204 ? null : response.json();
+}
+export async function enqueueVizardSubmissions(input: VizardSubmissionInput[]) {
+  const config = getSupabaseConfig();
+  if (!config.configured) throw new Error("Supabase is not configured");
+  const pending = await request("vizard_submission_jobs?status=in.(queued,submitting,rate_limited)&select=next_attempt_at&order=next_attempt_at.desc&limit=1") as Row[];
+  const latestScheduled = pending[0]?.next_attempt_at ? Date.parse(pending[0].next_attempt_at) : 0;
+  const scheduleStart = Math.max(Date.now(), latestScheduled + (latestScheduled ? 30_000 : 0));
+  const rows = input.map((item, index) => ({ drama_id: item.dramaId, drama_slug: item.dramaSlug, episode_number: item.episodeNumber, project_name: item.projectName, video_url: item.videoUrl, settings: item.settings, next_attempt_at: new Date(scheduleStart + index * 30_000).toISOString() }));
+  const retried = (await Promise.all(rows.map((row) => request(`vizard_submission_jobs?drama_id=eq.${encodeURIComponent(row.drama_id)}&episode_number=eq.${row.episode_number}&status=in.(canceled,failed)`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...row, status: "queued", attempt_count: 0, error_message: null, vizard_project_id: null, lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() }) }) as Promise<Row[]>))).flat();
+  const queued = await request("vizard_submission_jobs?on_conflict=drama_id,episode_number,project_name", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify(rows) }) as Row[];
+  return [...retried, ...queued];
 }
 function fromRow(row: Row): VizardProject { return { id: row.id, dramaId: row.drama_id, dramaSlug: row.drama_slug, episodeNumber: row.episode_number, projectName: row.project_name, vizardProjectId: row.vizard_project_id, sourceVideoUrl: row.source_video_url, settings: row.settings || {}, status: row.status, finalVideoUrl: row.final_video_url || undefined, finalObjectKey: row.final_object_key || undefined, finalLabel: row.final_label || undefined, editInfo: row.edit_info || {}, submittedAt: row.submitted_at, updatedAt: row.updated_at }; }
 export async function createVizardProject(input: Omit<VizardProject, "id" | "submittedAt" | "updatedAt">) {

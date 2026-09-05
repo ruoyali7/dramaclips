@@ -130,6 +130,8 @@ export function HookStudioDashboard({
 }) {
   const [pageSize, setPageSize] = useState(5),
     [page, setPage] = useState(1),
+    [expandedLibraryIds, setExpandedLibraryIds] = useState<string[]>([]),
+    [libraryStateRestored, setLibraryStateRestored] = useState(false),
     [selectedId, setSelectedId] = useState<string | null>(null),
     [sourceId, setSourceId] = useState(sources[0]?.id || ""),
     [episodes, setEpisodes] = useState<number[]>([]),
@@ -159,6 +161,20 @@ export function HookStudioDashboard({
   useEffect(() => {
     if (page > pages) setPage(pages);
   }, [page, pages]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("dramaclips:hooks-library") || "{}");
+      if ([5, 10].includes(saved.pageSize)) setPageSize(saved.pageSize);
+      if (Number.isInteger(saved.page) && saved.page > 0) setPage(saved.page);
+      if (Array.isArray(saved.expandedIds)) setExpandedLibraryIds(saved.expandedIds.filter((id: unknown) => typeof id === "string"));
+      if (typeof saved.selectedHookId === "string") setSelectedId(saved.selectedHookId);
+    } catch {}
+    setLibraryStateRestored(true);
+  }, []);
+  useEffect(() => {
+    if (!libraryStateRestored) return;
+    window.localStorage.setItem("dramaclips:hooks-library", JSON.stringify({ page, pageSize, expandedIds: expandedLibraryIds, selectedHookId: selectedId || "" }));
+  }, [page, pageSize, expandedLibraryIds, selectedId, libraryStateRestored]);
   useEffect(() => {
     if (
       !job ||
@@ -346,7 +362,7 @@ export function HookStudioDashboard({
             ).length,
             selectedEpisodes = episodeSelections[item.id] || [];
           return (
-            <details className={`drama-library-row${item.id===sourceId?" current":""}`} key={item.id}>
+            <details className={`drama-library-row${item.id===sourceId?" current":""}`} key={item.id} open={expandedLibraryIds.includes(item.id)} onToggle={(event)=>{const open=event.currentTarget.open;setExpandedLibraryIds((ids)=>open?ids.includes(item.id)?ids:[...ids,item.id]:ids.filter((id)=>id!==item.id));}}>
               <summary onClick={()=>{if(item.id!==sourceId){setSourceId(item.id);setEpisodes([]);}}}>
                 <span className="hook-drama-cell">
                   <img src={item.coverUrl} alt="" />

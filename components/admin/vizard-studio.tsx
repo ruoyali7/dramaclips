@@ -34,24 +34,12 @@ export function VizardStudio({ sources, initialSourceId, selectedEpisodeNumbers 
     setRunning(true);
     const form = new FormData(event.currentTarget);
     const selected = queue.filter((row) => row.selected && row.state !== "done");
-    for (let index = 0; index < selected.length; index += 1) {
-      const row = selected[index];
-      patch(row.episodeNumber, { state: "submitting", detail: "Sending to Vizard" });
-      try {
-        const response = await fetch("/api/admin/vizard/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
-          dramaId: source.id, dramaSlug: source.slug, episodeNumber: row.episodeNumber, projectName: `${source.title} - EP ${row.episodeNumber}`, videoUrl: row.videoUrl, language: form.get("language"),
-          preferLength: Number(form.get("preferLength")), maxClipNumber: Number(form.get("maxClipNumber")), ratio: Number(form.get("ratio")),
-          subtitles: form.get("subtitles") === "on", headline: form.get("headline") === "on", clipModel: form.get("clipModel"),
-        }) });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || "Submission failed");
-        patch(row.episodeNumber, { state: "done", detail: `Project ${result.projectId}` });
-        const refreshed = await fetch(`/api/admin/vizard/projects?dramaSlug=${encodeURIComponent(source.slug)}`, { cache: "no-store" }).then((r) => r.json()); setProjects(refreshed.projects || []);
-      } catch (error) {
-        patch(row.episodeNumber, { state: "failed", detail: error instanceof Error ? error.message : "Submission failed" });
-      }
-      if (index < selected.length - 1) await wait(30);
-    }
+    try {
+      const response = await fetch("/api/admin/vizard/submit-batch", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({jobs:selected.map((row)=>({dramaId:source.id,dramaSlug:source.slug,episodeNumber:row.episodeNumber,projectName:`${source.title} - EP ${row.episodeNumber}`,videoUrl:row.videoUrl,settings:{language:form.get("language"),preferLength:Number(form.get("preferLength")),maxClipNumber:Number(form.get("maxClipNumber")),ratio:Number(form.get("ratio")),subtitles:form.get("subtitles")==="on",headline:form.get("headline")==="on",clipModel:form.get("clipModel")}}))})});
+      const result=await response.json(); if(!response.ok)throw new Error(result.message||"Could not queue submissions");
+      selected.forEach((row)=>patch(row.episodeNumber,{state:"submitting",detail:"Queued for Vizard"}));
+      setProjects((await fetch(`/api/admin/vizard/projects?dramaSlug=${encodeURIComponent(source.slug)}`,{cache:"no-store"}).then((r)=>r.json())).projects||[]);
+    } catch(error) { selected.forEach((row)=>patch(row.episodeNumber,{state:"failed",detail:error instanceof Error?error.message:"Could not queue submissions"})); }
     setCountdown(0); setRunning(false);
   }
 
