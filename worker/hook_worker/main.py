@@ -186,11 +186,13 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
     except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
     raise PublishCanceled("Canceled by user")
 def yxer(job,args,heartbeat=None,ambiguous_timeout=False,timeout=900):
- env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
- cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
+ api_key=str(job.get("apiKey") or job.get("yixiaoerApiKey") or os.getenv("YIXIAOER_API_KEY") or "").strip()
+ if not api_key:raise RuntimeError("Yixiaoer API key is missing from the lease response")
+ env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":api_key,"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
+ cli_output(["yxer","config","set-api-key",api_key,"--json"],env,60,api_key)
  client_id=os.getenv("YIXIAOER_CLIENT_ID","").strip()
- if client_id:cli_output(["yxer","config","set-local-client-id",client_id,"--json"],env,60,job["apiKey"])
- raw=cli_output(["yxer",*args,"--json"],env,timeout,job["apiKey"],heartbeat,ambiguous_timeout)
+ if client_id:cli_output(["yxer","config","set-local-client-id",client_id,"--json"],env,60,api_key)
+ raw=cli_output(["yxer",*args,"--json"],env,timeout,api_key,heartbeat,ambiguous_timeout)
  parsed=json.loads(raw)
  if not parsed.get("ok"):raise RuntimeError((parsed.get("error") or {}).get("message") or "Yixiaoer command failed")
  return parsed.get("data")
@@ -250,7 +252,9 @@ def find_value(data,names):
    found=find_value(value,names)
    if found:return found
  return None
-def provider_request_id(data):return find_value(data,{"tasksetid","requestid","taskid"})
+def provider_request_id(data):
+ if isinstance(data,str) and data.strip():return data.strip()
+ return find_value(data,{"tasksetid","requestid","taskid"})
 def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
 def provider_state(data):
  raw=(find_value(data,{"status","state","publishstatus","taskstatus","stagestatus","stages"}) or "").lower()
