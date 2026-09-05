@@ -34,3 +34,14 @@ def publish_record_state(record):
     if int(record.get("failedTotal") or 0) > 0 or "fail" in status:
         return "failed"
     return "processing"
+
+
+def terminal_operation(detail, stage, error=None):
+    operation = dict(detail.get("_operation") or {}) if isinstance(detail, dict) else {}
+    operation["stage"] = stage
+    from datetime import datetime, timezone
+    operation["finishedAt"] = operation.get("finishedAt") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if error:
+        operation["error"] = str(error)[:1000]
+        operation["diagnostic"] = str(error)[-1000:]
+    return operation

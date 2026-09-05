@@ -5,6 +5,7 @@ from hook_worker.publish_state import (
     provider_request_id,
     publish_record_state,
     should_resume,
+    terminal_operation,
 )
 
 
@@ -40,6 +41,18 @@ class PublishStateTests(unittest.TestCase):
             "failed",
         )
         self.assertEqual(publish_record_state({"taskSetStatus": "pending"}), "processing")
+
+    def test_terminal_operation_keeps_operation_and_records_diagnostic(self):
+        result = terminal_operation(
+            {"_operation": {"stage": "uploading_to_yixiaoer", "bytesSent": 10}},
+            "failed",
+            "timeout; output: last line",
+        )
+        self.assertEqual(result["stage"], "failed")
+        self.assertEqual(result["bytesSent"], 10)
+        self.assertEqual(result["error"], "timeout; output: last line")
+        self.assertIn("last line", result["diagnostic"])
+        self.assertTrue(result["finishedAt"].endswith("Z"))
 
 
 if __name__ == "__main__":

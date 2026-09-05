@@ -9,7 +9,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume
+from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
 from .upload import primary_publish_channel,retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
@@ -500,8 +500,9 @@ def main():
      if uncertain:
       for value in current_results.values():
        if isinstance(value,dict) and value.get("state") in ("submitting","submitted","processing"):value["state"]="outcome_unknown";value["error"]="Publishing may have been accepted before status recording failed; reconcile before retrying"
-     if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
-     else:publish_update(publish_job,"failed",100,terminal=True,error=str(e)[:900])
+   current_results["_operation"] = terminal_operation(current_results, "outcome_unknown" if uncertain else "failed", str(e)[:900])
+   if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
+   else:publish_update(publish_job,"failed",100,terminal=True,results=current_results,error=str(e)[:900])
    cleanup_worker_temps()
    if WORKER_ONESHOT:
     if not worked:return
