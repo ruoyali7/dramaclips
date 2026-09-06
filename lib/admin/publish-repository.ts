@@ -303,6 +303,13 @@ export async function listPublishPackages() {
   )) as Row[];
   return rows.map(safe);
 }
+export type PublishedAssetIdentity = { hookClipId?: string; videoUrl: string };
+export async function listPublishedAssetIdentities(): Promise<PublishedAssetIdentity[]> {
+  const rows = (await request(
+    "publish_packages?status=eq.published&select=hook_clip_id,video_url&limit=10000",
+  )) as Array<{ hook_clip_id?: string; video_url: string }>;
+  return rows.map((row) => ({ hookClipId: row.hook_clip_id || undefined, videoUrl: row.video_url }));
+}
 export async function getLatestPublishPackage() {
   const rows = (await request(
     "publish_packages?select=*&order=created_at.desc&limit=1",

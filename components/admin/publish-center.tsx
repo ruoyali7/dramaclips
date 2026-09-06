@@ -68,6 +68,7 @@ type AssetRow = {
   detail: string;
   videoUrl: string;
   r2State: string;
+  publishingStatus: LibraryAsset["publishing"]["status"];
   latest?: Package;
 };
 const options = [
@@ -360,6 +361,7 @@ export function PublishCenter({
             detail: asset.kind === "original" ? "Original episode" : `${asset.source === "vizard" ? "Vizard" : "Saved"} hook · EP ${asset.episodeNumber} · ${Math.round(asset.durationSeconds)}s`,
             videoUrl: asset.videoUrl,
             r2State: asset.kind === "original" ? "Available" : "Saved",
+            publishingStatus: asset.publishing.status,
           })),
           ...item.draftHooks.map((hook) => ({
             key: `draft:${hook.id}`,
@@ -372,6 +374,7 @@ export function PublishCenter({
             detail: `Review needed · EP ${hook.sourceEpisodes.join(", ")} · score ${Math.round(hook.score)}`,
             videoUrl: hook.videoUrl,
             r2State: "Draft",
+            publishingStatus: "never" as const,
           })),
         ];
         return rows.map((row) => ({
@@ -394,7 +397,7 @@ export function PublishCenter({
               .filter((pack) => Object.keys(pack.yixiaoerVideo || {}).length)
               .map((pack) => pack.videoUrl),
           );
-          const publishedVideos = new Set(publishedPackages.map((pack) => pack.videoUrl));
+          const publishedVideos = new Set(assets.filter((asset) => asset.publishingStatus === "published").map((asset) => asset.videoUrl));
           const publishedPlatforms = Array.from(
             new Set(publishedPackages.flatMap((pack) => pack.platforms.map((platform) => platform.source))),
           );
