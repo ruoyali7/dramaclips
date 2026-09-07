@@ -10,12 +10,13 @@ from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
 from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
+from .runtime_config import load_runtime_config
 from .upload import primary_publish_channel,retry_upload
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
-SUPABASE_URL=os.getenv("SUPABASE_URL",os.getenv("NEXT_PUBLIC_SUPABASE_URL","")).rstrip("/"); SUPABASE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
+RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
 ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
-WORKER_ONESHOT=os.getenv("WORKER_ONESHOT","false").lower() in ("1","true","yes","on")
+WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
@@ -473,7 +474,7 @@ def run_publish(job):
  failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
  publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Vizard-capable hook worker starting; control plane={API}",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} idle_poll={IDLE_POLL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)
  if not WORKER_ONESHOT:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
