@@ -1,15 +1,18 @@
 def provider_request_id(detail):
+    if isinstance(detail, str):
+        return detail.strip() or None
     if not isinstance(detail, dict):
         return None
-    request_id = detail.get("providerRequestId")
+    request_id = (
+        detail.get("providerRequestId")
+        or detail.get("taskSetId")
+        or detail.get("requestId")
+        or detail.get("taskId")
+    )
     if request_id:
         return str(request_id)
     publish = detail.get("publish")
-    if isinstance(publish, dict):
-        value = publish.get("taskSetId") or publish.get("requestId")
-        if value:
-            return str(value)
-    return None
+    return provider_request_id(publish)
 
 
 def should_resume(detail, retry_requested=False):

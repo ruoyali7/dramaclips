@@ -19,6 +19,15 @@ class PublishStateTests(unittest.TestCase):
         self.assertTrue(should_resume(detail))
         self.assertFalse(should_resume(detail, retry_requested=True))
 
+    def test_accepts_direct_and_string_provider_request_ids(self):
+        self.assertEqual(provider_request_id("request-1"), "request-1")
+        self.assertEqual(provider_request_id({"taskSetId": "request-2"}), "request-2")
+        self.assertEqual(
+            provider_request_id({"publish": {"requestId": "request-3"}}),
+            "request-3",
+        )
+        self.assertIsNone(provider_request_id("  "))
+
     def test_does_not_resume_an_already_published_platform(self):
         self.assertFalse(
             should_resume({"state": "published", "providerRequestId": "request-1"})
