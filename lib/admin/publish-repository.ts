@@ -30,6 +30,7 @@ type Row = {
   video_kind?: "original" | "hook" | "upload";
   video_label?: string;
   hook_clip_id?: string;
+  publish_cart_item_id?: string;
   account: string;
   campaign: string;
   scheduled_at?: string;
@@ -87,6 +88,7 @@ function safe(row: Row) {
     videoKind: row.video_kind || "original",
     videoLabel: row.video_label,
     hookClipId: row.hook_clip_id,
+    publishCartItemId: row.publish_cart_item_id,
     account: row.account,
     campaign: row.campaign,
     scheduledAt: row.scheduled_at,
@@ -220,6 +222,7 @@ export async function createPublishPackage(input: {
   videoKind: "original" | "hook" | "upload";
   videoLabel?: string;
   hookClipId?: string;
+  cartItemId?: string;
   account?: string;
   campaign?: string;
   scheduledAt?: string;
@@ -228,6 +231,10 @@ export async function createPublishPackage(input: {
   siteUrl: string;
 }) {
   await request("publish_packages?select=id&limit=0");
+  if (input.cartItemId) {
+    const existing = await request(`publish_packages?publish_cart_item_id=eq.${encodeURIComponent(input.cartItemId)}&select=*&limit=1`) as Row[];
+    if (existing[0]) return safe(existing[0]);
+  }
   let hookClipId = input.hookClipId || null;
   if (hookClipId) {
     const hookRows = (await request(
@@ -243,7 +250,7 @@ export async function createPublishPackage(input: {
         `publish_packages?hook_clip_id=eq.${encodeURIComponent(hookClipId)}&select=*&order=created_at.desc&limit=1`,
       )) as Row[]
     : [];
-  const existingHookPackage = hookRows[0] || (input.videoKind === "hook" ? priorRows[0] : undefined);
+  const existingHookPackage = input.cartItemId ? undefined : hookRows[0] || (input.videoKind === "hook" ? priorRows[0] : undefined);
   if (existingHookPackage) throw new ExistingPublishPackageError(safe(existingHookPackage));
   const reusable = priorRows.find((row) => {
     const stored = row.yixiaoer_video || {};
@@ -264,6 +271,7 @@ export async function createPublishPackage(input: {
       video_kind: input.videoKind,
       video_label: input.videoLabel || null,
       hook_clip_id: hookClipId,
+      publish_cart_item_id: input.cartItemId || null,
       account: input.account || "main",
       campaign: input.campaign || "organic",
       scheduled_at: input.scheduledAt || null,
@@ -380,7 +388,7 @@ export async function enqueueYixiaoerPackage(
 ) {
   const item = await getPublishPackage(id);
   if (!item) throw new Error("Publish package not found");
-  if (item.videoKind === "hook") {
+  if (item.videoKind === "hook" && !item.publishCartItemId) {
     const identity = item.hookClipId
       ? `hook_clip_id=eq.${encodeURIComponent(item.hookClipId)}`
       : `video_url=eq.${encodeURIComponent(item.videoUrl)}&video_kind=eq.hook`;

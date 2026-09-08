@@ -11,6 +11,7 @@ import { defaultPublishTime, PublishTimePicker } from "@/components/admin/publis
 import { PublishCalendar } from "@/components/admin/publish-calendar";
 import { DramaLibraryExpanded } from "@/components/admin/drama-library-expanded";
 import type { LibraryAsset } from "@/lib/admin/asset-library";
+import { futurePacificPublishSlots } from "@/lib/publish-slots";
 type Hook = {
   id: string;
   title: string;
@@ -267,6 +268,9 @@ export function PublishCenter({
   const [cartDate, setCartDate] = useState("");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartBusy, setCartBusy] = useState(false);
+  const [cartScheduled, setCartScheduled] = useState("");
+  const visibleCartItems = cartItems.filter((item) => item.cartDate === cartDate);
+  const visibleCartSlots = cartDate ? futurePacificPublishSlots(cartDate) : [];
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
     try {
@@ -320,6 +324,19 @@ export function PublishCenter({
     [items[index], items[next]] = [items[next], items[index]]; setCartBusy(true); setError("");
     try { const response = await fetch("/api/admin/publish-cart", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cartDate, itemIds: items.map((item) => item.id) }) }); const json = await response.json(); if (!response.ok) throw new Error(json.message); await loadCart(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not reorder cart"); }
+    finally { setCartBusy(false); }
+  }
+  async function confirmCart() {
+    if (!cartDate || cartBusy) return;
+    setCartBusy(true); setError(""); setCartScheduled("");
+    try {
+      const response = await fetch("/api/admin/publish-cart/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cartDate, confirm: true }) });
+      const json = await response.json(); if (!response.ok) throw new Error(json.message);
+      setCartScheduled(`${json.packages.length} Hooks scheduled for ${cartDate}`);
+      await loadCart();
+      const packagesResponse = await fetch("/api/admin/publish-packages", { cache: "no-store" });
+      if (packagesResponse.ok) setRecent((await packagesResponse.json()).packages || []);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not schedule publish cart"); }
     finally { setCartBusy(false); }
   }
   useEffect(() => {
@@ -939,10 +956,12 @@ export function PublishCenter({
       <section className="asset-library">
         <span>01 · Video asset library</span>
         <div className="publish-cart">
-          <div className="publish-cart-head"><div><b>Daily publish cart</b><small>Choose up to 10 Hooks. Scheduling happens after you confirm in P3.</small></div><div>{cartDates.map((date, index) => <button key={date} className={cartDate === date ? "selected" : ""} onClick={() => setCartDate(date)}>{index === 0 ? "Today" : "Tomorrow"}<small>{date}</small></button>)}</div></div>
-          <ol>{cartItems.filter((item) => item.cartDate === cartDate).map((item, index, items) => <li key={item.id}><span>{index + 1}</span><div><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></div><button disabled={cartBusy || index === 0} onClick={() => moveCartItem(item.id, -1)} aria-label="Move up">↑</button><button disabled={cartBusy || index === items.length - 1} onClick={() => moveCartItem(item.id, 1)} aria-label="Move down">↓</button><button disabled={cartBusy} onClick={() => removeFromCart(item.id)}>Remove</button></li>)}</ol>
+          <div className="publish-cart-head"><div><b>Daily publish cart</b><small>Choose up to 10 Hooks, review their fixed Pacific times, then confirm once.</small></div><div>{cartDates.map((date, index) => <button key={date} className={cartDate === date ? "selected" : ""} onClick={() => setCartDate(date)}>{index === 0 ? "Today" : "Tomorrow"}<small>{date}</small></button>)}</div></div>
+          <ol>{visibleCartItems.map((item, index, items) => <li key={item.id}><span>{index + 1}</span><div><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></div><time>{visibleCartSlots[index] ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(visibleCartSlots[index])) : "No slot"}</time><button disabled={cartBusy || index === 0} onClick={() => moveCartItem(item.id, -1)} aria-label="Move up">↑</button><button disabled={cartBusy || index === items.length - 1} onClick={() => moveCartItem(item.id, 1)} aria-label="Move down">↓</button><button disabled={cartBusy} onClick={() => removeFromCart(item.id)}>Remove</button></li>)}</ol>
           {!cartItems.some((item) => item.cartDate === cartDate) && <p>No Hooks in this cart yet.</p>}
-          <strong>{cartItems.filter((item) => item.cartDate === cartDate).length} / 10</strong>
+          <strong>{visibleCartItems.length} / 10</strong>
+          {cartItems.some((item) => item.cartDate === cartDate) && <button className="confirm-cart-button" disabled={cartBusy} onClick={confirmCart}>{cartBusy ? "Scheduling…" : "Confirm fixed schedule"}</button>}
+          {cartScheduled && <p className="cart-scheduled-message">{cartScheduled}</p>}
         </div>
         <div className="publish-summary" aria-label="Publish queue summary">
           <span><b>{unpublishedHookCount}</b><small>Saved hooks left</small></span>

@@ -51,3 +51,11 @@ export async function reorderPublishCartItems(cartDate: string, ids: string[]) {
   const rows = await request("rpc/reorder_publish_cart_items", { method: "POST", body: JSON.stringify({ p_cart_date: cartDate, p_item_ids: ids }) }) as Row[];
   return rows.map(fromRow);
 }
+export async function markPublishCartItemScheduled(id: string, publishPackageId: string) {
+  const rows = await request(`publish_cart_items?id=eq.${encodeURIComponent(id)}&status=eq.cart`, {
+    method: "PATCH", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ status: "scheduled", publish_package_id: publishPackageId, updated_at: new Date().toISOString() }),
+  }) as Row[];
+  if (!rows[0]) throw new Error("Cart item changed; reload and try again");
+  return fromRow(rows[0]);
+}
