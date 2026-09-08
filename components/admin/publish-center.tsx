@@ -56,6 +56,7 @@ type Package = {
   yixiaoerUpdatedAt?: string;
 };
 type YAccount = { id: string; name: string; platform: string; status: number };
+type CartItem = { id: string; cartDate: string; position: number; assetId: string; dramaTitle: string; episodeNumber: number; title: string; videoUrl: string };
 type DeliveryMode = "draft" | "now" | "scheduled";
 type AssetRow = {
   key: string;
@@ -262,6 +263,10 @@ export function PublishCenter({
   const [libraryStateRestored, setLibraryStateRestored] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
   const [libraryPreviewKey, setLibraryPreviewKey] = useState("");
+  const [cartDates, setCartDates] = useState<string[]>([]);
+  const [cartDate, setCartDate] = useState("");
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartBusy, setCartBusy] = useState(false);
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(() => {
     try {
@@ -284,6 +289,39 @@ export function PublishCenter({
       .then(setRecent)
       .catch(() => {});
   }, []);
+  async function loadCart() {
+    const response = await fetch("/api/admin/publish-cart", { cache: "no-store" });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.message || "Could not load publish cart");
+    setCartDates(json.dates || []);
+    setCartDate((current) => current || json.dates?.[0] || "");
+    setCartItems(json.items || []);
+  }
+  useEffect(() => { loadCart().catch((reason) => setError(reason.message)); }, []);
+  async function addToCart(assetId: string) {
+    if (!cartDate || cartBusy) return;
+    setCartBusy(true); setError("");
+    try {
+      const response = await fetch("/api/admin/publish-cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cartDate, assetId }) });
+      const json = await response.json(); if (!response.ok) throw new Error(json.message); await loadCart();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add Hook to cart"); }
+    finally { setCartBusy(false); }
+  }
+  async function removeFromCart(id: string) {
+    if (cartBusy) return;
+    setCartBusy(true); setError("");
+    try { const response = await fetch(`/api/admin/publish-cart?id=${encodeURIComponent(id)}`, { method: "DELETE" }); if (!response.ok) throw new Error((await response.json()).message); await loadCart(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not remove cart item"); }
+    finally { setCartBusy(false); }
+  }
+  async function moveCartItem(id: string, direction: -1 | 1) {
+    const items = cartItems.filter((item) => item.cartDate === cartDate); const index = items.findIndex((item) => item.id === id); const next = index + direction;
+    if (index < 0 || next < 0 || next >= items.length || cartBusy) return;
+    [items[index], items[next]] = [items[next], items[index]]; setCartBusy(true); setError("");
+    try { const response = await fetch("/api/admin/publish-cart", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cartDate, itemIds: items.map((item) => item.id) }) }); const json = await response.json(); if (!response.ok) throw new Error(json.message); await loadCart(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not reorder cart"); }
+    finally { setCartBusy(false); }
+  }
   useEffect(() => {
     if (yixiaoerReady) void loadAccounts(platforms, accountIds);
   }, [yixiaoerReady, platforms]);
@@ -900,6 +938,12 @@ export function PublishCenter({
       </section>
       <section className="asset-library">
         <span>01 · Video asset library</span>
+        <div className="publish-cart">
+          <div className="publish-cart-head"><div><b>Daily publish cart</b><small>Choose up to 10 Hooks. Scheduling happens after you confirm in P3.</small></div><div>{cartDates.map((date, index) => <button key={date} className={cartDate === date ? "selected" : ""} onClick={() => setCartDate(date)}>{index === 0 ? "Today" : "Tomorrow"}<small>{date}</small></button>)}</div></div>
+          <ol>{cartItems.filter((item) => item.cartDate === cartDate).map((item, index, items) => <li key={item.id}><span>{index + 1}</span><div><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></div><button disabled={cartBusy || index === 0} onClick={() => moveCartItem(item.id, -1)} aria-label="Move up">↑</button><button disabled={cartBusy || index === items.length - 1} onClick={() => moveCartItem(item.id, 1)} aria-label="Move down">↓</button><button disabled={cartBusy} onClick={() => removeFromCart(item.id)}>Remove</button></li>)}</ol>
+          {!cartItems.some((item) => item.cartDate === cartDate) && <p>No Hooks in this cart yet.</p>}
+          <strong>{cartItems.filter((item) => item.cartDate === cartDate).length} / 10</strong>
+        </div>
         <div className="publish-summary" aria-label="Publish queue summary">
           <span><b>{unpublishedHookCount}</b><small>Saved hooks left</small></span>
           <span><b>{publishedTodayCount}</b><small>Published today</small></span>
@@ -925,11 +969,12 @@ export function PublishCenter({
               </summary>
               <DramaLibraryExpanded
                 episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber) }; })}
-                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.latest ? packageState(row.latest) : "Saved" }))}
+                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.latest ? packageState(row.latest) : "Saved", inCart: cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }))}
                 previewEpisode={libraryPreviewKey.startsWith(`episode:${group.source.id}:`) ? Number(libraryPreviewKey.split(":").at(-1)) : null}
                 onPreviewEpisode={(episode) => setLibraryPreviewKey((current) => current === `episode:${group.source.id}:${episode.episodeNumber}` ? "" : `episode:${group.source.id}:${episode.episodeNumber}`)}
                 selectedHookId={group.assets.some((row) => row.key === libraryPreviewKey) ? libraryPreviewKey : null}
                 onSelectHook={(hook) => setLibraryPreviewKey((current) => current === hook.id ? "" : hook.id)}
+                onAddHookToCart={(hook) => addToCart(hook.id)}
                 renderHookPreview={(hook) => { const row = group.assets.find((item) => item.key === hook.id); return row ? <div className="compact-hook-preview"><video src={row.videoUrl} controls preload="metadata" playsInline/><div><h3>{row.label}</h3><p>{row.detail}</p><button type="button" onClick={() => row.kind === "draft" ? selectAsset(row) : row.latest ? openPackage(row.latest) : selectAsset(row)}>{row.kind === "draft" ? "Review" : row.latest ? "View result" : "Publish"}</button></div></div> : null; }}
                 actions={<><b>Publishing</b><small>{group.uploaded.size} uploaded · {group.published} published · {group.scheduled} scheduled</small></>}
               />

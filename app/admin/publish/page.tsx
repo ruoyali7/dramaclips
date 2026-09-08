@@ -17,6 +17,7 @@ import { listLibraryAssets } from "@/lib/admin/asset-library";
 import "../asset-library.css";
 import "../compact-hook-preview.css";
 import "../publish-library-refinements.css";
+import "../publish-cart.css";
 
 export const dynamic = "force-dynamic";
 export default async function Page() {
