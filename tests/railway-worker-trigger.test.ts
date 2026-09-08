@@ -34,7 +34,7 @@ describe("Railway worker trigger",()=>{
   });
 
   it("returns disabled without calling Railway when configuration is missing",async()=>{
-    await expect(triggerRailwayWorker()).resolves.toEqual({status:"disabled"});
+    await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"disabled"});
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -42,7 +42,7 @@ describe("Railway worker trigger",()=>{
     configure();
     fetchMock.mockResolvedValueOnce(jsonResponse(deploymentResponse(false)));
 
-    await expect(triggerRailwayWorker()).resolves.toEqual({status:"already_running",deploymentId:"deployment-1"});
+    await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"already_running",deploymentId:"deployment-1"});
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url,init]=fetchMock.mock.calls[0] as [string,RequestInit];
     expect(url).toBe("https://backboard.railway.com/graphql/v2");
@@ -57,7 +57,7 @@ describe("Railway worker trigger",()=>{
       .mockResolvedValueOnce(jsonResponse(deploymentResponse(true)))
       .mockResolvedValueOnce(jsonResponse({data:{deploymentRestart:true}}));
 
-    await expect(triggerRailwayWorker()).resolves.toEqual({status:"restarted",deploymentId:"deployment-1"});
+    await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"restarted",deploymentId:"deployment-1"});
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [,init]=fetchMock.mock.calls[1] as [string,RequestInit];
     const body=JSON.parse(String(init.body));
@@ -71,11 +71,28 @@ describe("Railway worker trigger",()=>{
       .mockResolvedValueOnce(jsonResponse({errors:[{message:`token=${token}`}] }))
       .mockRejectedValueOnce(new Error(`request failed with ${token}`));
 
-    const graphqlResult=await triggerRailwayWorker();
-    const networkResult=await triggerRailwayWorker();
+    const graphqlResult=await triggerRailwayWorker("publish");
+    const networkResult=await triggerRailwayWorker("publish");
     expect(graphqlResult).toEqual({status:"failed",error:"Railway worker trigger failed"});
     expect(networkResult).toEqual({status:"failed",error:"Railway worker trigger failed"});
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.stringify([graphqlResult,networkResult])).not.toContain(token);
+  });
+
+  it("uses the service configured for the requested worker kind",async()=>{
+    configure();
+    vi.stubEnv("RAILWAY_HOOK_SERVICE_ID","hook-service");
+    vi.stubEnv("RAILWAY_PUBLISH_SERVICE_ID","publish-service");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(deploymentResponse(false)))
+      .mockResolvedValueOnce(jsonResponse(deploymentResponse(false)));
+
+    await triggerRailwayWorker("hook");
+    await triggerRailwayWorker("publish");
+
+    const hookBody=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const publishBody=JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(hookBody.variables.input.serviceId).toBe("hook-service");
+    expect(publishBody.variables.input.serviceId).toBe("publish-service");
   });
 });

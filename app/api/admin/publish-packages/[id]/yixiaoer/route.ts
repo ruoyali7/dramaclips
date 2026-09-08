@@ -5,7 +5,7 @@ import {triggerRailwayWorker} from "@/lib/admin/railway-worker-trigger";
 import {yixiaoerPlatforms} from "@/lib/admin/yixiaoer";
 
 const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reschedule","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),deliveryMode:z.enum(["now","scheduled"]).optional(),scheduledAt:z.string().datetime().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
-async function queued<T extends {status:string}>(item:T){const workerTrigger=item.status==="scheduled"?{status:"scheduled"}:await triggerRailwayWorker();return NextResponse.json({package:item,workerTrigger},{status:202})}
+async function queued<T extends {status:string}>(item:T){const workerTrigger=item.status==="scheduled"?{status:"scheduled"}:await triggerRailwayWorker("publish");return NextResponse.json({package:item,workerTrigger},{status:202})}
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
   try{
     const input=schema.parse(await request.json());const {id}=await params;

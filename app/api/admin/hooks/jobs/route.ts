@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       },
       forceNew: input.forceNew,
     });
-    const workerTrigger = await triggerRailwayWorker();
+    const workerTrigger = await triggerRailwayWorker("hook");
     return NextResponse.json({ job, workerTrigger }, { status: 202 });
   } catch (error) {
     if (error instanceof ZodError)

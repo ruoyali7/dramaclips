@@ -28,6 +28,8 @@ type RailwayConfig = {
   serviceId: string;
 };
 
+export type RailwayWorkerKind = "hook" | "publish";
+
 type GraphQLResponse<T> = {
   data?: T;
   errors?: unknown[];
@@ -55,12 +57,15 @@ export type RailwayWorkerTriggerResult =
   | { status: "restarted"; deploymentId: string }
   | { status: "failed"; error: string };
 
-function getConfig(): RailwayConfig | null {
+function getConfig(kind: RailwayWorkerKind): RailwayConfig | null {
+  const kindServiceId = kind === "hook"
+    ? process.env.RAILWAY_HOOK_SERVICE_ID?.trim()
+    : process.env.RAILWAY_PUBLISH_SERVICE_ID?.trim();
   const values = {
     token: process.env.RAILWAY_TRIGGER_TOKEN?.trim(),
     projectId: process.env.RAILWAY_PROJECT_ID?.trim(),
     environmentId: process.env.RAILWAY_ENVIRONMENT_ID?.trim(),
-    serviceId: process.env.RAILWAY_SERVICE_ID?.trim(),
+    serviceId: kindServiceId || process.env.RAILWAY_SERVICE_ID?.trim(),
   };
   return values.token && values.projectId && values.environmentId && values.serviceId
     ? values as RailwayConfig
@@ -82,8 +87,8 @@ async function request<T>(token: string, query: string, variables: Record<string
   return payload.data;
 }
 
-export async function triggerRailwayWorker(): Promise<RailwayWorkerTriggerResult> {
-  const config = getConfig();
+export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<RailwayWorkerTriggerResult> {
+  const config = getConfig(kind);
   if (!config) return { status: "disabled" };
 
   try {
