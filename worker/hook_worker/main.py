@@ -16,6 +16,8 @@ from .upload import primary_publish_channel,retry_upload
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
 ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
+ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
+ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
@@ -474,9 +476,9 @@ def run_publish(job):
  failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
  publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} idle_poll={IDLE_POLL_SECONDS}s",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} idle_poll={IDLE_POLL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)
- if not WORKER_ONESHOT:
+ if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
  while True:
@@ -485,14 +487,14 @@ def main():
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
-   if WORKER_ONESHOT and process_vizard_once():worked=True
+   if WORKER_ONESHOT and ENABLE_VIZARD_WORKER and process_vizard_once():worked=True
    if ENABLE_HOOK_WORKER:
     job=lease("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
     if job:
      worked=True
      try:run(job)
      except Exception as e:update(job,"failed",100,errorCategory="worker_pipeline",errorMessage=str(e)[:300])
-   publish_job=lease("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job")
+   publish_job=lease("/api/internal/publish-worker/lease",{"workerId":WORKER,"leaseSeconds":900}).get("job") if ENABLE_PUBLISH_WORKER else None
    if publish_job:
     worked=True
     try:run_publish(publish_job)

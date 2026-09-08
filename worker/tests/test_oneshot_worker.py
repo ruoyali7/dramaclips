@@ -31,6 +31,19 @@ class OneshotWorkerTests(unittest.TestCase):
             {"workerId": main.WORKER, "leaseSeconds": 900},
         )
 
+    def test_publish_only_worker_does_not_check_vizard(self):
+        with (
+            patch.object(main, "ENABLE_VIZARD_WORKER", False),
+            patch.object(main, "ENABLE_PUBLISH_WORKER", True),
+            patch.object(main, "sync_yixiaoer_accounts"),
+            patch.object(main, "process_vizard_once") as process_vizard,
+            patch.object(main, "lease", return_value={"job": None}),
+            patch.object(main, "cleanup_worker_temps"),
+        ):
+            main.main()
+
+        process_vizard.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
