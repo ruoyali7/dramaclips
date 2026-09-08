@@ -30,9 +30,12 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
     const retryPlatforms=input.action==="retry"?selected.filter(pack=>{
       const result=item.yixiaoerResults?.[pack.source];
-      return result&&typeof result==="object"&&(result as Record<string,unknown>).state==="failed";
+      // A package can be terminally failed after a sibling platform succeeded.
+      // Retry every platform without a confirmed published result so recovery
+      // can continue the package without republishing successful platforms.
+      return !result||typeof result!=="object"||(result as Record<string,unknown>).state!=="published";
     }).map(pack=>pack.source):undefined;
-    if(input.action==="retry"&&!retryPlatforms?.length)return NextResponse.json({message:"No confirmed failed platforms can be retried"},{status:409});
+    if(input.action==="retry"&&!retryPlatforms?.length)return NextResponse.json({message:"No unpublished platforms can be retried"},{status:409});
     if(input.action==="retry"&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
     const action=input.action==="reconcile"||input.action==="retry"?"publish":input.action==="draft"?"validate":input.action;
     const control=input.action==="reconcile"?{reconcilePlatforms:[input.platform!]}:input.action==="retry"?{retryPlatforms}:input.action==="draft"?{saveDraft:true}:undefined;
