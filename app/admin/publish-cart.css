@@ -23,4 +23,11 @@
 .publish-cart .confirm-cart-button { border: 1px solid #171717; background: #171717; color: #fff; padding: 9px 13px; margin-top: 12px; font-size: 9px; }
 .publish-cart .confirm-cart-button:disabled { opacity: .5; }
 .publish-cart .cart-scheduled-message { color: #34724c; }
+.scheduled-cart-items { border-top: 1px solid #d9d6ce; margin-top: 14px; padding-top: 12px; }
+.scheduled-cart-items > b { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #666; margin-bottom: 5px; }
+.scheduled-cart-items > div { display: grid; grid-template-columns: 48px 1fr 130px auto auto; gap: 8px; align-items: center; border-top: 1px solid #e5e2db; padding: 8px 0; }
+.scheduled-cart-items time { font-size: 9px; font-weight: 700; color: #a06048; }
+.scheduled-cart-items span b, .scheduled-cart-items span small { display: block; }
+.scheduled-cart-items span b { font-size: 9px; }.scheduled-cart-items span small { color: #888; font-size: 8px; margin-top: 3px; }
+.scheduled-cart-items button { border: 1px solid #d4d1c9; background: #fff; padding: 6px 8px; font-size: 8px; }
 @media (max-width: 700px) { .publish-cart-head { display: block; } .publish-cart-head > div:last-child { margin-top: 10px; } }

@@ -11,7 +11,7 @@ function failure(error: unknown) {
   const status = error instanceof ZodError || message.includes("must be") || message.includes("limited") || message.includes("changed") ? 400 : 503;
   return NextResponse.json({ message }, { status });
 }
-export async function GET() { try { const dates = [...pacificCartDates()]; return NextResponse.json({ dates, items: await listPublishCartItems(dates) }); } catch (error) { return failure(error); } }
+export async function GET() { try { const dates = [...pacificCartDates()]; const [items, scheduledItems] = await Promise.all([listPublishCartItems(dates), listPublishCartItems(dates, ["scheduled"])]); return NextResponse.json({ dates, items, scheduledItems }); } catch (error) { return failure(error); } }
 export async function POST(request: NextRequest) { try {
   const input = z.object({ cartDate: dateSchema, assetId: z.string().min(1).max(200) }).parse(await request.json());
   allowedDate(input.cartDate);

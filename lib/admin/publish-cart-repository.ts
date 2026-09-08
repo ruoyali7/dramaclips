@@ -7,7 +7,9 @@ export type PublishCartItem = {
   id: string; cartDate: string; position: number; assetId: string;
   assetSource: "hook_clip" | "vizard"; dramaId: string; dramaSlug: string;
   dramaTitle: string; episodeNumber: number; title: string; videoUrl: string;
-  durationSeconds: number; status: "cart" | "removed" | "scheduled"; createdAt: string;
+  durationSeconds: number; status: "cart" | "removed" | "scheduled" | "canceled"; createdAt: string;
+  publishPackageId?: string;
+  scheduledAt?: string;
 };
 
 async function request(path: string, init: RequestInit = {}) {
@@ -27,12 +29,12 @@ const fromRow = (row: Row): PublishCartItem => ({
   assetSource: row.asset_source, dramaId: row.drama_id, dramaSlug: row.drama_slug,
   dramaTitle: row.drama_title, episodeNumber: row.episode_number, title: row.title,
   videoUrl: row.video_url, durationSeconds: Number(row.duration_seconds || 0),
-  status: row.status, createdAt: row.created_at,
+  status: row.status, createdAt: row.created_at, publishPackageId: row.publish_package_id || undefined, scheduledAt: row.scheduled_at || undefined,
 });
 
-export async function listPublishCartItems(dates: string[]) {
+export async function listPublishCartItems(dates: string[], statuses: PublishCartItem["status"][] = ["cart"]) {
   if (!dates.length) return [];
-  const rows = await request(`publish_cart_items?cart_date=in.(${dates.join(",")})&status=eq.cart&select=*&order=cart_date.asc,position.asc`) as Row[];
+  const rows = await request(`publish_cart_items?cart_date=in.(${dates.join(",")})&status=in.(${statuses.join(",")})&select=*&order=cart_date.asc,position.asc`) as Row[];
   return rows.map(fromRow);
 }
 export async function addPublishCartItem(cartDate: string, asset: LibraryAsset) {
@@ -51,11 +53,23 @@ export async function reorderPublishCartItems(cartDate: string, ids: string[]) {
   const rows = await request("rpc/reorder_publish_cart_items", { method: "POST", body: JSON.stringify({ p_cart_date: cartDate, p_item_ids: ids }) }) as Row[];
   return rows.map(fromRow);
 }
-export async function markPublishCartItemScheduled(id: string, publishPackageId: string) {
+export async function markPublishCartItemScheduled(id: string, publishPackageId: string, scheduledAt: string) {
   const rows = await request(`publish_cart_items?id=eq.${encodeURIComponent(id)}&status=eq.cart`, {
     method: "PATCH", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ status: "scheduled", publish_package_id: publishPackageId, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ status: "scheduled", publish_package_id: publishPackageId, scheduled_at: scheduledAt, updated_at: new Date().toISOString() }),
   }) as Row[];
   if (!rows[0]) throw new Error("Cart item changed; reload and try again");
   return fromRow(rows[0]);
+}
+export async function cancelPublishCartItem(id: string) {
+  const rows = await request(`publish_cart_items?id=eq.${encodeURIComponent(id)}&status=eq.scheduled`, {
+    method: "PATCH", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ status: "canceled", updated_at: new Date().toISOString() }),
+  }) as Row[];
+  if (!rows[0]) throw new Error("Scheduled cart item not found");
+  return fromRow(rows[0]);
+}
+export async function getPublishCartItem(id: string) {
+  const rows = await request(`publish_cart_items?id=eq.${encodeURIComponent(id)}&select=*&limit=1`) as Row[];
+  return rows[0] ? fromRow(rows[0]) : null;
 }
