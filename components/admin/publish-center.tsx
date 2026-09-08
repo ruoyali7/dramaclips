@@ -853,7 +853,7 @@ export function PublishCenter({
   ) {
     const message = action === "reconcile"
       ? `Query Yixiaoer for the latest ${platform} result before retrying?`
-      : `Retry all failed platforms? Already published platforms will not be submitted again.`;
+      : `Continue all unpublished platforms? Already published platforms will not be submitted again.`;
     if (!window.confirm(message)) return;
     setError("");
     try {

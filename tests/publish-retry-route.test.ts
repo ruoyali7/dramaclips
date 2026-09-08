@@ -39,7 +39,7 @@ describe("publish retry route",()=>{
     getPackage.mockResolvedValue({
       id:"package-1",status:"failed",yixiaoerAction:null,
       platforms:[{source:"tiktok"},{source:"instagram"},{source:"facebook"},{source:"youtube"}],
-      yixiaoerResults:{tiktok:{state:"published"},instagram:{state:"published"}},
+      yixiaoerResults:{tiktok:{state:"published"},instagram:{state:"published"},facebook:{state:"failed"}},
     });
     const accounts={tiktok:"tiktok-1",instagram:"instagram-1",facebook:"facebook-1",youtube:"youtube-1"};
     enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
