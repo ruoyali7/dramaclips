@@ -36,13 +36,13 @@ export async function listPublishCartItems(dates: string[]) {
   return rows.map(fromRow);
 }
 export async function addPublishCartItem(cartDate: string, asset: LibraryAsset) {
-  const rows = await request("rpc/add_publish_cart_item", { method: "POST", body: JSON.stringify({
+  const result = await request("rpc/add_publish_cart_item", { method: "POST", body: JSON.stringify({
     p_cart_date: cartDate, p_asset_id: asset.id, p_asset_source: asset.source,
     p_drama_id: asset.dramaId, p_drama_slug: asset.dramaSlug, p_drama_title: asset.dramaTitle,
     p_episode_number: asset.episodeNumber, p_title: asset.title, p_video_url: asset.videoUrl,
     p_duration_seconds: asset.durationSeconds,
-  }) }) as Row[];
-  return fromRow(rows[0]);
+  }) }) as Row | Row[];
+  return fromRow(Array.isArray(result) ? result[0] : result);
 }
 export async function removePublishCartItem(id: string) {
   await request("rpc/remove_publish_cart_item", { method: "POST", body: JSON.stringify({ p_item_id: id }) });
