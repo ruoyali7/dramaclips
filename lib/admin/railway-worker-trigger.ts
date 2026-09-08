@@ -8,7 +8,9 @@ const DEPLOYMENTS_QUERY = `
         node {
           id
           status
-          deploymentStopped
+          instances {
+            status
+          }
         }
       }
     }
@@ -38,7 +40,7 @@ type GraphQLResponse<T> = {
 type Deployment = {
   id: string;
   status: string;
-  deploymentStopped: boolean;
+  instances: Array<{ status: string }>;
 };
 
 type DeploymentQueryData = {
@@ -101,10 +103,11 @@ export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<Rai
       first: 1,
     });
     const deployment = queryData.deployments?.edges?.[0]?.node;
-    if (!deployment || !deployment.id || typeof deployment.deploymentStopped !== "boolean") {
+    if (!deployment || !deployment.id || !Array.isArray(deployment.instances)) {
       return { status: "failed", error: "No valid deployment found" };
     }
-    if (!deployment.deploymentStopped) {
+    const activeStatuses = new Set(["INITIALIZING", "RUNNING", "RESTARTING"]);
+    if (deployment.instances.some((instance) => activeStatuses.has(instance.status))) {
       return { status: "already_running", deploymentId: deployment.id };
     }
 

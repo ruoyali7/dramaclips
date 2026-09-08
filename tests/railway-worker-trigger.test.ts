@@ -18,8 +18,8 @@ function configure(){
   vi.stubEnv("RAILWAY_SERVICE_ID","service-id");
 }
 
-function deploymentResponse(deploymentStopped:boolean){
-  return {data:{deployments:{edges:[{node:{id:"deployment-1",status:deploymentStopped?"SLEEPING":"SUCCESS",deploymentStopped}}]}}};
+function deploymentResponse(instanceStatus:string){
+  return {data:{deployments:{edges:[{node:{id:"deployment-1",status:"SUCCESS",instances:[{status:instanceStatus}]}}]}}};
 }
 
 describe("Railway worker trigger",()=>{
@@ -40,7 +40,7 @@ describe("Railway worker trigger",()=>{
 
   it("returns already_running for the latest active deployment",async()=>{
     configure();
-    fetchMock.mockResolvedValueOnce(jsonResponse(deploymentResponse(false)));
+    fetchMock.mockResolvedValueOnce(jsonResponse(deploymentResponse("RUNNING")));
 
     await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"already_running",deploymentId:"deployment-1"});
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -54,7 +54,7 @@ describe("Railway worker trigger",()=>{
   it("restarts the latest stopped deployment",async()=>{
     configure();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(deploymentResponse(true)))
+      .mockResolvedValueOnce(jsonResponse(deploymentResponse("CREATED")))
       .mockResolvedValueOnce(jsonResponse({data:{deploymentRestart:true}}));
 
     await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"restarted",deploymentId:"deployment-1"});
@@ -84,8 +84,8 @@ describe("Railway worker trigger",()=>{
     vi.stubEnv("RAILWAY_HOOK_SERVICE_ID","hook-service");
     vi.stubEnv("RAILWAY_PUBLISH_SERVICE_ID","publish-service");
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(deploymentResponse(false)))
-      .mockResolvedValueOnce(jsonResponse(deploymentResponse(false)));
+      .mockResolvedValueOnce(jsonResponse(deploymentResponse("RUNNING")))
+      .mockResolvedValueOnce(jsonResponse(deploymentResponse("RUNNING")));
 
     await triggerRailwayWorker("hook");
     await triggerRailwayWorker("publish");
