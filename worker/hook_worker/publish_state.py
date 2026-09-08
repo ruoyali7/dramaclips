@@ -39,6 +39,15 @@ def publish_record_state(record):
     return "processing"
 
 
+def final_publish_status(results, platforms, action):
+    if action != "publish":
+        return "ready"
+    states = [results.get(platform["source"], {}).get("state") for platform in platforms]
+    if any(state == "outcome_unknown" for state in states):
+        return "outcome_unknown"
+    return "published" if states and all(state == "published" for state in states) else "failed"
+
+
 def terminal_operation(detail, stage, error=None):
     operation = dict(detail.get("_operation") or {}) if isinstance(detail, dict) else {}
     operation["stage"] = stage

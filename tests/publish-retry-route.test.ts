@@ -2,7 +2,7 @@ import {beforeEach,describe,expect,it,vi} from "vitest";
 
 const {enqueue,getPackage}=vi.hoisted(()=>({enqueue:vi.fn(),getPackage:vi.fn()}));
 vi.mock("@/lib/admin/publish-repository",()=>({enqueueYixiaoerPackage:enqueue,getPublishPackage:getPackage,requestCancelYixiaoerPackage:vi.fn(),rescheduleYixiaoerPackage:vi.fn()}));
-vi.mock("@/lib/admin/yixiaoer",()=>({yixiaoerPlatforms:["tiktok"]}));
+vi.mock("@/lib/admin/yixiaoer",()=>({yixiaoerPlatforms:["tiktok","instagram","facebook","youtube"]}));
 import {POST} from "@/app/api/admin/publish-packages/[id]/yixiaoer/route";
 
 const context={params:Promise.resolve({id:"package-1"})};
@@ -33,5 +33,20 @@ describe("publish retry route",()=>{
     enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
     await POST(request({action:"retry-upload",deliveryMode:"now",accounts:{tiktok:"account-1"}}) as never,context);
     expect(enqueue).toHaveBeenCalledWith("package-1",{action:"publish",accounts:{tiktok:"account-1"},control:undefined,scheduledAt:undefined,clearSchedule:true});
+  });
+
+  it("continues only platforms without a confirmed published result",async()=>{
+    getPackage.mockResolvedValue({
+      id:"package-1",status:"failed",yixiaoerAction:null,
+      platforms:[{source:"tiktok"},{source:"instagram"},{source:"facebook"},{source:"youtube"}],
+      yixiaoerResults:{tiktok:{state:"published"},instagram:{state:"published"}},
+    });
+    const accounts={tiktok:"tiktok-1",instagram:"instagram-1",facebook:"facebook-1",youtube:"youtube-1"};
+    enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
+    const response=await POST(request({action:"retry",deliveryMode:"now",accounts}) as never,context);
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith("package-1",{
+      action:"publish",accounts,control:{retryPlatforms:["facebook","youtube"]},scheduledAt:undefined,clearSchedule:true,
+    });
   });
 });

@@ -9,7 +9,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .publish_state import find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
+from .publish_state import final_publish_status,find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
 from .runtime_config import load_runtime_config
 from .upload import primary_publish_channel,retry_upload
 
@@ -426,7 +426,7 @@ def run_publish(job):
    try:reconcile_publish(job,source,request_id,results,assets,payloads,platform_heartbeat)
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error)
-    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+    publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results,error=str(error));continue
    except RuntimeError as error:
     results[source]["state"]="failed";results[source]["error"]=str(error)[:500]
     publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results)
@@ -469,7 +469,10 @@ def run_publish(job):
    try:reconcile_publish(job,source,request_id,results,assets,payloads,platform_heartbeat)
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error)
-    publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
+    publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results,error=str(error));continue
+   except RuntimeError as error:
+    results[source]["state"]="failed";results[source]["error"]=str(error)[:500]
+    publish_update(job,"publishing",platform_progress,video=assets,payloads=payloads,results=results,error=str(error));continue
   if action!="publish":results[source]=checked
   publish_update(job,status if action!="publish" else "publishing",45+int((index+1)/max(1,len(pending))*45),video=assets,payloads=payloads,results=results)
  if control.get("saveDraft"):
@@ -480,8 +483,8 @@ def run_publish(job):
   if draft_heartbeat():raise PublishCanceled("Canceled by user")
   response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
   publish_update(job,"ready",100,terminal=True,video=assets,payloads=payloads,results=results);return
- failed=any(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="failed" for p in job["platforms"] if p["source"] in payloads)
- publish_update(job,"failed" if failed else ("ready" if action=="validate" else "published"),100,terminal=True,video=assets,payloads=payloads,results=results)
+ terminal_status=final_publish_status(results,[p for p in job["platforms"] if p["source"] in payloads],action)
+ publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} idle_poll={IDLE_POLL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)

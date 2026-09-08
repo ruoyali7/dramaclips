@@ -1,6 +1,7 @@
 import unittest
 
 from hook_worker.publish_state import (
+    final_publish_status,
     find_publish_record,
     provider_request_id,
     publish_record_state,
@@ -10,6 +11,25 @@ from hook_worker.publish_state import (
 
 
 class PublishStateTests(unittest.TestCase):
+    def test_final_status_keeps_independent_platform_results(self):
+        platforms = [{"source": "instagram"}, {"source": "facebook"}]
+        self.assertEqual(
+            final_publish_status(
+                {"instagram": {"state": "failed"}, "facebook": {"state": "published"}},
+                platforms,
+                "publish",
+            ),
+            "failed",
+        )
+        self.assertEqual(
+            final_publish_status(
+                {"instagram": {"state": "outcome_unknown"}, "facebook": {"state": "published"}},
+                platforms,
+                "publish",
+            ),
+            "outcome_unknown",
+        )
+
     def test_resumes_an_existing_nonterminal_provider_request(self):
         detail = {
             "state": "outcome_unknown",
