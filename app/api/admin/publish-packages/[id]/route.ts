@@ -5,6 +5,11 @@ import {getPublishPackage,publishingPlatforms,updatePublishPackagePlatforms} fro
 const platformSchema=z.object({source:z.enum(publishingPlatforms),shortCode:z.string().max(100),url:z.string().url(),hook:z.string().max(500),cta:z.string().max(180).optional(),hashtags:z.string().max(500).optional(),hashtagSource:z.string().max(80).optional(),caption:z.string().max(10000)});
 const schema=z.object({platforms:z.array(platformSchema).min(1).max(5)});
 
+export async function GET(_request:NextRequest,{params}:{params:Promise<{id:string}>}){
+ const {id}=await params;const item=await getPublishPackage(id);
+ return item?NextResponse.json({package:item}):NextResponse.json({message:"Publish package not found"},{status:404});
+}
+
 export async function PATCH(request:NextRequest,{params}:{params:Promise<{id:string}>}){
  try{
   const {id}=await params;const input=schema.parse(await request.json());const item=await getPublishPackage(id);

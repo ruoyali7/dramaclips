@@ -6,6 +6,7 @@ import {
   listHookJobs,
 } from "@/lib/admin/hook-job-repository";
 import { listVizardSources } from "@/lib/admin/repository";
+import { triggerRailwayWorker } from "@/lib/admin/railway-worker-trigger";
 const schema = z.object({
   dramaId: z.string().uuid(),
   episodeNumbers: z.array(z.number().int().positive()).min(1).max(15),
@@ -64,7 +65,8 @@ export async function POST(request: NextRequest) {
       },
       forceNew: input.forceNew,
     });
-    return NextResponse.json({ job }, { status: 202 });
+    const workerTrigger = await triggerRailwayWorker();
+    return NextResponse.json({ job, workerTrigger }, { status: 202 });
   } catch (error) {
     if (error instanceof ZodError)
       return NextResponse.json(

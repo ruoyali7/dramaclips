@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { VizardStudio } from "./vizard-studio";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 type Episode = { episodeNumber: number; videoUrl: string };
 type Asset = {
@@ -175,22 +176,18 @@ export function HookStudioDashboard({
     if (!libraryStateRestored) return;
     window.localStorage.setItem("dramaclips:hooks-library", JSON.stringify({ page, pageSize, expandedIds: expandedLibraryIds, selectedHookId: selectedId || "" }));
   }, [page, pageSize, expandedLibraryIds, selectedId, libraryStateRestored]);
-  useEffect(() => {
-    if (
-      !job ||
-      ["review_ready", "no_result", "failed", "canceled"].includes(job.status)
-    )
-      return;
-    const timer = window.setInterval(async () => {
+  useAdaptivePolling(
+    Boolean(job && !["review_ready", "no_result", "failed", "canceled"].includes(job.status)),
+    async () => {
+      if (!job) return;
       const response = await fetch(
         `/api/admin/hooks/jobs?id=${encodeURIComponent(job.id)}`,
         { cache: "no-store" },
       );
       const json = await response.json();
       if (response.ok) setJob(json.job);
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, [job]);
+    },
+  );
   function toggleEpisode(number: number) {
     setEpisodes((items) =>
       items.includes(number)

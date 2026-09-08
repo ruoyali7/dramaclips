@@ -12,6 +12,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 type SavedHook = {
   id: string;
@@ -174,25 +175,22 @@ export function HookStudio({
       active = false;
     };
   }, [sourceId]);
-  useEffect(() => {
-    if (!job || terminal.has(job.status)) return;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await fetch(
-          `/api/admin/hooks/jobs?id=${encodeURIComponent(job.id)}`,
-          { cache: "no-store" },
+  useAdaptivePolling(Boolean(job && !terminal.has(job.status)), async () => {
+    if (!job) return;
+    try {
+      const response = await fetch(
+        `/api/admin/hooks/jobs?id=${encodeURIComponent(job.id)}`,
+        { cache: "no-store" },
+      );
+      const json = await response.json();
+      if (response.ok) {
+        setJob(json.job);
+        setHistory((items) =>
+          items.map((item) => (item.id === json.job.id ? json.job : item)),
         );
-        const json = await response.json();
-        if (response.ok) {
-          setJob(json.job);
-          setHistory((items) =>
-            items.map((item) => (item.id === json.job.id ? json.job : item)),
-          );
-        }
-      } catch {}
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, [job]);
+      }
+    } catch {}
+  });
 
   function selectJob(next: Job | null) {
     setShowSaved(false);

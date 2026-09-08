@@ -1,9 +1,11 @@
 import {NextRequest,NextResponse} from "next/server";
 import {z,ZodError} from "zod";
 import {enqueueYixiaoerPackage,getPublishPackage,requestCancelYixiaoerPackage,rescheduleYixiaoerPackage} from "@/lib/admin/publish-repository";
+import {triggerRailwayWorker} from "@/lib/admin/railway-worker-trigger";
 import {yixiaoerPlatforms} from "@/lib/admin/yixiaoer";
 
 const schema=z.object({action:z.enum(["draft","validate","publish","cancel","reschedule","reconcile","retry","retry-upload"]),platform:z.string().trim().optional(),confirm:z.boolean().optional(),deliveryMode:z.enum(["now","scheduled"]).optional(),scheduledAt:z.string().datetime().optional(),accounts:z.record(z.string().trim().min(1)).default({})});
+async function queued<T extends {status:string}>(item:T){const workerTrigger=item.status==="scheduled"?{status:"scheduled"}:await triggerRailwayWorker();return NextResponse.json({package:item,workerTrigger},{status:202})}
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
   try{
     const input=schema.parse(await request.json());const {id}=await params;
@@ -25,7 +27,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       if(item.status!=="failed"||(!stage.includes("upload")&&stage!=="downloading_from_r2"))return NextResponse.json({message:"Only a failed upload can be retried here"},{status:409});
       const intent=item.yixiaoerResults?._intent as Record<string,unknown>|undefined;const draft=intent?.deliveryMode==="draft";
       if(!draft&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
-      return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined,scheduledAt:!draft&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:!draft&&input.deliveryMode==="now"})},{status:202});
+      return queued(await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined,scheduledAt:!draft&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:!draft&&input.deliveryMode==="now"}));
     }
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
     const retryPlatforms=input.action==="retry"?selected.filter(pack=>{
@@ -39,6 +41,6 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     if(input.action==="retry"&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
     const action=input.action==="reconcile"||input.action==="retry"?"publish":input.action==="draft"?"validate":input.action;
     const control=input.action==="reconcile"?{reconcilePlatforms:[input.platform!]}:input.action==="retry"?{retryPlatforms}:input.action==="draft"?{saveDraft:true}:undefined;
-    return NextResponse.json({package:await enqueueYixiaoerPackage(id,{action,accounts:input.accounts,control,scheduledAt:input.action==="retry"&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:input.action==="retry"&&input.deliveryMode==="now"})},{status:202});
+    return queued(await enqueueYixiaoerPackage(id,{action,accounts:input.accounts,control,scheduledAt:input.action==="retry"&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:input.action==="retry"&&input.deliveryMode==="now"}));
   }catch(error){if(error instanceof ZodError)return NextResponse.json({message:"Check action and account selections"},{status:400});return NextResponse.json({message:error instanceof Error?error.message:"Could not queue Yixiaoer operation"},{status:503})}
 }

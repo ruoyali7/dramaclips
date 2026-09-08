@@ -12,6 +12,7 @@ import { PublishCalendar } from "@/components/admin/publish-calendar";
 import { DramaLibraryExpanded } from "@/components/admin/drama-library-expanded";
 import type { LibraryAsset } from "@/lib/admin/asset-library";
 import { futurePacificPublishSlots } from "@/lib/publish-slots";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 type Hook = {
   id: string;
   title: string;
@@ -355,27 +356,18 @@ export function PublishCenter({
     if (yixiaoerReady) void loadAccounts(platforms, accountIds);
   }, [yixiaoerReady, platforms]);
   useEffect(() => setPreviewPacks([]), [sourceId, asset, kind, platforms, account, campaign]);
-  useEffect(() => {
-    if (!created || !created.yixiaoerAction) return;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await fetch("/api/admin/publish-packages", {
-          cache: "no-store",
-        });
-        const json = await response.json();
-        if (!response.ok) return;
-        const packages: Package[] = json.packages || [];
-        setRecent(packages);
-        const next = packages.find((item) => item.id === created.id);
-        if (next) {
-          setCreated(next);
-          if (next.status === "ready" && !next.yixiaoerAction)
-            setValidated(true);
-        }
-      } catch {}
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [created]);
+  useAdaptivePolling(Boolean(created?.yixiaoerAction), async () => {
+    if (!created) return;
+    try {
+      const response = await fetch(`/api/admin/publish-packages/${created.id}`, { cache: "no-store" });
+      const json = await response.json();
+      if (!response.ok || !json.package) return;
+      const next: Package = json.package;
+      setRecent((items) => items.map((item) => item.id === next.id ? next : item));
+      setCreated(next);
+      if (next.status === "ready" && !next.yixiaoerAction) setValidated(true);
+    } catch {}
+  });
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
     if (!created?.yixiaoerAction) return;
