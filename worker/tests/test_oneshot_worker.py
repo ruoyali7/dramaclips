@@ -44,6 +44,17 @@ class OneshotWorkerTests(unittest.TestCase):
 
         process_vizard.assert_not_called()
 
+    def test_vizard_batch_drains_jobs_with_rate_limit_gap(self):
+        with (
+            patch.object(main, "VIZARD_BATCH_MAX_JOBS", 3),
+            patch.object(main, "process_vizard_once", side_effect=[True, True, False]) as process,
+            patch.object(main.time, "sleep") as sleep,
+        ):
+            self.assertEqual(main.process_vizard_batch(), 2)
+
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

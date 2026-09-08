@@ -19,6 +19,7 @@ ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
+VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","25")));VIZARD_SUBMISSION_GAP_SECONDS=max(35,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","36")))
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
@@ -107,6 +108,12 @@ def process_vizard_once():
  try:run_vizard_submission(job)
  except Exception as e:call(f"/api/internal/vizard-worker/jobs/{job['id']}",{"workerId":VIZARD_WORKER,"status":"failed","errorMessage":str(e)[:1000]})
  return True
+def process_vizard_batch():
+ processed=0
+ while processed<VIZARD_BATCH_MAX_JOBS and process_vizard_once():
+  processed+=1
+  if processed<VIZARD_BATCH_MAX_JOBS:time.sleep(VIZARD_SUBMISSION_GAP_SECONDS)
+ return processed
 def update(job,status,progress,**extra): call(f"/api/internal/hook-worker/jobs/{job['id']}",{"workerId":WORKER,"status":status,"progress":progress,**extra})
 def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
@@ -481,13 +488,16 @@ def main():
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
+ vizard_batch_pending=WORKER_ONESHOT and ENABLE_VIZARD_WORKER
  while True:
   try:
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
-   if WORKER_ONESHOT and ENABLE_VIZARD_WORKER and process_vizard_once():worked=True
+   if vizard_batch_pending:
+    if process_vizard_batch():worked=True
+    vizard_batch_pending=False
    if ENABLE_HOOK_WORKER:
     job=lease("/api/internal/hook-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job")
     if job:

@@ -13,6 +13,7 @@ export type VizardProject = {
 export type VizardAsset = { id: string; projectId: string; dramaSlug: string; episodeNumber: number; vizardVideoId: string; title: string; videoUrl: string; objectKey: string; durationSeconds: number; transcript?: string; viralScore?: string; viralReason?: string; clipEditorUrl?: string; metadata: Record<string, unknown>; reviewState:"pending"|"approved"; createdAt: string };
 type Row = Record<string, any>;
 export type VizardSubmissionInput = { dramaId: string; dramaSlug: string; episodeNumber: number; projectName: string; videoUrl: string; settings: Record<string, unknown> };
+export type VizardSubmissionJob = { id:string; dramaId:string; dramaSlug:string; episodeNumber:number; status:"queued"|"submitting"|"submitted"|"rate_limited"|"failed"|"canceled"; errorMessage?:string; createdAt:string; updatedAt:string };
 const local: VizardProject[] = [];
 async function request(path: string, init: RequestInit = {}) {
   const config = getSupabaseConfig(); if (!config.configured) return null;
@@ -30,6 +31,7 @@ export async function enqueueVizardSubmissions(input: VizardSubmissionInput[]) {
   const queued = await request("vizard_submission_jobs?on_conflict=drama_id,episode_number,project_name", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify(rows) }) as Row[];
   return [...retried, ...queued];
 }
+export async function listVizardSubmissionJobs(){const config=getSupabaseConfig();if(!config.configured)return[];const rows=await request("vizard_submission_jobs?select=id,drama_id,drama_slug,episode_number,status,error_message,created_at,updated_at&order=created_at.desc") as Row[];return rows.map(row=>({id:row.id,dramaId:row.drama_id,dramaSlug:row.drama_slug,episodeNumber:row.episode_number,status:row.status,errorMessage:row.error_message||undefined,createdAt:row.created_at,updatedAt:row.updated_at})) as VizardSubmissionJob[];}
 function fromRow(row: Row): VizardProject { return { id: row.id, dramaId: row.drama_id, dramaSlug: row.drama_slug, episodeNumber: row.episode_number, projectName: row.project_name, vizardProjectId: row.vizard_project_id, sourceVideoUrl: row.source_video_url, settings: row.settings || {}, status: row.status, finalVideoUrl: row.final_video_url || undefined, finalObjectKey: row.final_object_key || undefined, finalLabel: row.final_label || undefined, editInfo: row.edit_info || {}, submittedAt: row.submitted_at, updatedAt: row.updated_at }; }
 export async function createVizardProject(input: Omit<VizardProject, "id" | "submittedAt" | "updatedAt">) {
   const now = new Date().toISOString(); const row = { id: randomUUID(), ...input, submittedAt: now, updatedAt: now };

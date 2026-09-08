@@ -40,7 +40,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
   const [coverProgress, setCoverProgress] = useState(0);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ title: string; episodeCount: number } | null>(null);
+  const [result, setResult] = useState<{ title: string; episodeCount: number; vizard?: { status: "queued" | "failed"; requested: number; accepted: number; message?: string } } | null>(null);
   const [error, setError] = useState("");
   const [rsLink, setRsLink] = useState("");
   const [rsImporting, setRsImporting] = useState(false);
@@ -260,7 +260,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     const json = await response.json();
     setSaving(false);
     if (!response.ok) { setError(json.message || "Unable to save draft"); return; }
-    setResult(json.draft);
+    setResult({ ...json.draft, vizard: json.vizard });
   }
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
@@ -286,7 +286,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama }: { r2DashboardU
     </section>
     <section><span>03 · RS promotion links</span><p>Temporarily use the App Promotion Link: Full Watch copies the Content Code before opening ReelShort.</p><label className="sensitive-field"><b>Content promotion link (for future direct-to-drama use)</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>Original drama link. It remains saved and is not replaced by temporary mode.</small></label><label className="sensitive-field"><b>App promotion link (current Full Watch destination)</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>After ReelShort opens, paste the automatically copied Content Code into the search bar.</small></label></section>
     {error && <div className="form-error">{error}</div>}
-    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published"}: {result.title}</b><span>{result.episodeCount} preview episodes ready and live.</span></div></div>}
+    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published"}: {result.title}</b><span>{result.episodeCount} preview episodes ready and live.</span>{!initialDrama&&result.vizard&&<span>{result.vizard.status==="queued"?`Vizard Hook production queued for all ${result.vizard.requested} episodes.`:`Drama is live, but automatic Vizard queueing failed: ${result.vizard.message||"use Generate Hook to retry"}`}</span>}</div></div>}
     <button className="save-draft" disabled={saving || uploading}>{uploading ? "Finish R2 uploads first" : saving ? "Encrypting & publishing…" : initialDrama ? "Save changes" : "Publish drama"}</button>
   </form>;
 }
