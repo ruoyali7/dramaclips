@@ -27,7 +27,7 @@
 .scheduled-cart-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
 .scheduled-cart-title > b { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #666; }
 .scheduled-cart-title > b small { color: #999; font-size: 8px; }
-.scheduled-cart-title > button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #666; padding: 4px 0; }
+.scheduled-cart-title > button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #171717; background: #171717; color: #fff; padding: 7px 10px; font-weight: 700; }
 .scheduled-cart-title > button span { font-size: 10px; }
 .scheduled-cart-list > div { display: grid; grid-template-columns: 48px 1fr 130px auto auto; gap: 8px; align-items: center; border-top: 1px solid #e5e2db; padding: 8px 0; }
 .scheduled-cart-items time { font-size: 9px; font-weight: 700; color: #a06048; }
