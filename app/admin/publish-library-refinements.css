@@ -50,6 +50,6 @@
   .scheduled-cart-items .asset-status{grid-column:2}
   .scheduled-cart-items button{grid-column:2;justify-self:start}
 }
-.drama-ledger-head,.drama-asset-row>summary{grid-template-columns:minmax(180px,1.45fr) minmax(150px,1.2fr) 105px 125px 110px;gap:12px}
+.drama-ledger-head,.drama-asset-row>summary{grid-template-columns:minmax(190px,.85fr) minmax(130px,.65fr) minmax(220px,1.35fr) minmax(190px,1.1fr) minmax(140px,.75fr);gap:14px}
 .shared-drama-library-expanded .asset-status.saved{background:#efeee9;color:#666}.shared-drama-library-expanded .asset-status.published{background:#e8f5ec;color:#34724c}.shared-drama-library-expanded .hook-review-button small{display:flex;align-items:center;gap:4px;margin-top:5px;color:#777;font-size:7px}.shared-drama-library-expanded .hook-review-button small svg{width:11px;height:11px}
 @media(max-width:950px){.asset-library{overflow:hidden}.drama-ledger-head,.drama-asset-row>summary{min-width:0}.drama-ledger-head,.drama-asset-row>summary{grid-template-columns:minmax(150px,1.15fr) minmax(120px,1fr) minmax(125px,1.1fr) 92px;gap:8px}.drama-ledger-head>b:nth-child(2),.drama-asset-row>summary>div:nth-child(2){display:none}.drama-cell b,.drama-asset-row summary>div>b{overflow-wrap:anywhere}.drama-status{min-width:0}.drama-status small{white-space:normal}}
