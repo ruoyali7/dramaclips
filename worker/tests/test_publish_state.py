@@ -137,6 +137,24 @@ class PublishStateTests(unittest.TestCase):
             "openUrl": "https://www.instagram.com/reel/DdExample/",
         }]}))
 
+    def test_instagram_missing_account_header_uses_publish_records(self):
+        records = {"data": [{
+            "id": "request-1",
+            "taskSetStatus": "completed",
+            "failedTotal": 1,
+            "openUrl": "https://www.instagram.com/reel/DdExample/",
+        }]}
+        with patch.object(
+            worker_main,
+            "yxer",
+            side_effect=[RuntimeError("please provide x-account-id"), records],
+        ):
+            result = worker_main.query_publish_status(
+                {"id": "package-1"}, "instagram", "request-1", None
+            )
+        self.assertEqual(result["state"], "published")
+        self.assertEqual(worker_main.provider_post_id(result, "instagram"), "DdExample")
+
     def test_terminal_operation_keeps_operation_and_records_diagnostic(self):
         result = terminal_operation(
             {"_operation": {"stage": "uploading_to_yixiaoer", "bytesSent": 10}},

@@ -378,11 +378,12 @@ def query_publish_status(job,source,request_id,heartbeat):
   state="published" if post_id else "processing" if record_state=="failed" else record_state
   return {"state":state,"id":request_id,"record":record,"details":details,"source":"records.list"}
  except RuntimeError as error:
-  if source!="facebook" or "x-account-id" not in str(error):raise
+  if "x-account-id" not in str(error):raise
   records=yxer(job,["query","records","--limit","100"],heartbeat)
   record=find_publish_record(records,request_id)
   if not record:raise error
-  return {"state":publish_record_state(record),"id":request_id,"record":record,"source":"records.list"}
+  state="published" if provider_post_id(record,source) else publish_record_state(record)
+  return {"state":state,"id":request_id,"record":record,"source":"records.list"}
 def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
  deadline=time.time()+600;last={}
  while time.time()<deadline:
