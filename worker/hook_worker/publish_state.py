@@ -28,6 +28,21 @@ def find_publish_record(data, request_id):
     return next((row for row in rows if str(row.get("id") or "") == request_id), None)
 
 
+def is_ambiguous_instagram_timeout(data):
+    if not isinstance(data, dict):
+        return False
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list):
+        return False
+    return any(
+        isinstance(task, dict)
+        and str(task.get("platformName") or "").lower() == "instagram"
+        and "timeout" in str(task.get("errorMessage") or "").lower()
+        and not (task.get("publishId") or task.get("documentId") or task.get("openUrl"))
+        for task in tasks
+    )
+
+
 def publish_record_state(record):
     if not isinstance(record, dict):
         return "processing"

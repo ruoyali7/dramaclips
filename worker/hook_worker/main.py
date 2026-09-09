@@ -9,7 +9,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .publish_state import final_publish_status,find_publish_record,provider_request_id,publish_record_state,should_resume,terminal_operation
+from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,terminal_operation
 from .runtime_config import load_runtime_config
 from .upload import primary_publish_channel,retry_upload
 
@@ -344,14 +344,29 @@ def find_value(data,names):
    found=find_value(value,names)
    if found:return found
  return None
-def provider_post_id(data):return find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
+def provider_post_id(data,source=None):
+ value=find_value(data,{"postid","contentid","platformpostid","publishcontentid","publishid","documentid"})
+ if value or source!="instagram":return value
+ url=find_value(data,{"openurl","permalink","externalurl"})
+ if not url:return None
+ import re
+ match=re.search(r"instagram\.com/(?:reel|p)/([^/?#]+)",url,re.I)
+ return match.group(1) if match else None
 def provider_state(data):
  raw=(find_value(data,{"status","state","publishstatus","taskstatus","tasksetstatus","stagestatus","stages"}) or "").lower()
  if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
  if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
  return "processing"
 def query_publish_status(job,source,request_id,heartbeat):
- try:return yxer(job,["query","details",request_id],heartbeat)
+ try:
+  details=yxer(job,["query","details",request_id],heartbeat)
+  if source!="instagram" or not is_ambiguous_instagram_timeout(details):return details
+  records=yxer(job,["query","records","--limit","100"],heartbeat)
+  record=find_publish_record(records,request_id)
+  post_id=provider_post_id(record,source)
+  record_state=publish_record_state(record)
+  state="published" if post_id else "processing" if record_state=="failed" else record_state
+  return {"state":state,"id":request_id,"record":record,"details":details,"source":"records.list"}
  except RuntimeError as error:
   if source!="facebook" or "x-account-id" not in str(error):raise
   records=yxer(job,["query","records","--limit","100"],heartbeat)
@@ -362,7 +377,7 @@ def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
  deadline=time.time()+600;last={}
  while time.time()<deadline:
   last=query_publish_status(job,source,request_id,heartbeat);state=provider_state(last)
-  results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last),"reconciliation":last}
+  results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last,source),"reconciliation":last}
   publish_update(job,"reconciling",95,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"reconciling_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
   if state=="published":return
   if state=="failed":raise RuntimeError(f"Yixiaoer confirmed {source} publishing failed")

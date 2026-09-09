@@ -1,8 +1,11 @@
 import unittest
+from unittest.mock import patch
 
+from hook_worker import main as worker_main
 from hook_worker.publish_state import (
     final_publish_status,
     find_publish_record,
+    is_ambiguous_instagram_timeout,
     provider_request_id,
     publish_record_state,
     should_resume,
@@ -70,6 +73,50 @@ class PublishStateTests(unittest.TestCase):
             "failed",
         )
         self.assertEqual(publish_record_state({"taskSetStatus": "pending"}), "processing")
+
+    def test_instagram_timeout_without_post_data_is_ambiguous(self):
+        self.assertTrue(is_ambiguous_instagram_timeout({"tasks": [{
+            "platformName": "Instagram",
+            "stageStatus": "fail",
+            "errorMessage": "timeout of 30000ms exceeded",
+            "publishId": None,
+            "documentId": None,
+            "openUrl": None,
+        }]}))
+
+    def test_instagram_timeout_recovers_post_id_from_records_permalink(self):
+        details = {"tasks": [{
+            "platformName": "Instagram",
+            "errorMessage": "timeout of 30000ms exceeded",
+        }]}
+        records = {"data": [{
+            "id": "request-1",
+            "taskSetStatus": "completed",
+            "failedTotal": 1,
+            "openUrl": "https://www.instagram.com/reel/DdExample/",
+        }]}
+        with patch.object(worker_main, "yxer", side_effect=[details, records]):
+            result = worker_main.query_publish_status(
+                {"id": "package-1"}, "instagram", "request-1", None
+            )
+        self.assertEqual(result["state"], "published")
+        self.assertEqual(worker_main.provider_post_id(result, "instagram"), "DdExample")
+
+    def test_instagram_timeout_without_a_record_stays_processing(self):
+        details = {"tasks": [{
+            "platformName": "Instagram",
+            "errorMessage": "timeout of 30000ms exceeded",
+        }]}
+        with patch.object(worker_main, "yxer", side_effect=[details, {"data": []}]):
+            result = worker_main.query_publish_status(
+                {"id": "package-1"}, "instagram", "request-1", None
+            )
+        self.assertEqual(result["state"], "processing")
+        self.assertFalse(is_ambiguous_instagram_timeout({"tasks": [{
+            "platformName": "Instagram",
+            "errorMessage": "timeout of 30000ms exceeded",
+            "openUrl": "https://www.instagram.com/reel/DdExample/",
+        }]}))
 
     def test_terminal_operation_keeps_operation_and_records_diagnostic(self):
         result = terminal_operation(
