@@ -14,6 +14,25 @@ from hook_worker.publish_state import (
 
 
 class PublishStateTests(unittest.TestCase):
+    def test_replaces_retired_account_when_platform_has_one_active_account(self):
+        selected = {"instagram": "retired", "facebook": "facebook-1"}
+        active = [
+            {"id": "instagram-2", "platform": "Instagram", "status": 1},
+            {"id": "facebook-1", "platform": "Facebook", "status": 1},
+        ]
+        self.assertEqual(
+            worker_main.resolve_publish_accounts(selected, active),
+            {"instagram": "instagram-2", "facebook": "facebook-1"},
+        )
+
+    def test_does_not_guess_when_multiple_accounts_are_active(self):
+        selected = {"instagram": "retired"}
+        active = [
+            {"id": "instagram-1", "platform": "Instagram", "status": 1},
+            {"id": "instagram-2", "platform": "Instagram", "status": 1},
+        ]
+        self.assertEqual(worker_main.resolve_publish_accounts(selected, active), selected)
+
     def test_final_status_keeps_independent_platform_results(self):
         platforms = [{"source": "instagram"}, {"source": "facebook"}]
         self.assertEqual(

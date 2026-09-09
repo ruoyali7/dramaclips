@@ -65,8 +65,18 @@ def hydrate_publish_job(row):
  if row.get("video_kind")=="hook":
   identity=f"id=eq.{quote(str(row['hook_clip_id']),safe='')}" if row.get("hook_clip_id") else f"video_url=eq.{quote(str(row['video_url']),safe='')}"
   hook_rows=supabase(f"hook_clips?{identity}&select=cover_source_timestamp,source_ranges,rendered_ranges,duration_seconds&limit=1") or []
- job.update({"apiKey":yixiaoer_worker_api_key(),"dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0})
+ account_cache=supabase("yixiaoer_account_cache?id=eq.active&select=accounts&limit=1") or []
+ accounts=resolve_publish_accounts(job.get("yixiaoerAccounts") or {},account_cache[0].get("accounts",[]) if account_cache else [])
+ if accounts!=job.get("yixiaoerAccounts"):
+  supabase(f"publish_packages?id=eq.{quote(str(row['id']),safe='')}",method="PATCH",payload={"yixiaoer_accounts":accounts},prefer="return=minimal")
+ job.update({"apiKey":yixiaoer_worker_api_key(),"dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0,"yixiaoerAccounts":accounts})
  return job
+def resolve_publish_accounts(selected,active):
+ resolved=dict(selected);platform_names={"tiktok":"tiktok","instagram":"instagram","youtube":"youtube","facebook":"facebook"}
+ for source,name in platform_names.items():
+  candidates=[str(account.get("id") or "") for account in active if str(account.get("platform") or "").lower()==name and int(account.get("status",0) or 0)==1 and account.get("id")]
+  if resolved.get(source) not in candidates and len(candidates)==1:resolved[source]=candidates[0]
+ return resolved
 def lease(path,payload):
  rpc={
   "/api/internal/hook-worker/lease":"lease_hook_generation_job",
