@@ -22,3 +22,34 @@
 .history-task-identity>b>small:first-of-type{color:#373632;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .history-task-identity>b>small:last-of-type{font-size:8px}
 @media(max-width:650px){.publish-summary{justify-content:flex-start;overflow-x:auto}.selected-drama-compact{align-items:flex-start}.selected-drama-compact button{white-space:normal}}
+@media(max-width:700px){
+  .asset-library{overflow:visible}
+  .drama-ledger-head{display:none}
+  .drama-asset-row>summary{display:block;min-width:0;padding:13px 0}
+  .drama-asset-row>summary>div{margin-top:8px}
+  .drama-asset-row>summary>div:first-child{margin-top:0}
+  .drama-asset-row>summary .drama-cell{display:flex}
+  .drama-status{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .drama-status small{margin-top:0}
+  .drama-assets-expanded{min-width:0;padding:13px 10px;gap:18px}
+  .shared-drama-library-expanded .drama-hooks-head{display:none}
+  .shared-drama-library-expanded .drama-hook-row{display:grid;grid-template-columns:1fr auto;gap:6px 10px;min-width:0;padding:10px}
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(1),
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(2),
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(3){font-size:8px;color:#777}
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(1){grid-column:1}
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(2){grid-column:1}
+  .shared-drama-library-expanded .drama-hook-row>span:nth-of-type(3){grid-column:1}
+  .shared-drama-library-expanded .hook-cart-button{grid-column:2;grid-row:1 / span 3;align-self:center}
+  .publish-cart{padding:13px;margin-bottom:16px}
+  .publish-cart li{grid-template-columns:20px 1fr auto;gap:6px}
+  .publish-cart li time{grid-column:3;grid-row:1}
+  .publish-cart li button{font-size:0;padding:7px;min-width:30px}
+  .publish-cart li button:last-child{font-size:8px;grid-column:2}
+  .scheduled-cart-items>div{grid-template-columns:48px 1fr;gap:6px}
+  .scheduled-cart-items .asset-status{grid-column:2}
+  .scheduled-cart-items button{grid-column:2;justify-self:start}
+}
+.drama-ledger-head,.drama-asset-row>summary{grid-template-columns:minmax(180px,1.45fr) minmax(150px,1.2fr) 105px 125px 110px;gap:12px}
+.shared-drama-library-expanded .asset-status.saved{background:#efeee9;color:#666}.shared-drama-library-expanded .asset-status.published{background:#e8f5ec;color:#34724c}.shared-drama-library-expanded .hook-review-button small{display:flex;align-items:center;gap:4px;margin-top:5px;color:#777;font-size:7px}.shared-drama-library-expanded .hook-review-button small svg{width:11px;height:11px}
+@media(max-width:950px){.asset-library{overflow:hidden}.drama-ledger-head,.drama-asset-row>summary{min-width:0}.drama-ledger-head,.drama-asset-row>summary{grid-template-columns:minmax(150px,1.15fr) minmax(120px,1fr) minmax(125px,1.1fr) 92px;gap:8px}.drama-ledger-head>b:nth-child(2),.drama-asset-row>summary>div:nth-child(2){display:none}.drama-cell b,.drama-asset-row summary>div>b{overflow-wrap:anywhere}.drama-status{min-width:0}.drama-status small{white-space:normal}}

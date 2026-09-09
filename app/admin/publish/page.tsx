@@ -76,36 +76,16 @@ export default async function Page() {
           <h1>Publish Center</h1>
         </div>
       </div>
+      <PublishCenter sources={sources} yixiaoerReady={yixiaoerReady} />
       <nav className="publish-operations" aria-label="Publishing operations">
         <span>Operations</span>
-        <a
-          href="https://vercel.com/drama-clips/dramaclips/logs"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Activity /> Vercel logs <ExternalLink />
-        </a>
-        <a
-          href="https://supabase.com/dashboard/project/ijywiyedtkuugoksquvq/editor?schema=public&table=publish_packages"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Database /> Supabase packages <ExternalLink />
-        </a>
-        <a href={r2Url} target="_blank" rel="noreferrer">
-          <Cloud /> R2 bucket <ExternalLink />
-        </a>
-        <a href="https://www.yixiaoer.cn/" target="_blank" rel="noreferrer">
-          Yixiaoer console <ExternalLink />
-        </a>
-        <a href="https://railway.app/dashboard" target="_blank" rel="noreferrer">
-          <Rocket /> Railway deploy portal <ExternalLink />
-        </a>
-        <a href="/api/admin/publish-packages/latest/csv" download>
-          <Download /> CSV fallback
-        </a>
+        <a href="https://vercel.com/drama-clips/dramaclips/logs" target="_blank" rel="noreferrer"><Activity /> Vercel logs <ExternalLink /></a>
+        <a href="https://supabase.com/dashboard/project/ijywiyedtkuugoksquvq/editor?schema=public&table=publish_packages" target="_blank" rel="noreferrer"><Database /> Supabase packages <ExternalLink /></a>
+        <a href={r2Url} target="_blank" rel="noreferrer"><Cloud /> R2 bucket <ExternalLink /></a>
+        <a href="https://www.yixiaoer.cn/" target="_blank" rel="noreferrer">Yixiaoer console <ExternalLink /></a>
+        <a href="https://railway.app/dashboard" target="_blank" rel="noreferrer"><Rocket /> Railway deploy portal <ExternalLink /></a>
+        <a href="/api/admin/publish-packages/latest/csv" download><Download /> CSV fallback</a>
       </nav>
-      <PublishCenter sources={sources} yixiaoerReady={yixiaoerReady} />
     </AdminShell>
   );
 }
