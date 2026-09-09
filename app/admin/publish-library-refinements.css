@@ -46,7 +46,7 @@
   .publish-cart li time{grid-column:3;grid-row:1}
   .publish-cart li button{font-size:0;padding:7px;min-width:30px}
   .publish-cart li button:last-child{font-size:8px;grid-column:2}
-  .scheduled-cart-items>div{grid-template-columns:48px 1fr;gap:6px}
+  .scheduled-cart-list>div{grid-template-columns:48px 1fr;gap:6px}
   .scheduled-cart-items .asset-status{grid-column:2}
   .scheduled-cart-items button{grid-column:2;justify-self:start}
 }

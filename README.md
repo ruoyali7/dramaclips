@@ -1,6 +1,6 @@
 # DramaClips
 
-DramaClips is a production-oriented short-drama distribution and attribution platform. It connects source media, AI-assisted hook generation, human review, publishing operations, public preview pages, referral routing, and performance signals in one inspectable workflow.
+DramaClips is a production-oriented short-drama distribution and attribution platform. It connects authorized source media, publishing operations, public preview pages, referral routing, and performance signals in one inspectable workflow. Built-in Generate Hook exists as paused optional work and is not part of the active product plan.
 
 > A live software product built and operated for short-drama affiliate promotion.
 
@@ -13,18 +13,17 @@ Short-form content work is often scattered across video files, clipping tools, c
 ## Workflow
 
 ```text
-Source drama → Upload episodes → Generate hooks → Review and approve
+Source drama → Upload or ingest authorized assets → Review publishing package
       → Publish to social platforms → Public preview and referral flow
       → Measure visits, code copies, and redirect outcomes → Iterate
 ```
 
 1. Create a drama record and connect its source metadata and episodes.
 2. Upload source videos directly to Cloudflare R2 using short-lived signed URLs.
-3. Generate vertical hook candidates with transcript-led analysis and FFmpeg rendering.
-4. Review candidates, inspect their evidence, and explicitly save approved assets.
-5. Select an original episode or approved hook in Publish Center and prepare delivery.
-6. Publish across the configured social channels with platform-specific copy and links.
-7. Route viewers through the public preview experience and record meaningful funnel events.
+3. Use an original episode, Vizard output, manual upload, or previously saved hook as the publishing asset.
+4. Review platform copy, accounts, timing, and the immutable selected asset in Publish Center.
+5. Publish across the configured social channels with explicit confirmation and recoverable status.
+6. Route viewers through the public preview experience and record meaningful funnel events.
 
 ## Architecture
 
@@ -33,7 +32,7 @@ Source drama → Upload episodes → Generate hooks → Review and approve
 | Next.js + TypeScript | Operator UI, public catalog, API routes, preview and redirect flows |
 | Supabase / PostgreSQL | Drama metadata, jobs, leases, review records, publishing state, and tracking events |
 | Cloudflare R2 | Durable source episodes, generated drafts, and approved media assets |
-| Railway worker | Long-running transcription, analysis, ranking, rendering, upload, and publishing jobs |
+| Railway worker | Active Vizard and publishing jobs; paused optional hook-generation code |
 | Provider integrations | Replaceable boundaries for clipping, social publishing, and affiliate destinations |
 
 Long-running media work is asynchronous. PostgreSQL state, worker leases, progress updates, idempotency, and retry handling keep operations visible and recoverable outside the request cycle.
@@ -47,7 +46,7 @@ DramaClips preserves context across drama, clip, platform, campaign, and session
 - Browser-to-R2 uploads keep large video files out of the application request body.
 - Approved hooks are explicitly saved before they become publishable assets, keeping creative review separate from automated generation.
 - Uploading, rendering, and publishing use visible asynchronous states with recoverable progress.
-- Vizard remains an optional third-party batch-clipping path alongside the in-house Hook Studio.
+- Vizard remains the active optional third-party clipping path. The in-house Generate Hook path is paused and must not be extended or enabled without explicit approval.
 
 ## Run locally
 
@@ -69,7 +68,7 @@ Install the private unpacked extension from `chrome-extension/dramaclips-rs-impo
 - `/watch/[slug]` — preview episodes and Watch Full CTA
 - `/admin/dramas` — content and publishing queue
 - `/admin/dramas/new` — drama metadata plus direct-to-R2 batch upload
-- `/admin/hooks` — generate, review, and save in-house hook edits
+- `/admin/hooks` — paused legacy Generate Hook interface; not part of the active product plan
 - `/admin/vizard` — optional third-party clipping from existing R2 episodes
 - `/admin/publish` — choose a specific original or hook asset for distribution
 - `/admin/tracking` — attributed social link builder
@@ -79,7 +78,7 @@ Install the private unpacked extension from `chrome-extension/dramaclips-rs-impo
 
 When `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured, drama bundles are stored in Supabase. CPS links are AES-256-GCM encrypted before storage and decrypted only in the server redirect. R2 and Vizard secrets remain server-only; the browser receives only expiring R2 upload signatures and public media URLs.
 
-Hook rendering requires `ffmpeg` and `ffprobe` on the server. Run `202608140001_hook_clips.sql` before enabling the production UI. Because rendering downloads and transcodes source episodes, deploy the Next.js server on a long-running Node/container runtime rather than a short-lived serverless function.
+The paused Hook worker requires `ffmpeg` and `ffprobe` only if that optional capability is explicitly re-enabled. Video analysis and rendering must run on Railway or another approved long-running worker, never inside a Vercel request.
 
 ## Compliance
 

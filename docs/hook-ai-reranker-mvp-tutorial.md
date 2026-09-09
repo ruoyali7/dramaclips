@@ -1,5 +1,7 @@
 # Built-in Hook AI Reranker MVP 教程
 
+> **Paused optional reference.** Built-in Generate Hook is outside the active product PRD. Do not continue or enable this reranker without explicit approval; see [`optional-built-in-hook-generation.md`](./optional-built-in-hook-generation.md).
+
 ## 目标
 
 这次 MVP 不重写剪辑器，也不让模型直接编辑视频。现有程序先用 Faster-Whisper、PySceneDetect、OpenCV 和规则评分生成候选；LLM 只负责重新判断候选的剧情清晰度、冲突、情绪升级和结尾悬念。

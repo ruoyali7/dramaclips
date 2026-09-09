@@ -1,20 +1,32 @@
 # Unified admin architecture
 
+DramaClips has one private admin workspace under `/admin`. Dramas, assets, Vizard, Publish Center, Opportunity, tracking, Analytics, and settings are sections of the same admin; no second admin is planned.
+
 ## Content pipeline
 
-`Drama metadata + local preview files` → `signed browser upload` → `R2 public episode URLs` → `encrypted draft` → `publish` → `public watch page`
+`Authorized drama metadata + source media` → `signed browser upload or remote ingestion` → `R2 assets` → `operator review` → `published catalog/preview`
 
-The add-drama flow owns ingestion. It accepts up to 10 preview files, sorts them naturally by filename, uploads sequentially with progress, and stores only the resulting public URLs.
+Large browser uploads use signed R2 PUT URLs and do not pass through Vercel request bodies.
 
-## Social production pipeline
+## Publishing pipeline
 
-`published drama` → `select R2 episodes` → `Vizard settings` → `one API submission per episode` → `30-second client-side interval`
+`Published drama + R2/Vizard/manual asset` → `Publish Center` → `copy/accounts/schedule review` → `explicit confirmation` → `Supabase queue` → `Railway publish worker` → `Yixiaoer` → `status/reconciliation`
 
-Vizard is downstream and optional. A Vizard outage never blocks publishing or playback, and an episode is not uploaded twice.
+Metricool CSV remains the fallback. Vizard is optional and uses durable server-side submission state; a Vizard outage must not block catalog publishing or playback.
+
+Built-in Generate Hook is paused. Existing saved hooks may still be selected as publishing assets, but no new Hook generation work belongs to the active product plan.
+
+## Runtime ownership
+
+- Vercel: admin/public pages, short APIs, validation, signed-upload creation, and worker wake-up.
+- Supabase: durable metadata, assets, queues, attempts, publishing state, and analytics events.
+- Railway: Vizard and Yixiaoer long-running workers.
+- R2: durable video and image assets.
 
 ## Operational requirements
 
 - R2 bucket CORS must allow `PUT` from `http://localhost:3000` and `https://dramaclips.vercel.app`.
 - R2 public media should use a stable public/custom domain.
-- `R2_*`, `VIZARD_API_KEY`, Supabase service role, encryption, admin session, and CPS values must remain server-side secrets.
-- The current admin password is suitable for a private single-operator workspace. Replace it with Supabase Auth before adding staff accounts or role-based access.
+- `R2_*`, `VIZARD_API_KEY`, Supabase service role, encryption, admin session, and provider values remain server-side secrets.
+- The current admin password is suitable only for a private single-operator workspace. Replace it with role-aware authentication before adding staff accounts.
+- New designs must estimate and verify Vercel Requests, Function Duration, Fluid Active CPU, errors, and data transfer.

@@ -24,8 +24,12 @@
 .publish-cart .confirm-cart-button:disabled { opacity: .5; }
 .publish-cart .cart-scheduled-message { color: #34724c; }
 .scheduled-cart-items { border-top: 1px solid #d9d6ce; margin-top: 14px; padding-top: 12px; }
-.scheduled-cart-items > b { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #666; margin-bottom: 5px; }
-.scheduled-cart-items > div { display: grid; grid-template-columns: 48px 1fr 130px auto auto; gap: 8px; align-items: center; border-top: 1px solid #e5e2db; padding: 8px 0; }
+.scheduled-cart-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+.scheduled-cart-title > b { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #666; }
+.scheduled-cart-title > b small { color: #999; font-size: 8px; }
+.scheduled-cart-title > button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #666; padding: 4px 0; }
+.scheduled-cart-title > button span { font-size: 10px; }
+.scheduled-cart-list > div { display: grid; grid-template-columns: 48px 1fr 130px auto auto; gap: 8px; align-items: center; border-top: 1px solid #e5e2db; padding: 8px 0; }
 .scheduled-cart-items time { font-size: 9px; font-weight: 700; color: #a06048; }
 .scheduled-cart-items span b, .scheduled-cart-items span small { display: block; }
 .scheduled-cart-items span b { font-size: 9px; }.scheduled-cart-items span small { color: #888; font-size: 8px; margin-top: 3px; }

@@ -18,13 +18,13 @@ Browser
   ├─ Public pages: Next.js/Vercel ── Supabase REST/Postgres
   ├─ Admin pages: Next.js/Vercel ──── Supabase REST/Postgres
   │       ├─ signed PUT ─────────── Cloudflare R2
-  │       ├─ hook job queue ──────── Railway hook worker
+  │       ├─ hook job queue ──────── Railway hook worker (paused optional capability)
   │       └─ publish queue ───────── Railway hook/publish worker
   └─ Redirect/event routes: Next.js/Vercel ── Supabase analytics
 
 R2 stores video files; Supabase stores metadata, queues, state and audit-like records.
 Vercel request handlers create/read/update work. They must not perform long video rendering.
-Railway worker performs FFmpeg, Whisper, scene detection and Yixiaoer CLI operations.
+Railway runs the active Vizard/Yixiaoer work. The same worker codebase still contains paused optional FFmpeg, Whisper, and scene-detection paths; their presence does not make built-in Generate Hook active scope.
 ```
 
 ### 部署边界
@@ -34,7 +34,7 @@ Railway worker performs FFmpeg, Whisper, scene detection and Yixiaoer CLI operat
 | Web/API | `app/`, `components/`, `lib/` | Vercel/Next.js | 页面、API、认证、短请求、队列状态 | 长时间转码、常驻进程 |
 | Database | `supabase/migrations/` | Supabase Postgres + REST | metadata、job、publish 状态、analytics | 视频二进制 |
 | Media storage | `lib/admin/r2.ts` | Cloudflare R2 | 原片、cover、hook draft、已保存 hook | 业务状态机 |
-| Worker | `worker/hook_worker/main.py` | Railway Docker service | hook 分析/渲染、Yixiaoer 上传发布 | 管理员 UI |
+| Worker | `worker/hook_worker/main.py` | Railway Docker service | active Vizard/Yixiaoer work；paused optional hook 分析/渲染 code | 管理员 UI |
 | Optional clipper | `lib/admin/vizard.ts`, `/admin/vizard` | Vizard API | 第三方批量剪辑 | 主 hook queue |
 | Publish provider | `lib/admin/yixiaoer.ts` 或 worker 中 `yxer` | Yixiaoer cloud/CLI | 社媒账号与平台发布 | Drama metadata |
 | Local fallback | `lib/admin/draft-repository.ts` 等 | 本地进程 | 没有 Supabase 时的开发 fallback | 不能代表生产数据 |

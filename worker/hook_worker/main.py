@@ -388,7 +388,7 @@ def reconcile_publish(job,source,request_id,results,assets,payloads,heartbeat):
  deadline=time.time()+600;last={}
  while time.time()<deadline:
   last=query_publish_status(job,source,request_id,heartbeat);state=provider_state(last)
-  results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last,source),"reconciliation":last}
+  results[source]={**results[source],"state":state,"providerRequestId":request_id,"platformPostId":provider_post_id(last,source),"reconciliation":last,**({"error":None} if state=="published" else {})}
   publish_update(job,"reconciling",95,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"reconciling_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
   if state=="published":return
   if state=="failed":raise RuntimeError(f"Yixiaoer confirmed {source} publishing failed")

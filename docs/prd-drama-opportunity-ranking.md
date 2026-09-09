@@ -1,7 +1,7 @@
 # DramaClips PRD：Drama Opportunity Ranking（后续独立任务）
 
-状态：Backlog，暂不实现；本文件只作为后续实现契约
-说明：本任务与 `docs/prd-hook-optimization.md` 分开规划；目标是找出最值得推广的 drama，不负责剪辑和文案优化。
+状态：Backlog，暂不实现；本文件只作为后续实现契约。仓库中已有的 Hashtag Intelligence 是 experimental/partial，不代表本 PRD 已启动或完成。
+说明：本任务与可选的 [`optional-built-in-hook-generation.md`](./optional-built-in-hook-generation.md) 分开规划；目标是找出最值得推广的 drama，不负责剪辑和文案优化。
 
 ## 目标
 
@@ -30,9 +30,9 @@ V1 暂不包含 hashtag intelligence、自动 affiliate link、自动登录/发�
 
 建议的最小可交付数据关系是：`drama` 作为 canonical entity，`drama_aliases` 负责名称映射，`social_posts` 保存去重后的平台帖子，`drama_metric_snapshots` 保存按 drama/platform/window 的聚合快照，`affiliate_availability` 保存人工维护状态。不要为每个来源建立一套独立的 drama 表。
 
-## Hashtag Intelligence 模块（暂停）
+## Hashtag Intelligence 模块（Experimental / Partial）
 
-该模块暂时不实现。当前 Hook 只需要根据已有 drama/Hook metadata 自动生成相关 hashtags，不需要外部 hashtag performance 数据：
+仓库已经存在 YouTube 手动导入、social post/metric snapshot、hashtag 聚合和实验页面，但它们只覆盖本节的一部分，没有实现 Drama Opportunity Ranking。该实验模块不应被当作已验证的趋势或转化结论，也不应继续扩展，除非单独批准。
 
 ```text
 抓取 social post

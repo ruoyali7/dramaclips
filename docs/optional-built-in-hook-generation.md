@@ -1,7 +1,10 @@
-# DramaClips PRD：Hook 内容与发布素材优化
+# DramaClips Optional PRD：Built-in Generate Hook
 
-状态：Draft，等待实现批准；实现时以现有 Phase 3 Hook workflow 为基线
-关联 branch：`codex/drama-opportunity-hook-prd`
+状态：Paused / Optional；不属于当前主 PRD，不得自动继续实现
+
+范围：DramaClips 内置的素材分析、Whisper、scene detection、规则或 AI reranking、候选评分与去重、FFmpeg render、首帧 cover、opening/cover copy 和 Hook 审阅。现有代码和数据保留，但不表示该能力当前启用或已验收。
+
+如果未来重新批准，本方案最多允许 6 个候选；默认数量和审阅容量必须在重新启动时根据真实操作成本确认。
 
 ## 1. 目标
 
@@ -38,7 +41,7 @@
 - 以整部 drama 为候选池，不要求每个 episode 产出一个 Hook。
 - 每个候选保留 episode、rough start/end、最终 start/end、候选理由和状态。
 - 生成多个候选后全局排序；允许多个候选来自同一 episode，弱 episode 可以没有结果。
-- V1 默认最多输出 2 个候选，与现有 `hook_candidates.rank` 和 Phase 3 审阅流程一致；后续扩大数量必须先扩展 schema、UI 和审阅容量，不能只改配置。
+- 最多输出 6 个候选，与现有 `hook_candidates.rank` schema 上限一致；重新启动时必须明确默认数量，并验证 UI 和人工审阅容量。
 - 优先使用现有 transcript/metadata；如果没有可靠的句级时间轴，先保留人工审阅，不把 LLM 时间戳直接当最终剪辑边界。
 - 最终边界优先对齐完整句子、场景切换、音频连续性和有意的 cliffhanger。
 - 支持轻度去除无效停顿；默认不删除有情绪作用的停顿、反应镜头或对白间隔。

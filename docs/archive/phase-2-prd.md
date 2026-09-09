@@ -1,6 +1,6 @@
 # DramaClips Phase 2 PRD
 
-> **Superseded on 2026-08-14.** Do not use this document as the active implementation plan. The current product direction is defined in [`phase-3-hook-production-prd.md`](./phase-3-hook-production-prd.md). Phase 2 remains only as historical context.
+> **Archived. Superseded on 2026-08-14.** Do not use this document as the active implementation plan. The current product direction is defined in [`phase-3-hook-production-prd.md`](../phase-3-hook-production-prd.md). Phase 2 remains only as historical context.
 
 **Working title:** Reliable Content Pipeline & Growth Loop  
 **Status:** Draft for discussion  

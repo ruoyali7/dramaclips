@@ -1,378 +1,103 @@
-# DramaClips Phase 3 PRD — Hook Production & Direct Distribution
+# DramaClips Phase 3 PRD — Content Operations & Publishing
 
 **Status:** Active implementation source of truth  
 **Supersedes:** Phase 2 planning  
-**Primary objective:** Turn authorized R2 drama episodes into one or two high-quality, reviewable social hooks, then publish a selected original or hook video through a provider-backed workflow with Metricool CSV retained as fallback.
+**Scope decision (2026-09-08):** All built-in Generate Hook work is paused and does not block this PRD. The historical filename is retained so existing references do not break.
 
 ## 1. Product outcome
 
-The operator workflow is:
+The active operator workflow is:
 
-`Select R2 drama → select first 1–5 episodes → optionally describe the creative direction → create hook job → review up to two finished hooks → save approved hooks to R2 → select original/hook/upload in Publish Center → publish now or schedule → track status`
+`Authorized drama/assets → R2 or Vizard asset → Publish Center → review copy/accounts/time → explicit confirmation → Yixiaoer or Metricool CSV → status/recovery → tracking and analytics`
 
-The system must not mechanically return two clips. It returns one when only one candidate meets the quality threshold and returns an honest no-result state when none do.
+DramaClips remains one private, single-operator admin. It does not add a second admin or a separate publishing workflow.
 
-## 2. Product principles
+## 2. Active scope
 
-1. **Story understanding before decoration.** A title overlay is not a hook. Selection must consider dialogue, scene context, emotion, conflict, visual attraction, reversals, and cliffhanger potential.
-2. **Human approval before durable storage or publishing.** Generated drafts remain temporary until the operator saves them to R2. Nothing publishes without final confirmation.
-3. **First frame is the thumbnail.** Because some uploaders cannot supply a separate thumbnail, the strongest safe frame must be encoded at the actual beginning of the MP4.
-4. **Long-running work is asynchronous.** Vercel request handlers create and inspect jobs; an independent worker performs downloads, transcription, analysis, and FFmpeg rendering.
-5. **Pragmatic provider evolution.** Yixiaoer is the current production provider and Metricool CSV remains a fallback. A provider-neutral refactor is deliberately deferred until a second provider is selected or current coupling materially blocks product work.
-6. **Official platform access only.** Do not use browser-session automation or scraping to upload. Use approved OAuth and official/provider APIs.
-7. **Open-source license boundaries matter.** MIT components may be selectively adapted with attribution. AGPL systems such as Postiz/OpenPost must remain separate services accessed through APIs unless the project deliberately accepts AGPL obligations.
+### 2.1 Content and assets
 
-## 3. Open-source reference architecture
+- Add and manage authorized drama metadata and R2 episode assets.
+- Import operator-authorized RS Boost metadata through the existing user-triggered extension flow.
+- Submit work to Vizard and retain returned assets in R2.
+- Allow Publish Center to select an original episode, an existing saved hook, a Vizard asset, or a manual upload.
+- Preserve immutable asset identity, URL, kind, and label on each publish package.
 
-Use these projects as references, not wholesale monorepo imports:
+Existing saved hooks may continue to be selected as assets. Creating new hooks inside DramaClips is outside active scope.
 
-- OpenShorts: https://github.com/mutonby/openshorts
-  - Reference for Faster-Whisper, PySceneDetect, multimodal moment selection, FFmpeg rendering, reframe pipeline, async jobs, and API boundaries.
-- ClippyMe: https://github.com/fralapo/clippyme
-  - Reference for compose-on-demand editing, Smart Cut, hook controls, transcript trimming, job APIs, and publish handoff.
-- OpenSource Clipping: https://github.com/NaufalRizqullah/opensource-clipping
-  - Reference for multi-hook cold opens, animated subtitles, BGM ducking, ending cleanup, and cover extraction.
-- skill-autoshorts: https://github.com/Upload-Post/skill-autoshorts
-  - Reference for “Whisper is the clock; multimodal AI is the editor,” timestamp-grounded selection, and human approval.
-- Postiz: https://github.com/gitroomhq/postiz-app
-  - Optional independent publishing service; do not copy AGPL code into Drama Boost.
-- OpenPost: https://github.com/getopenpost/openpost
-  - Optional lightweight independent publishing service with S3-compatible storage and typed API; provider-format readiness requires live certification.
-- Upload-Post SDK: https://github.com/upload-post/upload-post-pip
-  - Candidate first direct-publishing adapter; SDK is open source but the underlying service is hosted.
+### 2.2 Publishing
 
-Before adapting any source, Codex must verify the current license and record attribution in `THIRD_PARTY_NOTICES.md`.
+- Keep Yixiaoer as the active direct-publishing provider.
+- Support TikTok, Instagram Reels, YouTube Shorts, and Facebook with per-platform accounts and copy.
+- Support immediate publishing and future scheduling.
+- Require explicit confirmation before any real publish.
+- Persist upload, validation, scheduling, publishing, published, failed, canceled, and outcome-unknown states.
+- Reconcile ambiguous outcomes before retrying and prevent duplicate posts.
+- Preserve Metricool CSV as fallback.
+- Keep provider-neutral migration deferred until a second provider is selected or Yixiaoer coupling blocks required work.
 
-## 4. Scope
+### 2.3 Copy and conversion
 
-### 4.1 Hook Studio
+- Use database-backed drama title, Content Code, promotion link, and asset metadata.
+- Keep platform copy independently editable before confirmation.
+- Put Content Code first and preserve the direct ReelShort promotion link for Facebook.
+- Do not invent plot claims or describe DramaClips as hosting a full drama when it only provides a preview flow.
+- Keep Code copies and RS redirects as the primary Analytics metrics.
 
-The admin interface must allow the operator to:
+### 2.4 Reliability and operations
 
-- select a published drama whose episodes already exist in R2;
-- select the first 1–5 episodes;
-- optionally enter a plain-language creative direction describing the theme, emotion, relationship, reveal, character, visual moment, ending, required elements, or exclusions to emphasize;
-- create one asynchronous analysis/render job;
-- see queued, downloading, transcribing, analyzing, rendering, review-ready, failed, and canceled states;
-- preview each returned hook;
-- see its source episode/timecodes, hook type, score, rationale, cover frame, and platform-risk assessment;
-- rename, reject, regenerate, or save a draft;
-- save only explicitly approved drafts to `dramas/{slug}/social/hooks/` in R2.
+- Supabase is the system of record for assets, packages, jobs, attempts, and tracking events.
+- Vercel handles pages, short API requests, validation, and queue triggers.
+- Railway workers handle durable provider, ingestion, and other long-running work.
+- R2 stores media; browser signed uploads must bypass Vercel request bodies.
+- Jobs must be idempotent, recoverable, observable at start and terminal/failure states, and safe to cancel.
 
-#### 4.1.1 Creative direction editor
+## 3. Runtime and cost constraints
 
-Hook Studio must provide one prominent free-text field labeled **Hook direction / 想突出的重点**. It is the primary creative control and must not be replaced by a large collection of style presets.
+Every new design must state its expected request frequency, peak concurrency, execution location, retry behavior, and media/data volume.
 
-Example input:
+- Do not run video processing, transcription, AI ranking, provider upload loops, or other CPU-intensive/long work in Vercel Functions.
+- Avoid unbounded polling, retries, dynamic rendering, and repeated uncached reads.
+- Prefer event-driven or adaptively throttled refreshes; stop polling in terminal states and when the page is hidden where practical.
+- Measure Vercel Requests, Function Duration, Fluid Active CPU, errors, and relevant data transfer before and after production release.
+- Record a usage baseline before release and review the 24-hour and 7-day increment afterward.
+- A feature is not fully accepted when its observed usage materially exceeds the design estimate without explanation or mitigation.
+- Cost or quota pressure must degrade non-critical refresh/automation safely rather than breaking publishing state integrity.
 
-> Focus on forbidden tutor/student chemistry and embarrassing misunderstandings. Prefer close physical proximity, jealous reactions, and dialogue with double meaning. Keep it suggestive but platform-safe. Do not reveal the resolution. End immediately before an intimate moment is completed.
+## 4. Explicitly paused and optional
 
-Required behavior:
+The following are not active deliverables and must not be automatically implemented:
 
-- leaving the field empty uses the current default grounded ranking style;
-- entering a direction keeps the same Railway worker pipeline but makes direction match the leading ranking signal;
-- the direction must travel with the durable job and survive browser closure, retry, and historical-job restoration;
-- each returned candidate must explain how it matches the requested direction and which requested or excluded elements were detected;
-- the worker must return an honest no-result when no grounded source segment sufficiently matches the direction;
-- the interface may retain a small number of advanced controls—maximum hooks, target duration, multi-segment permission, platform-safety level, and optional opening text—but free text remains the primary control.
+- built-in Hook Studio generation;
+- episode analysis, Whisper transcription, scene detection, AI/rule candidate ranking, and semantic reranking;
+- built-in FFmpeg hook composition and first-frame generation;
+- hook candidate scoring, deduplication, opening/cover text generation, and hook review workflows;
+- further development of the existing hook worker unless required to disable, secure, or preserve already-stored data.
 
-Product responsibility is deliberately split: **the direction says what to look for; the grounded scorer decides whether the located material is good enough to cut.** A direction may reweight or reject grounded candidates, but it may not lower the base quality threshold, invent story facts, or force the system to return a clip.
+The preserved optional specification is [`optional-built-in-hook-generation.md`](./optional-built-in-hook-generation.md). Existing code and data remain in place but are dormant product capability, not evidence that the optional feature is active or accepted.
 
-For the rule-weighted MVP, the editor accepts natural prose rather than a special command syntax. The parser may recognize supported themes and explicit phrases such as `must include`, `avoid`, `do not`, `不要`, `必须`, and `结尾停在`, while preserving the operator's exact original text. Unsupported abstract requests remain visible in the stored direction and must not be reported as matched without transcript/frame evidence.
+## 5. Deferred learning loop
 
-This is one combined pipeline, not a separate manual-editing path:
+After publishing reliability is accepted:
 
-`Creative direction → direction parsing/embedding → grounded candidate generation → direction-aware scoring → quality and safety gate → FFmpeg render → human review`
+- reconcile provider post IDs and final status;
+- import available platform metrics;
+- associate posts with drama, asset/hook ID, copy version, provider, and publish time;
+- connect views and retention to landing visits, Content Code copies, RS redirects, orders, and revenue where authoritative data exists;
+- never treat a click as an order or claim learned ranking without sufficient samples and a defined evaluation.
 
-### 4.2 Hook analysis
+## 6. Acceptance criteria
 
-The worker pipeline is:
+- An authorized asset can be selected, previewed, and stored immutably on a publish package.
+- Per-platform accounts and full captions can be reviewed and edited before confirmation.
+- Immediate and scheduled publishing survive browser closure.
+- Retries cannot duplicate an already confirmed successful post.
+- Outcome-unknown attempts are reconciled before retry.
+- Queued or active work can be canceled safely where the provider permits it.
+- Metricool CSV remains downloadable when direct publishing is unavailable.
+- Production evidence distinguishes Vercel deployment, Railway execution, Supabase migration, and provider result.
+- Standard tests, typecheck, build, and `git diff --check` pass.
+- Vercel usage is compared with the pre-release baseline after deployment.
 
-`R2 download → ffprobe → Faster-Whisper word timestamps → PySceneDetect boundaries → representative frames → multimodal story analysis → candidate scoring/deduplication → precise boundary selection → FFmpeg composition → QA`
+## 7. Required production evidence
 
-Candidate scoring must include:
-
-- first-three-second stopping power;
-- conflict and emotional intensity;
-- visual attraction and readable reactions;
-- betrayal, humiliation/revenge, identity reveal, romantic/sexual tension, danger, and reversal signals;
-- comprehension without prior context;
-- a natural unanswered question or cliffhanger exit;
-- dialogue/subtitle density and pacing;
-- similarity to other candidates;
-- platform safety and likely restriction risk.
-
-When a creative direction is present, candidate ranking must additionally include:
-
-- semantic or rule-based match to the requested theme, emotion, relationship, character, action, and ending;
-- satisfaction of explicit `must include` concepts;
-- penalties or rejection for explicit `avoid` concepts;
-- consistency with the requested content-intensity/platform-safety level;
-- a grounded explanation of the match based on transcript words, scene timestamps, and inspected frames.
-
-The direction-aware score is conceptually:
-
-`final score = direction match + story tension + cliffhanger + dialogue/context + visual quality − exclusion penalties − safety penalties − duplication penalty`
-
-Direction match must not override timestamp grounding, minimum comprehensibility, render QA, or platform-safety rejection. The worker must never invent a matching scene merely because the direction requests one.
-
-Implementation is staged:
-
-1. **Rule-weighted direction MVP:** extract supported signals such as conflict, reversal, romantic tension, danger, identity, cliffhanger, `must include`, and `avoid`; dynamically adjust the existing scorer.
-2. **Semantic direction matching:** compare the full creative direction with transcript-grounded candidate summaries so the worker can understand concepts such as forbidden attraction, misunderstanding, jealousy, reluctance, or concealed feelings. This stage may use an approved semantic model, but final cuts remain constrained by Whisper timestamps and scene boundaries.
-
-The model must return grounded episode numbers and timestamps. Whisper word timestamps and scene boundaries constrain all final cuts; invented timestamps must be rejected.
-
-### 4.3 Hook composition
-
-Each output must:
-
-- be 1080×1920 H.264/AAC MP4;
-- begin and end on intentional word/scene boundaries;
-- optionally use a 0.8–1.5 second cold open before returning to context;
-- remove dead air and non-informational pauses without damaging performance cadence;
-- remove episode logos, black frames, next-episode cards, ending stings, and accidental ending audio;
-- use short audio fades or room-tone extension to prevent clicks and abrupt silence;
-- preserve existing subtitles initially;
-- optionally add a two-line safe-area hook title for 2–3 seconds;
-- avoid repetitive template effects that reduce native-feed appearance.
-
-### 4.4 First-frame cover rule
-
-- Select a sharp, platform-safe frame with a readable face/reaction, intimate spatial tension, or immediately understandable action.
-- Reject motion blur, obstructed faces, platform-unsafe nudity, subtitle collisions, and ambiguous frames.
-- Encode the frame as the true first video frame and keyframe for a configurable 0.10–0.30 seconds. The production default is 0.10 seconds (three frames at 30 fps); operators may increase it when a destination's thumbnail extractor needs a longer hold.
-- Do not add a separate thumbnail dependency.
-- Audio begins with the narrative clip, not with an accidental duplicated syllable.
-- Automated QA must extract and verify frame zero.
-
-### 4.5 R2 assets and records
-
-Persist approved assets with:
-
-- drama ID/slug;
-- source episode numbers;
-- source and rendered time ranges;
-- R2 object key and public URL;
-- duration, dimensions, codecs, and size;
-- hook type, title, score components, rationale, and risk level;
-- cover source timestamp;
-- transcript/model/prompt/ranking/render version;
-- job and candidate IDs;
-- review state, reviewer, and timestamps.
-
-Temporary drafts must have retention and cleanup policies and must not appear in Publish Center until approved and saved.
-
-## 5. Job architecture
-
-Add durable entities equivalent to:
-
-- `hook_generation_jobs`
-- `hook_job_attempts`
-- `hook_candidates`
-- `hook_clips`
-
-Required behavior:
-
-- idempotency key based on drama, selected episodes, settings, and version;
-- persisted progress and safe structured errors;
-- lease/heartbeat for worker recovery;
-- bounded retries with exponential backoff and jitter;
-- cancellation and manual retry;
-- no browser dependency after job acceptance;
-- no synchronous FFmpeg/Whisper work inside a Vercel request;
-- SSRF protection by resolving source URLs only from the selected drama’s stored R2 assets.
-
-Each job must persist direction-related settings equivalent to:
-
-- `creative_direction` — the operator’s original text, stored without silent rewriting;
-- `direction_schema` — parsed themes, preferred moments, ending intent, `must_include`, and `avoid` values;
-- `direction_parser_version` and `direction_model_version`;
-- `direction_match_score` and match evidence for each candidate;
-- content-intensity/safety preference and multi-segment permission when enabled.
-
-The original direction and parsed representation must be included in the job idempotency/version inputs so materially different directions cannot reuse an unrelated previous result.
-
-## 6. Publish Center
-
-### 6.1 Asset selection
-
-For the selected drama, the operator chooses exactly one:
-
-- **Original:** a specific R2 episode;
-- **Saved Hook:** a specific approved hook clip;
-- **Manual Upload:** an explicitly uploaded finished video.
-
-The selected video must be previewable and its immutable asset ID, URL, kind, and label must be saved on the publish package.
-
-### 6.2 Provider interface
-
-**Current decision (August 2026): Yixiaoer remains the only active direct-publishing provider. Do not perform a provider-neutral refactor yet.** The current Yixiaoer-specific schema, Railway queue, upload/validation flow, account routing, progress UI, and scheduled-release behavior remain the production path while they are being stabilized and measured.
-
-The provider interface below describes the intended future boundary, not an instruction to replace the working Yixiaoer integration during the current phase.
-
-When the deferred refactor is triggered, implement a server-side provider boundary equivalent to:
-
-```ts
-interface PublishingProvider {
-  listAccounts(): Promise<Account[]>;
-  uploadMedia(asset: PublishAsset): Promise<RemoteMedia>;
-  createPost(input: PublishPostInput): Promise<PublishResult>;
-  getStatus(id: string): Promise<PublishStatus>;
-}
-```
-
-Adapters:
-
-1. `YixiaoerProvider` — current production implementation, initially extracted from the working integration only when the deferred refactor is triggered.
-2. `MetricoolCsvProvider` — preserve the CSV workflow as fallback/export rather than the primary live-publishing path.
-3. `BufferProvider` — possible future adapter; do not implement until Buffer is selected and its actual account/media/scheduling capabilities are verified.
-4. `UploadPostProvider`, `ZernioProvider`, or `PostizProvider` — evaluation-only alternatives. Postiz must remain a separately deployed service.
-
-Do not embed Postiz or OpenPost code into this repository. If used, deploy separately and call its API.
-
-#### 6.2.1 Deferred provider-neutral refactor
-
-The refactor is triggered only when at least one of the following is true:
-
-- the operator selects and authorizes a second live provider such as Buffer;
-- Yixiaoer can no longer satisfy a required platform, reliability, scheduling, or account-management need;
-- provider-specific fields cause repeated changes across Publish Center rather than remaining isolated to integration code;
-- automated tests cannot cover publishing behavior without invoking Yixiaoer-specific concepts.
-
-When triggered, the migration must:
-
-- keep Publish Center responsible only for asset, copy, account, schedule, confirmation, and status;
-- define provider capabilities such as account listing, media/cover upload, validation, dry-run, immediate publish, native scheduling, cancellation, and status lookup;
-- move Yixiaoer behavior behind a `YixiaoerProvider` adapter before adding another adapter;
-- introduce neutral persistence such as `provider`, `provider_asset`, `provider_accounts`, `provider_payloads`, `provider_results`, `provider_action`, `provider_status`, and provider request/post IDs;
-- backfill neutral fields from existing `yixiaoer_*` fields, run both representations during a bounded compatibility period, and remove legacy fields only after reconciliation;
-- preserve Railway-controlled scheduling for providers without reliable native scheduling while allowing an adapter to use native scheduling when supported;
-- drive UI labels and controls from provider capabilities instead of hard-coded provider names;
-- retain publish confirmation, idempotency, cancellation, history, audit data, and Metricool CSV fallback throughout the migration.
-
-Until a trigger occurs, new Yixiaoer work may continue in the existing production path, but new product-level concepts should use neutral names where doing so is low-cost. Do not add speculative Buffer credentials, database tables, UI selectors, or adapter code.
-
-### 6.3 Publishing controls
-
-Support:
-
-- per-platform account selection;
-- shared caption with platform-specific overrides;
-- immediate and scheduled publishing;
-- TikTok privacy, duet, and stitch settings;
-- Instagram Reels media type;
-- YouTube title, privacy, tags, and optional playlist;
-- upload progress and remote-media state;
-- queued, uploading, scheduled, publishing, published, failed, and canceled status;
-- provider request ID and platform post ID;
-- idempotent retry that cannot duplicate a post;
-- downloadable Metricool CSV when direct publishing is unavailable or fails.
-
-## 7. Security and platform readiness
-
-- Encrypt OAuth tokens and provider keys server-side; never return them to the browser.
-- Require an explicit final confirmation for every real publish action.
-- Validate R2 object ownership, media type, size, duration, and HTTPS URL.
-- Separate provider account identity from display labels.
-- Log safe provider error categories without tokens or private media URLs.
-- Use official OAuth/API flows only.
-- Before enabling a platform in production, record its app-review state, scopes, supported account types, content-publishing permissions, rate limits, and a successful draft/live test.
-- “Adapter exists” must not be presented as “platform is production ready.”
-
-## 8. Delivery phases
-
-### Phase 3A — Architecture audit and stabilization
-
-- Audit and preserve existing uncommitted Hook Studio/Publish Center work.
-- Compare it with this PRD and identify unsafe synchronous rendering or incomplete schema changes.
-- Add job/provider interfaces and database migrations.
-- Keep Vizard and Metricool CSV operational.
-
-### Phase 3B — Hook worker MVP
-
-- Introduce the independent Python worker.
-- Add Whisper, scene detection, grounded multimodal candidate selection, deduplication, FFmpeg render, first-frame cover, ending cleanup, and QA.
-- Deliver Hook Studio job progress, review, and Save to R2.
-
-### Phase 3B.1 — Direction-aware Hook Studio
-
-- Add the free-text Hook direction editor and persist its original value on durable jobs.
-- Implement rule-weighted parsing for supported default signals, `must include`, and `avoid` concepts.
-- Make direction match the leading ranking input while retaining grounded quality, safety, and deduplication gates.
-- Display direction-match rationale and evidence during review.
-- Preserve default automatic behavior when the direction is empty.
-- Add semantic direction matching only after the rule-weighted path is measured and its model/provider, cost, latency, privacy, and fallback behavior are documented.
-
-### Phase 3C — Publish asset selection
-
-- Add Original/Saved Hook/Manual Upload selection.
-- Persist immutable asset identity on publish packages.
-- Ensure only approved hooks appear.
-- Preserve current caption and Metricool CSV generation.
-
-### Phase 3D — Yixiaoer direct publishing stabilization
-
-- Keep Yixiaoer as the active provider and stabilize upload metadata, cover upload, validation, cloud publishing, scheduling, cancellation, recovery, and status reporting.
-- Verify TikTok, Instagram Reels, YouTube Shorts, and Facebook video publishing with the operator’s actual account types.
-- Record provider-specific limitations and production evidence without starting a speculative second-provider implementation.
-- Keep CSV fallback.
-
-### Phase 3D.1 — Deferred provider-neutral migration
-
-- Start only when a trigger in §6.2.1 is met and the operator confirms the second provider direction.
-- Extract the proven Yixiaoer path behind the neutral interface before implementing Buffer or another provider.
-- Migrate data and UI incrementally with compatibility reads, reconciliation, and rollback coverage.
-
-### Phase 3E — Performance learning loop
-
-- Reconcile platform post IDs and status.
-- Import available post metrics.
-- Connect hook score/version to views, retention, Watch Full CTR, conversions, and revenue.
-- Do not train or claim a learned ranking model until data sufficiency and evaluation criteria are defined.
-
-## 9. Acceptance criteria
-
-- Selecting a drama and its first five episodes creates a durable job that survives browser closure.
-- The worker returns no more than two non-duplicate hooks and may return fewer below threshold.
-- Every hook reports grounded source episode/timecodes and a selection rationale.
-- A blank creative direction reproduces the default automatic selection path without requiring style choices.
-- A supplied creative direction is persisted, affects candidate ranking, and produces per-candidate match evidence or an honest no-result.
-- Retrying or restoring a job preserves the exact creative direction and parser/model versions.
-- Frame zero is the intended cover, is a keyframe, and remains visible long enough for uploader thumbnail extraction.
-- Rendered files contain no accidental ending sting, end card, or abrupt audio click.
-- A reviewed hook is absent from R2 and Publish Center until Save to R2 succeeds.
-- Publish Center can select a specific original episode, saved hook, or manual upload.
-- Publish packages retain immutable asset identity, kind, provider, request ID, and status.
-- Direct publishing is idempotent and requires explicit confirmation.
-- Failure can be retried safely or exported through Metricool CSV.
-- Tests never publish to a live platform.
-
-## 10. Required test coverage
-
-- hook candidate scoring thresholds and deduplication;
-- creative-direction persistence, idempotency, parsing, weighting, exclusions, blank-direction fallback, and match rationale;
-- semantic-direction matching fixtures must verify grounded evidence and rejection of unsupported requested moments;
-- timestamp grounding and boundary snapping;
-- first-frame insertion and frame-zero extraction;
-- ending video/audio cleanup;
-- codec, aspect ratio, duration, and audio-sync QA;
-- job idempotency, lease expiry, retries, cancellation, and recovery;
-- R2 path/ownership validation and save transition;
-- Publish Center asset filtering and immutable selection;
-- provider adapters with mock upload/create/status responses;
-- duplicate-publish prevention and CSV fallback.
-
-## 11. Codex implementation instructions
-
-Codex must begin by reading this PRD, inspecting the current worktree, and producing an evidence-based implementation plan before additional code changes. The plan must:
-
-1. identify any partial Hook Studio implementation already present and decide what to keep, replace, or migrate;
-2. separate Next.js control-plane work from the Python video worker;
-3. list schema migrations and deployment requirements;
-4. identify license/attribution obligations;
-5. stage delivery in the Phase 3A–3E order;
-6. define verification for each stage;
-7. avoid live publishing until the operator explicitly authorizes a sandbox or draft test.
-
-After presenting the plan, Codex should implement the next safe, testable stage without reviving the superseded Phase 2 roadmap.
+Use [`phase-3-production-qa.md`](./phase-3-production-qa.md) to record one real, authorized validation flow. Provider credentials or permissions may be recorded as blocked; they must not be presented as passing.
