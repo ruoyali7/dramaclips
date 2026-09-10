@@ -54,6 +54,7 @@ class OneshotWorkerTests(unittest.TestCase):
 
         self.assertEqual(process.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
+        sleep.assert_has_calls([unittest.mock.call(main.VIZARD_SUBMISSION_GAP_SECONDS)] * 2)
 
 
 if __name__ == "__main__":

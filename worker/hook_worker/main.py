@@ -21,7 +21,7 @@ ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
-VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","25")));VIZARD_SUBMISSION_GAP_SECONDS=max(35,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","36")))
+VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","20")));VIZARD_SUBMISSION_GAP_SECONDS=max(60,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","65")))
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
 SUPABASE_HEAD={"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json"}
