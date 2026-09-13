@@ -14,7 +14,7 @@ export function StorageCleanup(){
  const total=(plan?.totals.records||0)+(plan?.totals.r2Drafts||0);
  return <section className="panel key-rotation-card storage-cleanup-card">
   <span>Storage maintenance</span><h2>Safe cleanup</h2>
-  <p>Scan first. Nothing is deleted until you review the exact plan and confirm again. Active jobs, pending review, Saved Hooks, scheduled/published packages, original episodes, and Vizard projects with assets are protected.</p>
+  <p>Scan first. Nothing is deleted until you review the exact plan and confirm again. Active jobs, pending review, Saved Hooks, all publish records (including failures and partial results), original episodes, and Vizard projects with assets are protected.</p>
   <button onClick={()=>void scan()} disabled={busy}>{busy?<LoaderCircle className="spin"/>:<Search/>}{busy?"Scanning references…":plan?"Refresh cleanup plan":"Scan cleanup candidates"}</button>
   {plan&&<div className="cleanup-plan">
    <div className="cleanup-plan-summary"><div><b>{plan.totals.records}</b><small>database records</small></div><div><b>{plan.totals.r2Drafts}</b><small>R2 drafts</small></div><div><b>{(plan.totals.r2Bytes/1048576).toFixed(1)} MB</b><small>recoverable</small></div></div>

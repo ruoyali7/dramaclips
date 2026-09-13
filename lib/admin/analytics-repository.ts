@@ -16,3 +16,13 @@ export async function recordTrackingEvent(input:TrackingEventInput){await reques
 
 export type AnalyticsSummary={visits:number;bioVisits:number;clipVisits:number;sessions:number;previewStarts:number;previewCompletions:number;watchFullClicks:number;promoCodeCopies:number;rsRedirects:number;redirects:number;events:number;bySource:[string,number][];byDrama:[string,number][]};
 export async function getAnalyticsSummary(since=new Date(Date.now()-30*24*60*60*1000)){return await request(`rpc/analytics_summary?since_at=${encodeURIComponent(since.toISOString())}`) as AnalyticsSummary}
+
+export type AnalyticsBreakdown = [name:string,sessions:number,copies:number,redirects:number];
+export type AnalyticsDay = [day:string,sessions:number,copies:number,redirects:number];
+export type AnalyticsRangeSummary = {
+  pageViews:number;shortLinkClicks:number;bioPageViews:number;clipPageViews:number;sessions:number;
+  previewStarts:number;previewCompletions:number;watchFullClicks:number;promoCodeCopies:number;
+  manualCodeCopies:number;automaticCodeCopies:number;unclassifiedCodeCopies:number;rsRedirects:number;redirectSuccesses:number;events:number;
+  bySource:AnalyticsBreakdown[];byDrama:AnalyticsBreakdown[];daily:AnalyticsDay[];
+};
+export async function getAnalyticsRange(from:Date,to:Date,timeZone="America/Los_Angeles"){return await request(`rpc/analytics_summary_v2?from_at=${encodeURIComponent(from.toISOString())}&to_at=${encodeURIComponent(to.toISOString())}&time_zone=${encodeURIComponent(timeZone)}`) as AnalyticsRangeSummary}

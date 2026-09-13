@@ -10,11 +10,11 @@ export function RememberDrama({ drama }: { drama: Drama }) {
   return null;
 }
 
-export function ContinueWatching({ dramas }: { dramas: Drama[] }) {
+export function ContinueWatching({ dramas, attribution = "" }: { dramas: Drama[]; attribution?: string }) {
   const [drama, setDrama] = useState<Drama | null>(null);
   useEffect(() => {
     try { const saved = JSON.parse(localStorage.getItem("dramaclips:last") || "null"); setDrama(dramas.find(item => item.slug === saved?.slug) || null); } catch {}
   }, [dramas]);
   if (!drama) return null;
-  return <section className="resume-strip"><div className="resume-label"><History/> <span>Continue where you left off</span></div><Link href={`/watch/${drama.slug}`}><Image src={drama.coverUrl} alt="" width={52} height={70}/><div><small>Recently viewed</small><strong>{drama.title}</strong><span>Continue watching <ArrowRight/></span></div><i><Play fill="currentColor"/></i></Link></section>;
+  return <section className="resume-strip"><div className="resume-label"><History/> <span>Continue where you left off</span></div><Link href={`/watch/${drama.slug}${attribution?`?${attribution}`:""}`}><Image src={drama.coverUrl} alt="" width={52} height={70}/><div><small>Recently viewed</small><strong>{drama.title}</strong><span>Continue watching <ArrowRight/></span></div><i><Play fill="currentColor"/></i></Link></section>;
 }

@@ -306,16 +306,22 @@ export async function createPublishPackage(input: {
   return safe(rows[0]);
 }
 export async function listPublishPackages() {
-  const rows = (await request(
-    "publish_packages?select=*&order=created_at.desc&limit=50",
-  )) as Row[];
+  const rows: Row[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await request(`publish_packages?select=*&order=created_at.desc,id.desc&limit=200&offset=${offset}`) as Row[];
+    rows.push(...page);
+    if (page.length < 200) break;
+  }
   return rows.map(safe);
 }
 export type PublishedAssetIdentity = { hookClipId?: string; videoUrl: string };
 export async function listPublishedAssetIdentities(): Promise<PublishedAssetIdentity[]> {
-  const rows = (await request(
-    "publish_packages?status=eq.published&select=hook_clip_id,video_url&limit=10000",
-  )) as Array<{ hook_clip_id?: string; video_url: string }>;
+  const rows: Array<{ hook_clip_id?: string; video_url: string }> = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await request(`publish_packages?status=eq.published&select=hook_clip_id,video_url&order=id&limit=200&offset=${offset}`) as typeof rows;
+    rows.push(...page);
+    if (page.length < 200) break;
+  }
   return rows.map((row) => ({ hookClipId: row.hook_clip_id || undefined, videoUrl: row.video_url }));
 }
 export async function getLatestPublishPackage() {

@@ -12,15 +12,16 @@ function track(name:string, data:Record<string,unknown>) {
 }
 
 export function EpisodePlayer({drama,episodes,goHref,contentPromotionHref}:{drama:Drama;episodes:Episode[];goHref:string;contentPromotionHref?:string}) {
-  const video=useRef<HTMLVideoElement>(null); const [index,setIndex]=useState(0); const [playing,setPlaying]=useState(false); const [muted,setMuted]=useState(true); const [progress,setProgress]=useState(0); const [ended,setEnded]=useState(false); const [copied,setCopied]=useState(false); const episode=episodes[index];
+  const video=useRef<HTMLVideoElement>(null); const startedEpisodes=useRef(new Set<string>()); const completedEpisodes=useRef(new Set<string>()); const [index,setIndex]=useState(0); const [playing,setPlaying]=useState(false); const [muted,setMuted]=useState(true); const [progress,setProgress]=useState(0); const [ended,setEnded]=useState(false); const [copied,setCopied]=useState(false); const episode=episodes[index];
   useEffect(()=>{track("page_view",{dramaId:drama.id,dramaSlug:drama.slug});},[drama.id,drama.slug]);
-  const play=useCallback(()=>{video.current?.play();setPlaying(true);track("episode_start",{dramaId:drama.id,dramaSlug:drama.slug,episodeId:episode.id,episodeNumber:episode.episodeNumber});},[drama.id,drama.slug,episode]);
+  const play=useCallback(()=>{void video.current?.play();},[]);
+  const onPlay=useCallback(()=>{setPlaying(true);if(startedEpisodes.current.has(episode.id))return;startedEpisodes.current.add(episode.id);track("episode_start",{dramaId:drama.id,dramaSlug:drama.slug,episodeId:episode.id,episodeNumber:episode.episodeNumber});},[drama.id,drama.slug,episode]);
   useEffect(()=>{localStorage.setItem("dramaclips:last",JSON.stringify({slug:drama.slug,episode:index+1,at:Date.now()}));setEnded(false);setProgress(0);},[drama.slug,index]);
   function select(next:number){if(next<0||next>=episodes.length)return;setIndex(next);setPlaying(false);setTimeout(()=>video.current?.play().then(()=>setPlaying(true)).catch(()=>{}),80);track("next_episode",{dramaId:drama.id,dramaSlug:drama.slug,fromEpisode:episode.episodeNumber,toEpisode:next+1});}
   function onTime(){const el=video.current;if(!el||!el.duration)return;setProgress((el.currentTime/el.duration)*100)}
   function seek(event:React.PointerEvent<HTMLDivElement>){const el=video.current;if(!el||!el.duration)return;const rect=event.currentTarget.getBoundingClientRect();const ratio=Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width));el.currentTime=ratio*el.duration;setProgress(ratio*100)}
-  function onEnded(){setPlaying(false);track("episode_complete",{dramaId:drama.id,dramaSlug:drama.slug,episodeId:episode.id,episodeNumber:episode.episodeNumber});if(index<episodes.length-1)select(index+1);else setEnded(true)}
-  async function copy(){if(!drama.promoCode)return;await navigator.clipboard.writeText(drama.promoCode);setCopied(true);track("promo_code_copy",{dramaId:drama.id,dramaSlug:drama.slug});setTimeout(()=>setCopied(false),1800)}
+  function onEnded(){setPlaying(false);if(!completedEpisodes.current.has(episode.id)){completedEpisodes.current.add(episode.id);track("episode_complete",{dramaId:drama.id,dramaSlug:drama.slug,episodeId:episode.id,episodeNumber:episode.episodeNumber});}if(index<episodes.length-1)select(index+1);else setEnded(true)}
+  async function copy(){if(!drama.promoCode)return;await navigator.clipboard.writeText(drama.promoCode);setCopied(true);track("promo_code_copy",{dramaId:drama.id,dramaSlug:drama.slug,metadata:{reason:"manual"}});setTimeout(()=>setCopied(false),1800)}
   async function openFull(event:React.MouseEvent<HTMLAnchorElement>,position:string){
     if(!contentPromotionHref)return;
     event.preventDefault();
@@ -29,7 +30,7 @@ export function EpisodePlayer({drama,episodes,goHref,contentPromotionHref}:{dram
     window.location.assign(contentPromotionHref);
   }
   return <div className="watch-stage"><div className="vertical-player">
-    <video ref={video} src={episode.videoUrl} poster={drama.coverUrl} muted={muted} playsInline preload="metadata" onTimeUpdate={onTime} onEnded={onEnded} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)}/>
+    <video ref={video} src={episode.videoUrl} poster={drama.coverUrl} muted={muted} playsInline preload="metadata" onTimeUpdate={onTime} onEnded={onEnded} onPlay={onPlay} onPause={()=>setPlaying(false)}/>
     <button className="player-hit" onClick={()=>playing?video.current?.pause():play()} aria-label={playing?"Pause":"Play"}>{!playing&&<Play fill="currentColor"/>}</button>
     <div className="player-top"><span>EP {episode.episodeNumber}</span><small>Free preview</small></div>
     <div className="player-controls"><button onClick={()=>setMuted(!muted)} aria-label={muted?"Unmute":"Mute"}>{muted?<VolumeX/>:<Volume2/>}</button><button onClick={()=>playing?video.current?.pause():play()}>{playing?<Pause fill="currentColor"/>:<Play fill="currentColor"/>}</button></div>

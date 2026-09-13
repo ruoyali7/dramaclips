@@ -456,7 +456,7 @@ export function PublishCenter({
         ];
         return rows.map((row) => ({
           ...row,
-          latest: recent.find((pack) => pack.videoUrl === row.videoUrl),
+          latest: recent.find((pack) => pack.videoUrl === row.videoUrl && pack.status === "published") || recent.find((pack) => pack.videoUrl === row.videoUrl),
         }));
       }),
     [sources, recent],
@@ -1038,7 +1038,7 @@ export function PublishCenter({
               </summary>
               <DramaLibraryExpanded
                 episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber) }; })}
-                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.latest ? packageState(row.latest) : "Saved", inCart: cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }))}
+                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.publishingStatus === "published" ? "Published" : row.latest ? packageState(row.latest) : "Saved", inCart: cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }))}
                 previewEpisode={libraryPreviewKey.startsWith(`episode:${group.source.id}:`) ? Number(libraryPreviewKey.split(":").at(-1)) : null}
                 onPreviewEpisode={(episode) => setLibraryPreviewKey((current) => current === `episode:${group.source.id}:${episode.episodeNumber}` ? "" : `episode:${group.source.id}:${episode.episodeNumber}`)}
                 selectedHookId={group.assets.some((row) => row.key === libraryPreviewKey) ? libraryPreviewKey : null}

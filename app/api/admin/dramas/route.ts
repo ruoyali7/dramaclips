@@ -1,2 +1,20 @@
-import { NextRequest,NextResponse } from "next/server";import { ZodError } from "zod";import { dramaDraftSchema } from "@/lib/admin/drama-schema";import { publishDramaDraft,saveDramaDraft } from "@/lib/admin/repository";import {enqueueVizardSubmissions} from "@/lib/admin/vizard-repository";
-export async function POST(request:NextRequest){try{const input=dramaDraftSchema.parse(await request.json());const draft=await saveDramaDraft(input);await publishDramaDraft(draft.id);let vizard:{status:"queued"|"failed";requested:number;accepted:number;message?:string};try{const jobs=await enqueueVizardSubmissions(input.episodes.map(episode=>({dramaId:draft.id,dramaSlug:draft.slug,episodeNumber:episode.episodeNumber,projectName:`${draft.title} - EP ${episode.episodeNumber}`,videoUrl:episode.videoUrl,settings:{language:input.language,preferLength:0,maxClipNumber:1,ratio:1,subtitles:false,headline:true,clipModel:"clip_v1"}})));vizard={status:"queued",requested:input.episodes.length,accepted:jobs.length}}catch(error){const message=error instanceof Error?error.message:"Could not queue Vizard jobs";console.error("[admin] Vizard auto queue failed",message);vizard={status:"failed",requested:input.episodes.length,accepted:0,message}}return NextResponse.json({draft:{...draft,status:"published"},vizard},{status:201})}catch(error){if(error instanceof ZodError)return NextResponse.json({code:"VALIDATION_ERROR",message:"Check the form fields",fieldErrors:error.flatten().fieldErrors},{status:400});console.error("[admin] drama publish failed",error instanceof Error?error.message:"unknown");return NextResponse.json({code:"PUBLISH_FAILED",message:"Could not publish the drama"},{status:500})}}
+import { NextRequest, NextResponse } from "next/server";
+import { ZodError } from "zod";
+import { dramaDraftSchema } from "@/lib/admin/drama-schema";
+import { publishDramaDraft, saveDramaDraft } from "@/lib/admin/repository";
+import { queueDramaEpisodes } from "@/lib/admin/queue-drama-episodes";
+
+export async function POST(request: NextRequest) {
+  try {
+    const input = dramaDraftSchema.parse(await request.json());
+    const draft = await saveDramaDraft(input);
+    await publishDramaDraft(draft.id);
+    const vizard = await queueDramaEpisodes({...draft, language: input.language}, input.episodes);
+    return NextResponse.json({draft: {...draft, status: "published"}, vizard, queueEpisodeNumbers: input.episodes.map(episode => episode.episodeNumber)}, {status: 201});
+  } catch (error) {
+    if (error instanceof ZodError) return NextResponse.json({code: "VALIDATION_ERROR", message: "Check the highlighted fields", fieldErrors: error.flatten().fieldErrors}, {status: 400});
+    const duplicate = error instanceof Error && /23505|duplicate key|already exists/i.test(error.message);
+    console.error("[admin] drama publish failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({code: duplicate ? "DUPLICATE_DRAMA" : "PUBLISH_FAILED", message: duplicate ? "This slug or referral code already exists. Open the existing drama to edit it." : "Could not publish the drama. Check Drama bundles before retrying."}, {status: duplicate ? 409 : 500});
+  }
+}

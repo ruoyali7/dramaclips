@@ -17,7 +17,7 @@ export async function createStorageCleanupPlan():Promise<CleanupPlan>{
  const protectedDraftKeys=new Set(candidates.filter(item=>!removableJobIds.has(String(item.job_id))).map(item=>String(item.draft_object_key||"")).filter(Boolean));
  const drafts=await listExpiredHookDrafts(sevenDays,protectedDraftKeys),projectsWithAssets=new Set(vizardAssets.map(item=>String(item.project_id||"")).filter(Boolean));
  const categories={
-  publishPackages:packages.filter(item=>!item.yixiaoer_action&&["ready","failed"].includes(String(item.status))&&Date.parse(String(item.created_at))<(Object.keys((item.yixiaoer_video as Row)||{}).length?thirtyDays:sevenDays).getTime()).map(item=>({id:String(item.id),label:`${item.drama_slug} · ${item.video_label||item.status}`,reason:Object.keys((item.yixiaoer_video as Row)||{}).length?"Inactive uploaded dry-run older than 30 days":"Unpublished result older than 7 days"})),
+  publishPackages:[] as CleanupPlan["categories"]["publishPackages"],
   hookJobs:jobs.filter(item=>removableJobIds.has(String(item.id))).map(item=>({id:String(item.id),label:`${item.drama_slug} · EP ${Array.isArray(item.source_episodes)?item.source_episodes.join(", "):"?"}`,reason:`${String(item.status).replaceAll("_"," ")} · no Saved Hook · older than 7 days`})),
   vizardProjects:vizardProjects.filter(item=>["failed","archived"].includes(String(item.status))&&Date.parse(String(item.submitted_at))<thirtyDays.getTime()&&!projectsWithAssets.has(String(item.id))).map(item=>({id:String(item.id),label:String(item.project_name||item.id),reason:`${item.status} · no saved Vizard asset · older than 30 days`})),
   r2Drafts:drafts.map(item=>({...item,reason:"Expired hook draft with no retained job reference"})),
