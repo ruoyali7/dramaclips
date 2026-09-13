@@ -9,7 +9,7 @@ vi.mock("@/lib/admin/yixiaoer-account-cache", () => ({ getCachedYixiaoerAccounts
   { id: "tt", platform: "TikTok", status: 1 }, { id: "ig", platform: "Instagram", status: 1 },
   { id: "yt", platform: "Youtube", status: 1 }, { id: "fb", platform: "Facebook", status: 1 },
 ] })) }));
-vi.mock("@/lib/admin/publish-cart-date", () => ({ pacificCartDates: () => ["2026-09-08", "2026-09-09"] }));
+vi.mock("@/lib/publish-cart-date", () => ({ pacificCartDates: () => ["2026-09-08", "2026-09-09"] }));
 vi.mock("@/lib/publish-slots", () => ({ futurePacificPublishSlots: slots }));
 vi.mock("@/lib/catalog", () => ({ getDramaBySlug: vi.fn(async () => ({ title: "Drama", promoCode: "CODE", publicCode: "PUBLIC", description: "Story.", tags: [], contentPromotionUrl: "https://reelslink.test/cps" })) }));
 

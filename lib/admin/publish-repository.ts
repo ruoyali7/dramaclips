@@ -410,6 +410,7 @@ export async function enqueueYixiaoerPackage(
   const results = scheduled
     ? {
         ...baseResults,
+        ...(input.control ? { _control: input.control } : {}),
         _operation: {
           stage: "awaiting_scheduled_time",
           scheduledAt: input.scheduledAt || item.scheduledAt,

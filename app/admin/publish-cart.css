@@ -33,5 +33,5 @@
 .scheduled-cart-items time { font-size: 9px; font-weight: 700; color: #a06048; }
 .scheduled-cart-items span b, .scheduled-cart-items span small { display: block; }
 .scheduled-cart-items span b { font-size: 9px; }.scheduled-cart-items span small { color: #888; font-size: 8px; margin-top: 3px; }
-.scheduled-cart-items button { border: 1px solid #d4d1c9; background: #fff; padding: 6px 8px; font-size: 8px; }
+.scheduled-cart-items button { border: 1px solid #d4d1c9; background: #fff; color: #171717; padding: 6px 8px; font-size: 8px; }
 @media (max-width: 700px) { .publish-cart-head { display: block; } .publish-cart-head > div:last-child { margin-top: 10px; } }

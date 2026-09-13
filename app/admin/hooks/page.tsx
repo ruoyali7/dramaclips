@@ -7,6 +7,7 @@ import {listVizardSources} from "@/lib/admin/repository";
 import {listVizardProjects} from "@/lib/admin/vizard-repository";
 import {listLibraryAssets} from "@/lib/admin/asset-library";
 import "./library.css";
+import "../operations-ux.css";
 
 export const dynamic="force-dynamic";
 type AssetStatus="published"|"publishing"|"scheduled"|"failed"|"ready";

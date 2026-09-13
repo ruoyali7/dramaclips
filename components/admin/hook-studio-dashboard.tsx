@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { VizardStudio } from "./vizard-studio";
+import { VizardQueue } from "./vizard-queue";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 type Episode = { episodeNumber: number; videoUrl: string };
@@ -227,7 +228,7 @@ export function HookStudioDashboard({
   function openGenerationHistory(item: GenerationHistory) {
     setSourceId(item.dramaId);
     setEpisodes(item.sourceEpisodes);
-    setMethod(item.method === "Vizard" ? "vizard" : "built-in");
+    setMethod("vizard");
     if (item.method === "Built-in") setJob({id:item.id,status:item.status,progress:item.progress,errorMessage:item.errorMessage});
     if (generatorRef.current) {
       generatorRef.current.open = true;
@@ -313,11 +314,12 @@ export function HookStudioDashboard({
     );
   return (
     <div className="hook-dashboard">
+      <VizardQueue sources={sources}/>
       <section className="drama-hook-library">
         <div className="hook-section-title">
           <div>
-            <span>01 · Drama & hook library</span>
-            <h2>Choose what to generate</h2>
+            <span>02 · Drama & hook library</span>
+            <h2>Your episodes & saved hooks</h2>
           </div>
           <div>
             <b>{sources.length}</b>
@@ -402,8 +404,8 @@ export function HookStudioDashboard({
                     <div>
                       <b>Episodes</b>
                       <small>
-                        Select up to 15, preview if needed, then generate every
-                        qualified hook up to a maximum of 6.
+                        Select up to 15 episodes for Vizard. Preview if needed;
+                        the default is one vertical clip per episode.
                       </small>
                     </div>
                     <button
@@ -587,21 +589,21 @@ export function HookStudioDashboard({
           </button>
         </div>
       </section>
-      <details className="hook-generator" ref={generatorRef} open>
+      <details className="hook-generator" ref={generatorRef}>
         <summary>
           <div>
-            <span>02 · Generate tools</span>
-            <h2>Create hooks</h2>
+            <span>03 · Manual generation</span>
+            <h2>Select episodes or retry a submission</h2>
           </div>
           <small>
-            Built-in and Vizard are two generation methods. Successful results
-            save automatically.
+            Vizard clips save automatically. Use this for additional episodes or reviewed failures.
           </small>
         </summary>
-        <div className="generator-tabs">
+        <details className="paused-generation"><summary>Advanced · Built-in generation paused</summary><p>Existing saved hooks remain available. New Built-in generation is paused.</p><div className="generator-tabs">
           <button
             className={method === "built-in" ? "active" : ""}
             onClick={() => setMethod("built-in")}
+            disabled
           >
             <Scissors /> Built-in
           </button>
@@ -611,7 +613,7 @@ export function HookStudioDashboard({
           >
             <Play /> Vizard
           </button>
-        </div>
+        </div></details>
         {method === "vizard" ? (
           <VizardStudio
             sources={sources}
@@ -675,13 +677,14 @@ export function HookStudioDashboard({
           </div>
         )}
       </details>
-      <section className="hook-generation-history">
-        <div className="hook-section-title"><div><span>03 · Hook generation history</span><h2>Recent generation tasks</h2></div><div><b>{generationHistory.length}</b><small>Built-in + Vizard</small></div></div>
+      <details className="hook-generation-history">
+        <summary>04 · Generation history · {generationHistory.length} tasks</summary>
+        <div className="hook-section-title"><div><span>Previous generation tasks</span><h2>Recent generation tasks</h2></div><div><b>{generationHistory.length}</b><small>Built-in + Vizard</small></div></div>
         <div className="hook-history-head"><b>Task</b><b>Generator</b><b>Progress</b><b>Result</b></div>
-        {generationHistory.slice((historyPage-1)*5,historyPage*5).map(item=><button className="hook-history-row" key={`${item.method}-${item.id}`} onClick={()=>openGenerationHistory(item)}><span><img src={item.coverUrl} alt=""/><i><strong>{item.dramaTitle}</strong><small>EP {item.sourceEpisodes.join(", ")} · {new Date(item.createdAt).toLocaleString()}</small></i></span><span>{item.method}</span><span><b>{item.progress}%</b><small>{item.status.replaceAll("_"," ")}</small></span><span className={item.status==="failed"?"failed":item.status==="ready"||item.status==="review_ready"?"ready":""}><b>{item.resultCount} hook{item.resultCount===1?"":"s"}</b><small>{item.errorMessage||"Open task"}</small></span></button>)}
+        {generationHistory.slice((historyPage-1)*5,historyPage*5).map(item=><button className="hook-history-row" key={`${item.method}-${item.id}`} onClick={()=>openGenerationHistory(item)}><span><img src={item.coverUrl} alt=""/><i><strong>{item.dramaTitle}</strong><small>EP {item.sourceEpisodes.join(", ")} · {new Date(item.createdAt).toLocaleString()}</small></i></span><span>{item.method}</span><span><b>{item.method==="Vizard"?(item.status==="ready"?"Saved":"Awaiting result"):`${item.progress}%`}</b><small>{item.status.replaceAll("_"," ")}</small></span><span className={item.status==="failed"?"failed":item.status==="ready"||item.status==="review_ready"?"ready":""}><b>{item.resultCount} hook{item.resultCount===1?"":"s"}</b><small>{item.errorMessage||"Open task"}</small></span></button>)}
         {!generationHistory.length&&<p className="hook-library-empty">No hook generation history yet.</p>}
         {generationHistory.length>5&&<div className="hook-pagination"><button disabled={historyPage===1} onClick={()=>setHistoryPage(value=>value-1)}><ChevronLeft/> Previous</button><span>{historyPage} / {Math.ceil(generationHistory.length/5)}</span><button disabled={historyPage===Math.ceil(generationHistory.length/5)} onClick={()=>setHistoryPage(value=>value+1)}>Next <ChevronRight/></button></div>}
-      </section>
+      </details>
     </div>
   );
 }

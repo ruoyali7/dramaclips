@@ -10,7 +10,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,terminal_operation
+from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
 from .upload import primary_publish_channel,retry_upload
 from .credential_reminder import PACIFIC,notification_due
@@ -463,7 +463,7 @@ def run_publish(job):
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
   publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
  retry_platforms=set(control.get("retryPlatforms",[]))
- pending=[p for p in job["platforms"] if p["source"] in payloads and (p["source"] in retry_platforms or not (action=="publish" and isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published"))]
+ pending=[p for p in job["platforms"] if p["source"] in payloads and should_process_platform(p["source"],results.get(p["source"]),action,retry_platforms)]
  for index,pack in enumerate(pending):
   source=pack["source"];platform_progress=40+int(index/max(1,len(pending))*45)
   def platform_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,platform_progress,video=assets,payloads=payloads,results={**results,"_operation":{"stage":"validating_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}}))

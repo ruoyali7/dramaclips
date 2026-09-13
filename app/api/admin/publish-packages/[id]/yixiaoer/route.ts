@@ -31,6 +31,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     }
     if(input.action==="publish"&&item.status!=="ready")return NextResponse.json({message:"Run upload, validate & dry-run before live publishing"},{status:409});
     const retryPlatforms=input.action==="retry"?selected.filter(pack=>{
+      if(input.platform&&input.platform!=="all"&&pack.source!==input.platform)return false;
       const result=item.yixiaoerResults?.[pack.source];
       // A package can be terminally failed after a sibling platform succeeded.
       // Retry every platform without a confirmed published result so recovery

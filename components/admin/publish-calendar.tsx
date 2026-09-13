@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, ExternalLink, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 type Package = {
@@ -46,10 +46,9 @@ function statusLabel(item: Package) {
   return item.status.replaceAll("_", " ");
 }
 
-export function PublishCalendar({ packages, sources }: { packages: Package[]; sources: Source[] }) {
+export function PublishCalendar({ packages, sources, onViewTask }: { packages: Package[]; sources: Source[]; onViewTask: (id: string) => void }) {
   const [anchor, setAnchor] = useState(() => new Date());
   const [view, setView] = useState<"days" | "week" | "month">("days");
-  const [selected, setSelected] = useState<Package | null>(null);
   const sourceName = (slug: string) => sources.find((source) => source.slug === slug)?.title || slug;
   const cells = useMemo(() => {
     const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
@@ -93,7 +92,7 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
           const items = byDay.get(key) || [];
           return <div className={`publish-calendar-day${view === "month" && date.getMonth() !== anchor.getMonth() ? " muted" : ""}`} key={key}>
             <time>{date.getDate()}</time>
-            {items.map((item) => <button className={`publish-calendar-event ${statusLabel(item).toLowerCase()}`} key={item.id} onClick={() => setSelected(item)}>
+            {items.map((item) => <button className={`publish-calendar-event ${statusLabel(item).toLowerCase()}`} key={item.id} title="View task in Publishing history" onClick={() => onViewTask(item.id)}>
               <strong>{eventDate(item).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong>
               <span>{sourceName(item.dramaSlug)} · EP {item.episodeNumber}</span>
               <small>{item.platforms.map((platform) => platformNames[platform.source] || platform.source).join(" · ")}</small>
@@ -101,13 +100,6 @@ export function PublishCalendar({ packages, sources }: { packages: Package[]; so
           </div>;
         })}
       </div>
-      {selected && <div className="publish-calendar-detail">
-        <div className="publish-calendar-detail-head"><div><span>{statusLabel(selected)}</span><h3>{sourceName(selected.dramaSlug)} · EP {selected.episodeNumber}</h3></div><button onClick={() => setSelected(null)} aria-label="Close">×</button></div>
-        <p>{selected.videoLabel || (selected.videoKind === "hook" ? "Hook video" : `Episode ${selected.episodeNumber}`)}</p>
-        <div className="publish-calendar-platforms">{selected.platforms.map((platform) => <span key={platform.source}>{platformNames[platform.source] || platform.source}</span>)}</div>
-        <video src={selected.videoUrl} controls preload="metadata" />
-        <a href={selected.videoUrl} target="_blank" rel="noreferrer"><Play /> Open video <ExternalLink /></a>
-      </div>}
     </section>
   );
 }

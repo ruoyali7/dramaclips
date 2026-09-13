@@ -3,6 +3,7 @@ import {
   Check,
   CloudUpload,
   Copy,
+  Eye,
   LoaderCircle,
   Send,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { DramaLibraryExpanded } from "@/components/admin/drama-library-expanded"
 import type { LibraryAsset } from "@/lib/admin/asset-library";
 import { futurePacificPublishSlots } from "@/lib/publish-slots";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
+import {hasUncertainOutcome,publishedPlatformCount,recoveryGuidance,platformError,platformPostUrl} from "@/lib/publish-task-presentation";
 type Hook = {
   id: string;
   title: string;
@@ -147,6 +149,8 @@ function packageState(value: Package) {
   if (draft && typeof draft === "object" && (draft as Record<string, unknown>).state === "saved")
     return "Saved in Yixiaoer drafts";
   if (value.status === "published") return "Published · confirmed";
+  const count=publishedPlatformCount(value);
+  if(count>0&&count<value.platforms.length)return `Partially published · ${count}/${value.platforms.length}${hasUncertainOutcome(value)?" · check result":""}`;
   if (value.status === "outcome_unknown") return "Needs reconciliation";
   if (value.status === "submitted" || value.status === "reconciling")
     return "Submitted · confirming";
@@ -243,6 +247,11 @@ export function PublishCenter({
   const [reschedulingId, setReschedulingId] = useState("");
   const [rescheduleAt, setRescheduleAt] = useState(defaultPublishTime);
   const [created, setCreated] = useState<Package | null>(null);
+  const [editingTask,setEditingTask]=useState(false);
+  const [focusedTask,setFocusedTask]=useState<string|null>(null);
+  const [returnPosition,setReturnPosition]=useState<{top:number;page:number}|null>(null);
+  const [retryTaskId,setRetryTaskId]=useState<string|null>(null);
+  const [historyRestored,setHistoryRestored]=useState(false);
   const [recent, setRecent] = useState<Package[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -269,13 +278,15 @@ export function PublishCenter({
   const [cartDate, setCartDate] = useState("");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [scheduledCartItems, setScheduledCartItems] = useState<CartItem[]>([]);
-  const [scheduleCollapsed, setScheduleCollapsed] = useState(false);
+  const [scheduleCollapsed, setScheduleCollapsed] = useState(true);
   const [cartBusy, setCartBusy] = useState(false);
   const [cartScheduled, setCartScheduled] = useState("");
   const visibleCartItems = cartItems.filter((item) => item.cartDate === cartDate);
   const visibleScheduledItems = scheduledCartItems.filter((item) => item.cartDate === cartDate);
   const visibleCartSlots = cartDate ? futurePacificPublishSlots(cartDate) : [];
   const resultsRef = useRef<HTMLElement>(null);
+  useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem("dramaclips:publish-history")||"{}");if(Number.isInteger(saved.page)&&saved.page>0)setHistoryPage(saved.page);if([5,10,20].includes(saved.size))setHistorySize(saved.size);}catch{}setHistoryRestored(true);},[]);
+  useEffect(()=>{if(historyRestored)localStorage.setItem("dramaclips:publish-history",JSON.stringify({page:historyPage,size:historySize}));},[historyPage,historySize,historyRestored]);
   useEffect(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem("dramaclips:publish-library") || "{}");
@@ -297,6 +308,7 @@ export function PublishCenter({
       .then(setRecent)
       .catch(() => {});
   }, []);
+  useAdaptivePolling(recent.some(item=>Boolean(item.yixiaoerAction)),async()=>{const response=await fetch("/api/admin/publish-packages",{cache:"no-store"});if(response.ok)setRecent((await response.json()).packages||[]);});
   useEffect(() => {
     if (!created?.id) return;
     const task = document.querySelector(`[data-package-id="${created.id}"]`) as HTMLDetailsElement | null;
@@ -503,9 +515,7 @@ export function PublishCenter({
   const activeStage = activeOperation?.stage
     ? stageNames[String(activeOperation.stage)] || String(activeOperation.stage)
     : "Waiting for Railway worker";
-  const historyPool = created
-    ? recent.filter((item) => item.id !== created.id)
-    : recent;
+  const historyPool = recent;
   const historyPages = Math.max(1, Math.ceil(historyPool.length / historySize));
   const currentHistoryPage = Math.min(historyPage, historyPages);
   const historyItems = historyPool.slice(
@@ -849,24 +859,28 @@ export function PublishCenter({
     action: "reconcile" | "retry",
     platform: string,
   ) {
+    if(connectionBusy)return;
+    const retryMode=platform==="all"?retryDeliveryMode:"now";
     const message = action === "reconcile"
       ? `Query Yixiaoer for the latest ${platform} result before retrying?`
-      : `Continue all unpublished platforms? Already published platforms will not be submitted again.`;
+      : `Retry ${platform==="all"?"unpublished platforms":platform}? Successful platforms will be kept.`;
     if (!window.confirm(message)) return;
+    setConnectionBusy(true);
     setError("");
     try {
       const r = await fetch(`/api/admin/publish-packages/${item.id}/yixiaoer`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, ...(action === "reconcile" ? { platform } : {}), ...(action === "retry" ? { deliveryMode: retryDeliveryMode, scheduledAt: retryDeliveryMode === "scheduled" ? new Date(retryScheduledAt).toISOString() : undefined } : {}), accounts: item.yixiaoerAccounts || {} }),
+        body: JSON.stringify({ action, ...(action === "reconcile" || platform!=="all" ? { platform } : {}), ...(action === "retry" ? { deliveryMode: retryMode, scheduledAt: retryMode === "scheduled" ? new Date(retryScheduledAt).toISOString() : undefined } : {}), accounts: item.yixiaoerAccounts || {} }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.message);
       setRecent((items) => items.map((current) => current.id === item.id ? j.package : current));
       if (created?.id === item.id) setCreated(j.package);
+      setRetryTaskId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update platform operation");
-    }
+    }finally{setConnectionBusy(false);}
   }
   async function retryUpload(item: Package) {
     if (!window.confirm(`${retryDeliveryMode === "scheduled" ? "Schedule" : "Publish"} the failed Yixiaoer upload retry? Existing uploaded resources will be reused, and no platform post will be duplicated.`)) return;
@@ -880,6 +894,20 @@ export function PublishCenter({
     } catch (e) { setError(e instanceof Error ? e.message : "Could not retry upload"); }
   }
   function openPackage(item: Package) {
+    setReturnPosition({top:window.scrollY,page:historyPage});
+    const index = recent.findIndex((candidate) => candidate.id === item.id);
+    if (index >= 0) setHistoryPage(Math.floor(index / historySize) + 1);
+    setFocusedTask(item.id);
+    window.requestAnimationFrame(()=>{const task=document.querySelector(`[data-package-id="${item.id}"]`) as HTMLDetailsElement|null;if(task){task.open=true;task.scrollIntoView({behavior:"smooth",block:"center"});}});
+  }
+  useEffect(()=>{
+    if(!focusedTask)return;
+    const task=document.querySelector(`[data-package-id="${focusedTask}"]`) as HTMLDetailsElement|null;
+    if(task){task.open=true;task.scrollIntoView({behavior:"smooth",block:"center"});}
+  },[focusedTask,currentHistoryPage]);
+  useEffect(()=>{if(created&&!editingTask)openPackage(created);},[created?.id]);
+  function editPackage(item:Package){
+    setEditingTask(true);
     const next = sources.find((x) => x.slug === item.dramaSlug);
     const libraryAsset = next?.libraryAssets.find((asset) => asset.videoUrl === item.videoUrl);
     const resolvedKind = libraryAsset?.kind || item.videoKind;
@@ -916,11 +944,7 @@ export function PublishCenter({
     if (!item.yixiaoerAction && item.status !== "published")
       void loadAccounts(nextPlatforms, item.yixiaoerAccounts || {});
     window.requestAnimationFrame(() => {
-      const task = document.querySelector(`[data-package-id="${item.id}"]`) as HTMLDetailsElement | null;
-      if (task) {
-        task.open = true;
-        task.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
+      resultsRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
     });
   }
   function selectAsset(row: AssetRow) {
@@ -976,18 +1000,18 @@ export function PublishCenter({
             <button className={!showCalendar ? "selected" : ""} onClick={() => setShowCalendar(false)}>List</button>
           </div>
         </div>
-        {showCalendar && <PublishCalendar packages={recent} sources={sources} />}
+        {showCalendar && <PublishCalendar packages={recent} sources={sources} onViewTask={(id) => { const task = recent.find((item) => item.id === id); if (task) openPackage(task); }} />}
       </section>
       <section className="asset-library">
         <span>01 · Video asset library</span>
         <div className="publish-cart">
           <div className="publish-cart-head"><div><b>Daily publish cart</b><small>Choose up to 10 Hooks, review their fixed Pacific times, then confirm once.</small></div><div>{cartDates.map((date, index) => <button key={date} className={cartDate === date ? "selected" : ""} onClick={() => setCartDate(date)}>{index === 0 ? "Today" : "Tomorrow"}<small>{date}</small></button>)}</div></div>
           <ol>{visibleCartItems.map((item, index, items) => <li key={item.id}><span>{index + 1}</span><div><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></div><time>{visibleCartSlots[index] ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(visibleCartSlots[index])) : "No slot"}</time><button disabled={cartBusy || index === 0} onClick={() => moveCartItem(item.id, -1)} aria-label="Move up">↑</button><button disabled={cartBusy || index === items.length - 1} onClick={() => moveCartItem(item.id, 1)} aria-label="Move down">↓</button><button disabled={cartBusy} onClick={() => removeFromCart(item.id)}>Remove</button></li>)}</ol>
-          {!cartItems.some((item) => item.cartDate === cartDate) && <p>No Hooks in this cart yet.</p>}
+          {!cartItems.some((item) => item.cartDate === cartDate) && <p>No hooks awaiting confirmation.</p>}
           <strong>{visibleCartItems.length + visibleScheduledItems.length} / 10</strong>
           {cartItems.some((item) => item.cartDate === cartDate) && <button className="confirm-cart-button" disabled={cartBusy} onClick={confirmCart}>{cartBusy ? "Scheduling…" : "Confirm fixed schedule"}</button>}
           {cartScheduled && <p className="cart-scheduled-message">{cartScheduled}</p>}
-          {visibleScheduledItems.length > 0 && <div className="scheduled-cart-items"><div className="scheduled-cart-title"><b>Confirmed schedule <small>{visibleScheduledItems.length}</small></b><button type="button" aria-expanded={!scheduleCollapsed} aria-controls="confirmed-publish-schedule" onClick={() => setScheduleCollapsed((collapsed) => !collapsed)}>{scheduleCollapsed ? "Show schedule" : "Hide schedule"}<span aria-hidden="true">{scheduleCollapsed ? "↓" : "↑"}</span></button></div>{!scheduleCollapsed && <div id="confirmed-publish-schedule" className="scheduled-cart-list">{visibleScheduledItems.map((item) => { const pack = recent.find((candidate) => candidate.id === item.publishPackageId); const taskScheduledAt = item.scheduledAt || pack?.scheduledAt; return <div key={item.id}><time>{taskScheduledAt ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(taskScheduledAt)) : "—"}</time><span><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></span><em className={`asset-status ${pack ? assetStatusClass(pack) : "asset-scheduled"}`}>{pack ? packageState(pack) : "Scheduled"}</em>{pack && <button title="Open this task in Publishing history" onClick={() => openPackage(pack)}>View task</button>}{pack?.status === "scheduled" && <button disabled={cartBusy} onClick={() => cancelScheduledCartItem(item)}>Cancel</button>}</div>; })}</div>}</div>}
+          {visibleScheduledItems.length > 0 && <div className="scheduled-cart-items"><div className="scheduled-cart-title"><b>Confirmed schedule <small>{visibleScheduledItems.length} arranged · {visibleScheduledItems.filter(item=>recent.find(pack=>pack.id===item.publishPackageId)?.status==="published").length} completed</small></b><button type="button" aria-expanded={!scheduleCollapsed} aria-controls="confirmed-publish-schedule" onClick={() => setScheduleCollapsed((collapsed) => !collapsed)}>{scheduleCollapsed ? "Expand schedule" : "Collapse schedule"}<span aria-hidden="true">{scheduleCollapsed ? "↓" : "↑"}</span></button></div>{!scheduleCollapsed && <div id="confirmed-publish-schedule" className="scheduled-cart-list">{visibleScheduledItems.map((item) => { const pack = recent.find((candidate) => candidate.id === item.publishPackageId); const taskScheduledAt = item.scheduledAt || pack?.scheduledAt; return <div key={item.id}><time>{taskScheduledAt ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(taskScheduledAt)) : "—"}</time><span><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></span><em className={`asset-status ${pack ? assetStatusClass(pack) : "asset-scheduled"}`}>{pack ? packageState(pack) : "Scheduled"}</em>{pack && <button title="Open this task in Publishing history" onClick={() => openPackage(pack)}>View task</button>}{pack?.status === "scheduled" && <button disabled={cartBusy} onClick={() => cancelScheduledCartItem(item)}>Cancel</button>}</div>; })}</div>}</div>}
         </div>
         <div className="publish-summary" aria-label="Publish queue summary">
           <span><b>{unpublishedHookCount}</b><small>Saved hooks left</small></span>
@@ -1238,8 +1262,9 @@ export function PublishCenter({
         {error && <div className="form-error">{error}</div>}
       </section>
       </details>
-      {created && (
+      {created && editingTask && (
         <section className="publish-results" ref={resultsRef}>
+          <button type="button" onClick={()=>{setEditingTask(false);openPackage(created);}}>Close editor · return to task</button>
           <div className="pack-heading">
             <div>
               <span>{packageState(created)}</span>
@@ -1431,9 +1456,9 @@ export function PublishCenter({
           </details>
           {!created.yixiaoerAction && (created.status === "failed" || created.status === "outcome_unknown") && (
             <div className="failed-platform-actions">
-              <b>{uploadFailed(created)?"The upload stopped before any platform submission. Retry the same upload task.":"Fix the copy above, save edits, then continue only the affected platform."}</b>
+              <b>{recoveryGuidance(created)}</b>
               {uploadFailed(created) && <><button onClick={() => setRetryOptionsOpen((open) => !open)}>Retry upload</button>{retryOptionsOpen && <div className="retry-options"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void retryUpload(created)}>Confirm retry</button></div>}</>}
-              {created.platforms.some((pack) => {const result=created.yixiaoerResults?.[pack.source];return !result||typeof result!=="object"||(result as Record<string,unknown>).state!=="published";}) && <><button onClick={() => setRetryOptionsOpen((open) => !open)}>Continue unpublished platforms</button>{retryOptionsOpen && <div className="retry-options"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void platformAction(created,"retry","all")}>Confirm retry</button></div>}</>}
+              {!hasUncertainOutcome(created)&&created.platforms.some((pack) => {const result=created.yixiaoerResults?.[pack.source];return !result||typeof result!=="object"||(result as Record<string,unknown>).state!=="published";}) && <><button onClick={() => setRetryOptionsOpen((open) => !open)}>Continue unpublished platforms</button>{retryOptionsOpen && <div className="retry-options"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void platformAction(created,"retry","all")}>Confirm retry</button></div>}</>}
               {created.platforms.map((pack) => {const result=created.yixiaoerResults?.[pack.source];const state=result&&typeof result==="object"?String((result as Record<string,unknown>).state||""):"";return state==="outcome_unknown"?<button key={pack.source} onClick={() => void platformAction(created,"reconcile",pack.source)}>Reconcile {pack.source}</button>:null})}
             </div>
           )}
@@ -1441,6 +1466,8 @@ export function PublishCenter({
       )}
       {recent.length > 0 && (
         <section className="publish-history publish-monitor">
+          {error&&<p className="form-error" role="alert">{error}</p>}
+          {returnPosition&&<button className="secondary-button" onClick={()=>{setHistoryPage(returnPosition.page);window.scrollTo({top:returnPosition.top,behavior:"smooth"});setReturnPosition(null);setFocusedTask(null);}}>↑ Back to previous position</button>}
           <span>04 · Publishing history</span>
           <p className="task-help">
             Use this list to check delivery status, reopen unfinished tasks, or inspect completed results. Opening a task never republishes it.
@@ -1487,24 +1514,32 @@ export function PublishCenter({
                   </span>
                 </summary>
                 <div className="monitor-detail">
+                  {x.videoUrl && <details className="history-video-preview" onToggle={(event) => { if (!event.currentTarget.open) event.currentTarget.querySelector("video")?.pause(); }}>
+                    <summary><Eye size={16} aria-hidden="true" /> Preview video</summary>
+                    <div>
+                      <p>{matchedAsset?.label || x.videoLabel || `EP ${x.episodeNumber}`}</p>
+                      <video src={x.videoUrl} controls playsInline preload="none" aria-label={`Preview ${sourceInfo?.title || x.dramaSlug} episode ${x.episodeNumber}`} />
+                      <a href={x.videoUrl} target="_blank" rel="noreferrer">Open video ↗</a>
+                    </div>
+                  </details>}
                   <div className="history-inline-result">
                     <div><span>{packageState(x)}</span><b>{x.yixiaoerProgress || 0}%</b></div>
-                    <small>{x.yixiaoerError || "Review this task and its platform results below."}</small>
-                    <div className="history-inline-actions">
+                    <small>{x.status==="failed"||hasUncertainOutcome(x)?recoveryGuidance(x):"Review platform delivery and confirmed post links below."}</small>
+                    <div className="history-inline-actions">{!x.yixiaoerAction&&x.status!=="published"&&!hasUncertainOutcome(x)&&<button onClick={()=>editPackage(x)}>Edit copy</button>}
                       {x.status === "scheduled" && <button onClick={() => beginReschedule(x)}>Reschedule</button>}
                       {x.yixiaoerAction && <button className="danger" onClick={() => void cancelPackage(x)} disabled={connectionBusy || cancelRequested(x)}>{cancelRequested(x) ? "Canceling…" : "Cancel"}</button>}
                       {!x.yixiaoerAction && x.status === "ready" && <button onClick={() => void queuePackage(x)}>Retry publishing</button>}
-                      {!x.yixiaoerAction && uploadFailed(x) && <button onClick={() => setRetryOptionsOpen((open) => !open)}>Retry upload</button>}
-                      {!x.yixiaoerAction && (x.status === "failed" || x.status === "outcome_unknown") && !uploadFailed(x) && <button onClick={() => setRetryOptionsOpen((open) => !open)}>Continue unpublished</button>}
+                      {!x.yixiaoerAction && uploadFailed(x) && <button onClick={() => setRetryTaskId(retryTaskId===x.id?null:x.id)}>Retry upload</button>}
+                      {!x.yixiaoerAction && x.status === "failed" && !hasUncertainOutcome(x) && !uploadFailed(x) && <button onClick={() => setRetryTaskId(retryTaskId===x.id?null:x.id)}>Retry unpublished platforms</button>}
                     </div>
                     {reschedulingId === x.id && <div className="history-inline-editor"><PublishTimePicker value={rescheduleAt} onChange={setRescheduleAt} /><button onClick={() => void reschedulePackage(x)} disabled={connectionBusy}>Confirm new time</button></div>}
-                    {retryOptionsOpen && (x.status === "failed" || x.status === "outcome_unknown") && <div className="history-inline-editor"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void (uploadFailed(x) ? retryUpload(x) : platformAction(x,"retry","all"))}>Confirm retry</button></div>}
+                    {retryTaskId===x.id && !hasUncertainOutcome(x) && x.status === "failed" && <div className="history-inline-editor"><label><input type="radio" checked={retryDeliveryMode === "now"} onChange={() => setRetryDeliveryMode("now")} /> Publish now</label><label><input type="radio" checked={retryDeliveryMode === "scheduled"} onChange={() => setRetryDeliveryMode("scheduled")} /> Schedule</label>{retryDeliveryMode === "scheduled" && <PublishTimePicker value={retryScheduledAt} onChange={setRetryScheduledAt} />}<button onClick={() => void (uploadFailed(x) ? retryUpload(x) : platformAction(x,"retry","all"))}>Confirm retry</button></div>}
                     <details className="history-copy-editor"><summary>Generated account copy</summary>{x.platforms.map((pack) => <div key={pack.source}><b>{pack.source}</b><textarea value={pack.caption} readOnly /><button onClick={() => void copy(pack.caption,pack.source)}>{copied === pack.source ? "Copied" : "Copy"}</button></div>)}</details>
                   </div>
                   <div className="history-actions">
                     <code>{x.id}</code>
                   </div>
-                  {x.yixiaoerError && <p>{x.yixiaoerError}</p>}
+                  {x.yixiaoerError && <details><summary>Technical error</summary><p>{x.yixiaoerError}</p></details>}
                   {x.platforms.map((pack) => {
                     const result = x.yixiaoerResults?.[pack.source];
                     const state = result && typeof result === "object" ? String((result as Record<string, unknown>).state || "") : "";
@@ -1512,7 +1547,10 @@ export function PublishCenter({
                       <div key={pack.source}>
                         <b>{pack.source}</b>
                         <span>{platformState(x, pack.source)}</span>
-                        {state === "outcome_unknown" && <button onClick={() => void platformAction(x,"reconcile",pack.source)}>Reconcile</button>}
+                        {state === "outcome_unknown" && <button onClick={() => void platformAction(x,"reconcile",pack.source)}>Check {pack.source} result</button>}
+                        {state==="failed"&&!x.yixiaoerAction&&!hasUncertainOutcome(x)&&<button onClick={()=>void platformAction(x,"retry",pack.source)}>Retry {pack.source}</button>}
+                        {platformPostUrl(result)&&<a href={platformPostUrl(result)} target="_blank" rel="noreferrer">Open post ↗</a>}
+                        {platformError(result)&&<details><summary>Platform error</summary><p>{platformError(result)}</p></details>}
                       </div>
                     );
                   })}

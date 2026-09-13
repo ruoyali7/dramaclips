@@ -10,6 +10,7 @@ export function defaultPublishTime() {
 }
 
 export function PublishTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const windowAt=nextPublishWorkerWindow(value);
   const [date = "", time = "00:00"] = value.split("T");
   const [hour = "00", minute = "00"] = time.split(":");
   const updateDate = (nextDate: string) => onChange(nextDate ? `${nextDate}T${hour}:${minute}` : "");
@@ -17,7 +18,7 @@ export function PublishTimePicker({ value, onChange }: { value: string; onChange
     if (date) onChange(`${date}T${nextHour}:${nextMinute}`);
   };
 
-  return <div className="publish-time-picker">
+  return <div className="publish-time-control"><div className="publish-time-picker">
     <input aria-label="Publish date" type="date" value={date} onChange={(event) => updateDate(event.target.value)} />
     <select aria-label="Publish hour" value={hour} onChange={(event) => updateTime(event.target.value, minute)} disabled={!date}>
       {hours.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -25,5 +26,6 @@ export function PublishTimePicker({ value, onChange }: { value: string; onChange
     <select aria-label="Publish minute" value={minute} onChange={(event) => updateTime(hour, event.target.value)} disabled={!date}>
       {minutes.map((option) => <option key={option} value={option}>{option}</option>)}
     </select>
-  </div>;
+  </div>{windowAt&&<p className="schedule-expectation">Selected time is in your browser’s timezone. Next automatic start: <b>{new Intl.DateTimeFormat("en-US",{timeZone:"America/Los_Angeles",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"}).format(new Date(windowAt))}</b>. Processing may begin later while other tasks finish. Publishing completes after upload and platform processing.</p>}</div>;
 }
+import {nextPublishWorkerWindow} from "@/lib/publish-worker-window";

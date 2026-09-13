@@ -11,6 +11,15 @@ function request(body:unknown){return new Request("http://localhost/api",{method
 
 describe("publish retry route",()=>{
   beforeEach(()=>{enqueue.mockReset();getPackage.mockReset();});
+  it("retries only the requested platform and blocks unknown outcomes",async()=>{
+    const item={id:"package-1",status:"failed",platforms:[{source:"instagram"},{source:"facebook"}],yixiaoerResults:{instagram:{state:"failed"},facebook:{state:"failed"}}};
+    getPackage.mockResolvedValue(item);enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
+    const accounts={instagram:"ig-1",facebook:"fb-1"};
+    const response=await POST(request({action:"retry",platform:"instagram",deliveryMode:"now",accounts}) as never,context);
+    expect(response.status).toBe(202);expect(enqueue.mock.calls[0][1].control).toEqual({retryPlatforms:["instagram"]});
+    enqueue.mockClear();getPackage.mockResolvedValue({...item,yixiaoerResults:{instagram:{state:"outcome_unknown"}}});
+    expect((await POST(request({action:"retry",platform:"instagram",deliveryMode:"now",accounts}) as never,context)).status).toBe(409);expect(enqueue).not.toHaveBeenCalled();
+  });
 
   it("rejects a past scheduled upload retry",async()=>{
     getPackage.mockResolvedValue(failedUpload);

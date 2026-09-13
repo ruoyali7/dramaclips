@@ -21,6 +21,12 @@ def should_resume(detail, retry_requested=False):
     return detail.get("state") != "published" and provider_request_id(detail) is not None
 
 
+def should_process_platform(source, detail, action, retry_platforms):
+    if action == "publish" and isinstance(detail, dict) and detail.get("state") == "published":
+        return False
+    return not retry_platforms or source in retry_platforms
+
+
 def find_publish_record(data, request_id):
     rows = data.get("data") if isinstance(data, dict) else None
     if not isinstance(rows, list):
