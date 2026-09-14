@@ -2,6 +2,7 @@ import "server-only";
 import { dramas as allSeedDramas, destinations as seedDestinations, episodes as allSeedEpisodes } from "./demo-data";
 import { getPublishedDramaDrafts } from "./admin/repository";
 import { decryptSensitive } from "./admin/encryption";
+import { summarizeDescription, uniqueTags } from "./catalog-presentation";
 import type { Destination, Drama, Episode } from "./types";
 
 const seedDramas = allSeedDramas.filter((item) => item.id === "d1");
@@ -12,7 +13,7 @@ function isSameDrama(a: { slug: string; publicCode: string; title: string }, b: 
 }
 
 function toDrama(row: Awaited<ReturnType<typeof getPublishedDramaDrafts>>[number]): Drama {
-  return { id: row.id, slug: row.slug, publicCode: row.publicCode, title: row.title, hook: row.description.slice(0, 150), description: row.description, coverUrl: row.coverUrl, tags: row.tags, status: "published", routeSlug: row.slug, promoCode: row.promoCode, contentPromotionUrl: decryptSensitive(row.cpsUrlEncrypted), appPromotionUrl: row.appCpsUrlEncrypted ? decryptSensitive(row.appCpsUrlEncrypted) : undefined, accent: "#d96b43" };
+  return { id: row.id, slug: row.slug, publicCode: row.publicCode, title: row.title, hook: summarizeDescription(row.description), description: row.description, coverUrl: row.coverUrl, tags: uniqueTags(row.tags), status: "published", routeSlug: row.slug, promoCode: row.promoCode, contentPromotionUrl: decryptSensitive(row.cpsUrlEncrypted), appPromotionUrl: row.appCpsUrlEncrypted ? decryptSensitive(row.appCpsUrlEncrypted) : undefined, accent: "#d96b43" };
 }
 
 export async function getCatalog() {

@@ -1,5 +1,6 @@
 const SAFE = /[^a-zA-Z0-9._-]/g;
 const KEYS = { source: ["s", "utm_source"], medium: ["m", "utm_medium"], campaign: ["c", "utm_campaign"], clip: ["cl", "utm_content"], account: ["a", "account"], variant: ["v", "variant"], hook: ["h", "utm_term"] } as const;
+const QUERY_KEYS = new Set([...Object.values(KEYS).flat(), "sl"]);
 
 export type Tracking = Record<keyof typeof KEYS, string>;
 export function normalize(value: string | null | undefined, fallback = "unknown") { return (value || fallback).slice(0, 100).replace(SAFE, "_").toLowerCase(); }
@@ -10,5 +11,5 @@ export function parseTracking(params: URLSearchParams, defaults: Partial<Trackin
   })) as Tracking;
 }
 export function trackingQuery(params: Record<string, string | string[] | undefined>) {
-  const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (typeof v === "string" && v.length <= 200) q.set(k, v); }); return q.toString();
+  const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (QUERY_KEYS.has(k) && typeof v === "string" && v.length <= 200) q.set(k, v); }); return q.toString();
 }
