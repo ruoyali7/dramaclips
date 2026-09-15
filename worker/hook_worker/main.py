@@ -392,6 +392,8 @@ def provider_state(data):
 def query_publish_status(job,source,request_id,heartbeat):
  try:
   details=yxer(job,["query","details",request_id],heartbeat)
+  if source=="instagram" and provider_post_id(details,source):
+   return {"state":"published","id":request_id,"details":details,"source":"details"}
   if source!="instagram" or not is_ambiguous_instagram_timeout(details):return details
   records=yxer(job,["query","records","--limit","100"],heartbeat)
   record=find_publish_record(records,request_id)

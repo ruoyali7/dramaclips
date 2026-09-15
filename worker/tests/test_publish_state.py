@@ -121,6 +121,26 @@ class PublishStateTests(unittest.TestCase):
         self.assertEqual(result["state"], "published")
         self.assertEqual(worker_main.provider_post_id(result, "instagram"), "DdExample")
 
+    def test_instagram_timeout_with_post_id_is_published(self):
+        details = {"tasks": [{
+            "platformName": "Instagram",
+            "stageStatus": "fail",
+            "errorMessage": "timeout of 30000ms exceeded",
+            "publishId": "18011243744958161",
+            "documentId": "18011243744958161",
+            "openUrl": "https://instagram.com/p/18011243744958161",
+        }]}
+        with patch.object(worker_main, "yxer", return_value=details) as yxer:
+            result = worker_main.query_publish_status(
+                {"id": "package-1"}, "instagram", "request-1", None
+            )
+        self.assertEqual(result["state"], "published")
+        self.assertEqual(
+            worker_main.provider_post_id(result, "instagram"),
+            "18011243744958161",
+        )
+        yxer.assert_called_once()
+
     def test_instagram_timeout_without_a_record_stays_processing(self):
         details = {"tasks": [{
             "platformName": "Instagram",
