@@ -141,6 +141,15 @@ class PublishStateTests(unittest.TestCase):
         )
         yxer.assert_called_once()
 
+    def test_publish_platform_pause_is_case_insensitive(self):
+        with patch.dict(
+            worker_main.os.environ,
+            {"PAUSED_PUBLISH_PLATFORMS": " youtube, Instagram "},
+        ):
+            self.assertTrue(worker_main.publish_platform_is_paused("youtube"))
+            self.assertTrue(worker_main.publish_platform_is_paused("instagram"))
+            self.assertFalse(worker_main.publish_platform_is_paused("facebook"))
+
     def test_instagram_timeout_without_a_record_stays_processing(self):
         details = {"tasks": [{
             "platformName": "Instagram",

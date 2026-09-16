@@ -389,6 +389,8 @@ def provider_state(data):
  if any(word in raw for word in ("success","published","complete","finished","done","成功","已发布")):return "published"
  if any(word in raw for word in ("fail","error","reject","失败","驳回")):return "failed"
  return "processing"
+def publish_platform_is_paused(source):
+ return str(source or "").lower() in {item.strip().lower() for item in os.getenv("PAUSED_PUBLISH_PLATFORMS","").split(",") if item.strip()}
 def query_publish_status(job,source,request_id,heartbeat):
  try:
   details=yxer(job,["query","details",request_id],heartbeat)
@@ -432,6 +434,10 @@ def download_publish_video(job,status,results):
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};candidate_video=stored.get("video") or (stored if stored.get("key") else {});video=candidate_video if "publish-video-" in str(candidate_video.get("key") or "") else {};cover=stored.get("cover") if stored.get("coverPackageId")==job["id"] else {};results=job.get("yixiaoerResults") or {};control=results.get("_control") or {};local_video=None
  if control.get("cancelRequested"):raise PublishCanceled("Canceled by user")
+ paused_sources={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])}
+ for source in paused_sources:
+  prior=results.get(source) if isinstance(results.get(source),dict) else {}
+  if prior.get("state")!="published":results[source]={**prior,"state":"paused","error":None,"reason":"Platform publishing is temporarily paused"}
  if not video.get("duration") or not cover:
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
@@ -454,7 +460,7 @@ def run_publish(job):
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
   cover=retry_upload(lambda attempt:yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat,timeout=300)),lambda attempt:publish_update(job,status,33,video={"video":video},results={**results,"_operation":{"stage":"retrying_yixiaoer_cover_upload","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"attempt":attempt,"maxAttempts":2}}))
  assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
- channel=primary_publish_channel(os.getenv("YIXIAOER_PRIMARY_CHANNEL","local"),os.getenv("YIXIAOER_CLIENT_ID",""));payloads={pack["source"]:yixer_payload(job,pack,video,cover,channel) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook")}
+ channel=primary_publish_channel(os.getenv("YIXIAOER_PRIMARY_CHANNEL","local"),os.getenv("YIXIAOER_CLIENT_ID",""));payloads={pack["source"]:yixer_payload(job,pack,video,cover,channel) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused_sources}
  if control.get("reconcilePlatforms"):
   for source in control["reconcilePlatforms"]:
    prior=results.get(source) if isinstance(results.get(source),dict) else {}
