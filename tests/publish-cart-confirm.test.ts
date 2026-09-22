@@ -24,9 +24,16 @@ describe("publish cart confirmation", () => {
   it("creates and queues the cart in fixed order with all default platforms", async () => {
     const response = await POST(request());
     expect(response.status).toBe(201);
-    expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ cartItemId: item.id, scheduledAt: "2026-09-08T14:00:00.000Z", platforms: ["tiktok", "instagram", "youtube", "facebook"], hookClipId: undefined }));
+    expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ cartItemId: item.id, videoKind: "hook", scheduledAt: "2026-09-08T14:00:00.000Z", platforms: ["tiktok", "instagram", "youtube", "facebook"], hookClipId: undefined }));
     expect(enqueue).toHaveBeenCalledWith("package-1", { action: "publish", accounts: { tiktok: "tt", instagram: "ig", youtube: "yt", facebook: "fb" }, scheduledAt: "2026-09-08T14:00:00.000Z" });
     expect(markScheduled).toHaveBeenCalledWith(item.id, "package-1", "2026-09-08T14:00:00.000Z");
+  });
+
+  it("creates original episode packages without changing the Hook and Vizard path", async () => {
+    listItems.mockImplementation(async (_dates, statuses) => statuses?.includes("scheduled") ? [] : [{ ...item, assetSource: "episode", title: "Episode 2", videoUrl: "https://video.test/episode-2.mp4" }]);
+    const response = await POST(request());
+    expect(response.status).toBe(201);
+    expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ videoKind: "original", videoLabel: "Episode 2", hookClipId: undefined }));
   });
 
   it("does not enqueue an already scheduled idempotent cart package again", async () => {

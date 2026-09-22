@@ -5,7 +5,7 @@ import { getSupabaseConfig } from "./supabase-config";
 type Row = Record<string, any>;
 export type PublishCartItem = {
   id: string; cartDate: string; position: number; assetId: string;
-  assetSource: "hook_clip" | "vizard"; dramaId: string; dramaSlug: string;
+  assetSource: "episode" | "hook_clip" | "vizard"; dramaId: string; dramaSlug: string;
   dramaTitle: string; episodeNumber: number; title: string; videoUrl: string;
   durationSeconds: number; status: "cart" | "removed" | "scheduled" | "canceled"; createdAt: string;
   publishPackageId?: string;

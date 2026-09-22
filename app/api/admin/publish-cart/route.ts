@@ -15,8 +15,8 @@ export async function GET() { try { const dates = [...pacificCartDates()]; const
 export async function POST(request: NextRequest) { try {
   const input = z.object({ cartDate: dateSchema, assetId: z.string().min(1).max(200) }).parse(await request.json());
   allowedDate(input.cartDate);
-  const asset = (await listLibraryAssets()).find((item) => item.id === input.assetId && item.kind === "hook");
-  if (!asset || asset.source === "episode") return NextResponse.json({ message: "Saved Hook asset not found" }, { status: 404 });
+  const asset = (await listLibraryAssets()).find((item) => item.id === input.assetId);
+  if (!asset) return NextResponse.json({ message: "Publishable video asset not found" }, { status: 404 });
   return NextResponse.json({ item: await addPublishCartItem(input.cartDate, asset) }, { status: 201 });
 } catch (error) { return failure(error); } }
 export async function PATCH(request: NextRequest) { try {

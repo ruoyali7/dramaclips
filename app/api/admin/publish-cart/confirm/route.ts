@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
           cartItemId: item.id, dramaSlug: item.dramaSlug, title: drama.title,
           promoCode: drama.promoCode || drama.publicCode, contentPromotionUrl: drama.contentPromotionUrl,
           description: drama.description, tags: drama.tags, episodeNumber: item.episodeNumber,
-          videoUrl: item.videoUrl, videoKind: "hook", videoLabel: item.title,
+          videoUrl: item.videoUrl, videoKind: item.assetSource === "episode" ? "original" : "hook", videoLabel: item.title,
           hookClipId: item.assetSource === "hook_clip" ? item.assetId : undefined,
           deliveryMode: "scheduled", scheduledAt: slots[index], platforms, siteUrl,
         });
