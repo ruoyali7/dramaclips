@@ -17,7 +17,8 @@ const nextConfig = {
   images: { remotePatterns },
   poweredByHeader: false,
   outputFileTracingIncludes: {
-    "/*": ["./node_modules/@yixiaoermail/cli/**/*"]
+    "/api/admin/yixiaoer/accounts": ["./node_modules/@yixiaoermail/cli/**/*"],
+    "/api/admin/settings/yixiaoer-key": ["./node_modules/@yixiaoermail/cli/**/*"]
   },
   async headers() {
     return [{ source: "/:path*", headers: [
