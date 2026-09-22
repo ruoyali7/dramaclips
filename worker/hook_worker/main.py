@@ -1,5 +1,4 @@
 import hashlib,json,os,random,shutil,signal,subprocess,tempfile,threading,time,traceback
-from datetime import datetime,timezone
 from pathlib import Path
 from urllib.parse import quote
 import requests
@@ -12,8 +11,8 @@ from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
+from .telegram_notifications import notify_publish_failure
 from .upload import primary_publish_channel,retry_upload
-from .credential_reminder import PACIFIC,notification_due
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -55,26 +54,6 @@ def yixiaoer_worker_api_key():
  value=supabase("rpc/get_yixiaoer_worker_api_key",method="POST",payload={})
  if isinstance(value,str) and value.strip():return value.strip()
  raise RuntimeError("Yixiaoer worker API key is not configured in Supabase Vault")
-def check_yixiaoer_credential_reminder():
- token=os.getenv("TELEGRAM_BOT_TOKEN","").strip();chat_id=os.getenv("TELEGRAM_CHAT_ID","").strip()
- if not token or not chat_id:return False
- secrets=supabase("admin_runtime_secrets?name=eq.yixiaoer_api_key&select=updated_at&limit=1") or []
- if not secrets:return False
- updated_at=secrets[0]["updated_at"]
- states=supabase(f"yixiaoer_credential_notifications?credential_updated_at=eq.{quote(updated_at,safe='')}&select=upcoming_sent_at,expired_sent_at&limit=1") or []
- state=states[0] if states else {}
- kind,_,expires_at=notification_due(datetime.now(timezone.utc),updated_at,state.get("upcoming_sent_at"),state.get("expired_sent_at"))
- if not kind:return False
- local_expiry=expires_at.astimezone(PACIFIC).strftime("%b %d, %I:%M %p PT")
- message=(f"⚠️ Yixiaoer API Key will expire around {local_expiry}. Please update it in DramaClips → Settings."
-          if kind=="upcoming" else
-          f"🚨 Yixiaoer API Key expired around {local_expiry}. Update it in DramaClips → Settings before publishing.")
- response=requests.post(f"https://api.telegram.org/bot{token}/sendMessage",json={"chat_id":chat_id,"text":message},timeout=20)
- if not response.ok:raise RuntimeError(f"Telegram sendMessage returned {response.status_code}")
- sent_at=datetime.now(timezone.utc).isoformat()
- payload={"credential_updated_at":updated_at,f"{kind}_sent_at":sent_at}
- supabase("yixiaoer_credential_notifications?on_conflict=credential_updated_at",method="POST",payload=payload,prefer="resolution=merge-duplicates,return=minimal")
- return True
 def rendered_cover_timestamp(row):
  source_time=float(row.get("cover_source_timestamp") or 0);source_ranges=row.get("source_ranges") or [];rendered_ranges=row.get("rendered_ranges") or []
  for index,source in enumerate(source_ranges):
@@ -333,6 +312,9 @@ def publish_update(job,status,progress,terminal=False,**extra):
    if state not in ("submitting","submitted","processing","published","failed","outcome_unknown"):continue
    account_id=str((package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
   if attempts:supabase("publish_platform_attempts?on_conflict=package_id,platform",method="POST",payload=attempts,prefer="resolution=merge-duplicates")
+ if terminal and status in ("failed","outcome_unknown"):
+  try:notify_publish_failure(job,status,results or {},extra.get("error"))
+  except Exception:traceback.print_exc()
  return {"package":package}
 def plain_description(value):
  import re
@@ -547,13 +529,9 @@ def main():
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
- next_reminder_check=0
  vizard_batch_pending=WORKER_ONESHOT and ENABLE_VIZARD_WORKER
  while True:
   try:
-   if time.time()>=next_reminder_check:
-    try:check_yixiaoer_credential_reminder();next_reminder_check=time.time()+900
-    except Exception:traceback.print_exc();next_reminder_check=time.time()+300
    if time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
