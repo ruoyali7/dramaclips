@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DramaClips RS Importer",
-  "version": "1.0.0",
-  "description": "Imports one user-requested RS Boost drama page into the private DramaClips admin form.",
+  "version": "1.1.0",
+  "description": "Imports one user-requested RS Boost drama page and its free videos into the private DramaClips admin form.",
   "permissions": ["tabs", "storage"],
   "host_permissions": [
     "https://cps.reelshort.com/resource-square/detail/*",

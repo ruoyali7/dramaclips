@@ -69,14 +69,14 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       if (event.data.type === "RS_EXTENSION_READY") { setRsExtensionReady(true); return; }
       if (event.data.type === "RS_IMPORT_ERROR") { setRsImporting(false); setError(String(event.data.message || "RS Boost import failed")); return; }
       if (event.data.type !== "RS_IMPORT_RESULT" || typeof event.data.text !== "string" || typeof event.data.url !== "string") return;
-      void importCapturedRs(event.data.url, event.data.text);
+      void importCapturedRs(event.data.url, event.data.text, Array.isArray(event.data.videos) ? event.data.videos : []);
     }
     window.addEventListener("message", receive);
     window.postMessage({ source: "dramaclips", type: "RS_EXTENSION_PING" }, window.location.origin);
     return () => window.removeEventListener("message", receive);
   }, []);
 
-  async function importCapturedRs(link: string, detailsText: string) {
+  async function importCapturedRs(link: string, detailsText: string, capturedVideos: unknown[]) {
     setError(""); setRsNotice("Reading captured drama details…");
     try {
       const response = await fetch("/api/admin/rs-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ link, detailsText }) });
@@ -84,7 +84,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       if (!response.ok) throw new Error(result.message || "Could not read RS Boost details");
       const drama = result.drama as Record<string, unknown>;
       const currentTitle = (formRef.current?.elements.namedItem("title") as HTMLInputElement | null)?.value;
-      if (currentTitle && !window.confirm("Replace existing drama details with this RS import? Your episode links will be kept.")) {setRsNotice("Import canceled. Existing content kept.");return;}
+      if ((currentTitle || episodesRef.current.some((episode) => episode.videoUrl || episode.name)) && !window.confirm("Replace existing drama details and episode list with this RS import? Uploaded R2 files will be kept.")) {setRsNotice("Import canceled. Existing content kept.");return;}
       for (const name of ["title", "slug", "language", "description", "coverUrl", "cpsUrl", "appCpsUrl"] as const) {
         const value = drama[name];
         const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
@@ -94,8 +94,21 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
       const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
       if (tags && Array.isArray(drama.tags)) tags.value = drama.tags.join(", ");
-      if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 100 && episodesRef.current.every((episode) => !episode.videoUrl && !episode.name)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
-      setRsLink(link); setRsNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total episodes` : ""}${drama.freeChapterCount ? ` · ${drama.freeChapterCount} free previews` : ""}. Review before saving.`);
+      const videos = capturedVideos.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const item = value as Record<string, unknown>;
+        const episodeNumber = Number(item.episodeNumber);
+        return Number.isInteger(episodeNumber) && episodeNumber > 0 && episodeNumber <= 100 && typeof item.url === "string" && isRemoteVideoUrl(item.url) ? [{ episodeNumber, url: item.url }] : [];
+      });
+      setRsLink(link);
+      if (videos.length) {
+        setRsNotice(`Imported details · transferring ${videos.length} free video${videos.length === 1 ? "" : "s"} to R2…`);
+        const failures = await transferRemoteEpisodes(videos.map(({ episodeNumber, url }) => ({ episodeNumber, videoUrl: url, name: `RS free EP ${episodeNumber}`, progress: 0, status: "Ready to transfer" })));
+        setRsNotice(`Imported${drama.chapterCount ? ` · ${drama.chapterCount} total episodes` : ""} · ${videos.length - failures.length}/${videos.length} free previews ready in R2. Review before saving.`);
+      } else {
+        if (typeof drama.freeChapterCount === "number" && drama.freeChapterCount > 0 && drama.freeChapterCount <= 100 && episodesRef.current.every((episode) => !episode.videoUrl && !episode.name)) setEpisodes(Array.from({ length: drama.freeChapterCount }, (_, index) => ({ episodeNumber: index + 1, videoUrl: "" })));
+        setRsNotice(`Imported details, but RS returned no supported free MP4 videos. Review before saving.`);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "RS Boost import failed"); setRsNotice("");
     } finally { setRsImporting(false); }
@@ -136,10 +149,16 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
 
   async function uploadRemoteLinks() {
     if (uploading) return;
-    const slug = slugRef.current?.value.trim() || "";
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) { setError("Enter a valid slug before transferring videos to R2."); slugRef.current?.focus(); return; }
     const pending = episodes.map((episode, index) => ({ episode, index })).filter(({ episode }) => isRemoteVideoUrl(episode.videoUrl) && episode.status !== "Ready");
     if (!pending.length) { setError("Fill the episode list with source video links first."); return; }
+    await transferRemoteEpisodes(episodes);
+  }
+
+  async function transferRemoteEpisodes(rows: EpisodeRow[]) {
+    const slug = slugRef.current?.value.trim() || "";
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) { setError("Enter a valid slug before transferring videos to R2."); slugRef.current?.focus(); return rows.filter((episode) => isRemoteVideoUrl(episode.videoUrl)); }
+    const pending = rows.map((episode, index) => ({ episode, index })).filter(({ episode }) => isRemoteVideoUrl(episode.videoUrl) && episode.status !== "Ready");
+    setEpisodes(rows);
     setError(""); setUploading(true);
     const failures: string[] = [];
     const worker = async () => {
@@ -160,6 +179,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
     await Promise.all([worker(), worker()]);
     setUploading(false);
     if (failures.length) setError(failures.join(" · "));
+    return failures;
   }
 
   function selectFiles(filesInput: FileList | null) {
@@ -304,7 +324,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
     <div className="onboarding-summary"><b>{initialDrama ? "Update drama" : "Add drama → queue episodes → approve generation"}</b><span>{readyCount}/{episodes.length} videos ready in R2 · Saving does not start the Hook worker.</span><a href="/admin/dramas">Back to Drama bundles</a></div><section><span>01 · Drama details</span>
-      <div className="rs-extension-import"><div className="rs-extension-heading"><div><b>Import from RS Boost</b><p>Paste one drama detail link. The Chrome extension opens your signed-in RS page and fills the available fields below.</p></div><span className={rsExtensionReady ? "ready" : "missing"}>{rsExtensionReady ? "Extension connected" : "Extension not detected"}</span></div><div className="rs-extension-row"><label><b>RS Boost detail link</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button type="button" onClick={startRsImport} disabled={rsImporting || uploading || saving}>{rsImporting ? "Importing…" : "Import & autofill"}</button></div>{rsNotice && <small className="rs-extension-notice">✓ {rsNotice}</small>}{!rsExtensionReady && <small>Install the unpacked extension from <code>chrome-extension/dramaclips-rs-importer</code>, then refresh. It reads only the single RS page you request.</small>}</div>
+      <div className="rs-extension-import"><div className="rs-extension-heading"><div><b>Import from RS Boost</b><p>Paste one drama detail link. The Chrome extension fills the details and transfers Download Free Contents directly to R2.</p></div><span className={rsExtensionReady ? "ready" : "missing"}>{rsExtensionReady ? "Extension connected" : "Extension not detected"}</span></div><div className="rs-extension-row"><label><b>RS Boost detail link</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button type="button" onClick={startRsImport} disabled={rsImporting || uploading || saving}>{rsImporting ? "Importing…" : "Import details & free videos"}</button></div>{rsNotice && <small className="rs-extension-notice">✓ {rsNotice}</small>}{!rsExtensionReady && <small>Install the unpacked extension from <code>chrome-extension/dramaclips-rs-importer</code>, then refresh. It uses your signed-in RS page only for the drama you request.</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required defaultValue={initialDrama?.title} />{fieldMessage("title")}</label>
       <label><b>Slug</b><input ref={slugRef} name="slug" required disabled={uploading || saving} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="lowercase-title" defaultValue={initialDrama?.slug} />{fieldMessage("slug")}</label>

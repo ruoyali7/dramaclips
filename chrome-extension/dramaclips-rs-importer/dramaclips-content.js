@@ -15,7 +15,7 @@ window.addEventListener("message", (event) => {
 });
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === "RS_IMPORT_RESULT") window.postMessage({ source: EXTENSION_SOURCE, type: "RS_IMPORT_RESULT", url: message.url, text: message.text }, window.location.origin);
+  if (message?.type === "RS_IMPORT_RESULT") window.postMessage({ source: EXTENSION_SOURCE, type: "RS_IMPORT_RESULT", url: message.url, text: message.text, videos: message.videos }, window.location.origin);
   if (message?.type === "RS_IMPORT_ERROR") window.postMessage({ source: EXTENSION_SOURCE, type: "RS_IMPORT_ERROR", message: message.message }, window.location.origin);
 });
 

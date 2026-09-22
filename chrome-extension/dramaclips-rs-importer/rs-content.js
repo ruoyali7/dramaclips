@@ -1,5 +1,31 @@
 const MAX_CAPTURE_LENGTH = 100000;
 
+function pageRequest() {
+  const match = window.location.pathname.match(/^\/resource-square\/detail\/([a-f0-9]+)$/i);
+  if (!match) throw new Error("This is not an RS Boost drama detail page.");
+  const params = new URLSearchParams(window.location.search);
+  return { app: params.get("app") || "reelshort", book_id: match[1], book_type: Number(params.get("book_type") || 0) };
+}
+
+async function captureFreeVideos() {
+  const token = window.localStorage.getItem("token");
+  if (!token) throw new Error("RS Boost is not signed in. Sign in and try again.");
+  const response = await fetch("https://cps.reelshort.com/api/v1/book/book-detail", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "Accept-Language": "en" },
+    body: JSON.stringify(pageRequest()),
+  });
+  if (response.status === 401) throw new Error("RS Boost login expired. Sign in and try again.");
+  if (!response.ok) throw new Error(`RS Boost returned ${response.status} while reading free videos.`);
+  const payload = await response.json();
+  if (payload?.code !== 0) throw new Error(payload?.msg || "RS Boost did not return the free videos.");
+  const chapters = Array.isArray(payload?.data?.chapters) ? payload.data.chapters : [];
+  return chapters.map((chapter, index) => ({
+    episodeNumber: Number(chapter?.t_chapter_id) || index + 1,
+    url: typeof chapter?.play_url === "string" ? chapter.play_url : "",
+  })).filter((chapter) => chapter.url).slice(0, 100);
+}
+
 function captureVisiblePage() {
   const values = [...document.querySelectorAll("input, textarea")].map((element) => element.value).filter(Boolean);
   const links = [...document.querySelectorAll("a[href]")].map((element) => element.href).filter(Boolean);
@@ -29,7 +55,14 @@ async function waitForPage() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "CAPTURE_RS_PAGE") return;
-  void waitForPage().then((ready) => sendResponse(ready ? { ok: true, text: captureVisiblePage(), url: window.location.href } : { ok: false, message: "RS Boost did not finish loading. Confirm that Chrome is signed in and the drama page is available." }));
+  void waitForPage().then(async (ready) => {
+    if (!ready) return sendResponse({ ok: false, message: "RS Boost did not finish loading. Confirm that Chrome is signed in and the drama page is available." });
+    try {
+      sendResponse({ ok: true, text: captureVisiblePage(), videos: await captureFreeVideos(), url: window.location.href });
+    } catch (error) {
+      sendResponse({ ok: false, message: error instanceof Error ? error.message : "Could not read the free RS videos." });
+    }
+  });
   return true;
 });
 

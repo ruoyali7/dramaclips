@@ -33,7 +33,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!pending || sender.tab?.id !== pending.rsTabId || validRsUrl(message.url) !== pending.url) return;
       chrome.tabs.sendMessage(pending.rsTabId, { type: "CAPTURE_RS_PAGE" }, async (result) => {
         if (chrome.runtime.lastError || !result?.ok) { await fail(pending.sourceTabId, result?.message || "Could not read the signed-in RS Boost page.", pending.rsTabId); return; }
-        await chrome.tabs.sendMessage(pending.sourceTabId, { type: "RS_IMPORT_RESULT", url: result.url, text: result.text }).catch(() => {});
+        await chrome.tabs.sendMessage(pending.sourceTabId, { type: "RS_IMPORT_RESULT", url: result.url, text: result.text, videos: result.videos }).catch(() => {});
         await chrome.tabs.update(pending.sourceTabId, { active: true }).catch(() => {});
         await chrome.tabs.remove(pending.rsTabId).catch(() => {});
         await chrome.storage.session.remove(PENDING_KEY);

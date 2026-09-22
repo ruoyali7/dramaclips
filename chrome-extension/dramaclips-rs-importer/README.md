@@ -12,6 +12,8 @@ Private, user-triggered Chrome extension for importing one RS Boost drama detail
 
 ## Use
 
-Paste one `cps.reelshort.com/resource-square/detail/...` link into Add Drama and click **Import & autofill**. The extension opens that page, reads only visible promotion metadata, closes it, returns to DramaClips, and fills the form for review.
+Paste one `cps.reelshort.com/resource-square/detail/...` link into Add Drama and click **Import details & free videos**. The extension opens that page, reads its promotion metadata and the MP4 URLs behind **Download Free Contents**, closes it, returns to DramaClips, fills the form, and transfers those free videos directly to R2 for review.
 
-The extension does not read cookies, passwords, browser storage, earnings, or unrelated account pages. It does not run bulk or unattended imports.
+The RS login token stays inside the signed-in RS tab. Only the requested drama metadata and free video URLs are returned to DramaClips.
+
+The extension reads the existing RS login token only to request the selected drama from RS; it never sends that token to DramaClips. It does not read passwords, earnings, or unrelated account pages, and it does not run bulk or unattended imports.
