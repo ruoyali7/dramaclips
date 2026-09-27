@@ -6,10 +6,14 @@ import { queueDramaEpisodes } from "@/lib/admin/queue-drama-episodes";
 
 export async function POST(request: NextRequest) {
   try {
-    const input = dramaDraftSchema.parse(await request.json());
+    const body = await request.json();
+    const queueVizard = body.queueVizard === true;
+    const input = dramaDraftSchema.parse(body);
     const draft = await saveDramaDraft(input);
     await publishDramaDraft(draft.id);
-    const vizard = await queueDramaEpisodes({...draft, language: input.language}, input.episodes);
+    const vizard = queueVizard
+      ? await queueDramaEpisodes({...draft, language: input.language}, input.episodes)
+      : {status: "skipped" as const, requested: input.episodes.length, accepted: 0};
     return NextResponse.json({draft: {...draft, status: "published"}, vizard, queueEpisodeNumbers: input.episodes.map(episode => episode.episodeNumber)}, {status: 201});
   } catch (error) {
     if (error instanceof ZodError) return NextResponse.json({code: "VALIDATION_ERROR", message: "Check the highlighted fields", fieldErrors: error.flatten().fieldErrors}, {status: 400});

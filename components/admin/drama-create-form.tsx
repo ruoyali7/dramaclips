@@ -41,13 +41,14 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
   const [coverProgress, setCoverProgress] = useState(0);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ id: string; title: string; episodeCount: number; changedEpisodes?: number[]; queueEpisodeNumbers?: number[]; vizard?: { status: "queued" | "failed"; requested: number; accepted: number; message?: string } } | null>(null);
+  const [result, setResult] = useState<{ id: string; title: string; episodeCount: number; changedEpisodes?: number[]; queueEpisodeNumbers?: number[]; vizard?: { status: "queued" | "failed" | "skipped"; requested: number; accepted: number; message?: string } } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [error, setError] = useState("");
   const [rsLink, setRsLink] = useState("");
   const [rsImporting, setRsImporting] = useState(false);
   const [rsExtensionReady, setRsExtensionReady] = useState(false);
   const [rsNotice, setRsNotice] = useState("");
+  const [queueVizard, setQueueVizard] = useState(false);
   const [remoteLinks, setRemoteLinks] = useState("");
   const slugRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
@@ -293,6 +294,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       language: form.get("language"), tags: String(form.get("tags") || "").split(",").map((item) => item.trim()).filter(Boolean),
       description: form.get("description"), coverUrl: form.get("coverUrl"), cpsUrl: cpsUrl || undefined, appCpsUrl: appCpsUrl || undefined,
       episodes: episodes.map(({ episodeNumber, videoUrl }) => ({ episodeNumber, videoUrl })),
+      queueVizard,
     };
     try {
       const response = await fetch(initialDrama ? `/api/admin/dramas/${initialDrama.id}` : "/api/admin/dramas", { method: initialDrama ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -323,7 +325,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
   }
 
   return <form ref={formRef} className="drama-create" onSubmit={submit}>
-    <div className="onboarding-summary"><b>{initialDrama ? "Update drama" : "Add drama → queue episodes → approve generation"}</b><span>{readyCount}/{episodes.length} videos ready in R2 · Saving does not start the Hook worker.</span><a href="/admin/dramas">Back to Drama bundles</a></div><section><span>01 · Drama details</span>
+    <div className="onboarding-summary"><b>{initialDrama ? "Update drama" : "Add drama → optionally queue Vizard"}</b><span>{readyCount}/{episodes.length} videos ready in R2 · Vizard is optional and off by default.</span><a href="/admin/dramas">Back to Drama bundles</a></div><section><span>01 · Drama details</span>
       <div className="rs-extension-import"><div className="rs-extension-heading"><div><b>Import from RS Boost</b><p>Paste one drama detail link. The Chrome extension fills the details and transfers Download Free Contents directly to R2.</p></div><span className={rsExtensionReady ? "ready" : "missing"}>{rsExtensionReady ? "Extension connected" : "Extension not detected"}</span></div><div className="rs-extension-row"><label><b>RS Boost detail link</b><input type="url" value={rsLink} onChange={(event) => setRsLink(event.target.value)} placeholder="https://cps.reelshort.com/resource-square/detail/…" /></label><button type="button" onClick={startRsImport} disabled={rsImporting || uploading || saving}>{rsImporting ? "Importing…" : "Import details & free videos"}</button></div>{rsNotice && <small className="rs-extension-notice">✓ {rsNotice}</small>}{!rsExtensionReady && <small>Install the unpacked extension from <code>chrome-extension/dramaclips-rs-importer</code>, then refresh. It uses your signed-in RS page only for the drama you request.</small>}</div>
       <div className="form-grid">
       <label><b>Title</b><input name="title" required defaultValue={initialDrama?.title} />{fieldMessage("title")}</label>
@@ -344,8 +346,9 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: nextEpisodeNumber(rows), videoUrl: "" }])} disabled={episodes.length >= 100}><Plus /> Add URL manually</button>}
     </section>
     <section><span>03 · RS promotion links</span><p>Temporarily use the App Promotion Link: Full Watch copies the Content Code before opening ReelShort.</p><label className="sensitive-field"><b>Content promotion link (for future direct-to-drama use)</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>Original drama link. It remains saved and is not replaced by temporary mode.</small>{fieldMessage("cpsUrl")}</label><label className="sensitive-field"><b>App promotion link (current Full Watch destination)</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>After ReelShort opens, paste the automatically copied Content Code into the search bar.</small>{fieldMessage("appCpsUrl")}</label></section>
+    <section className="vizard-queue-choice"><span>04 · Vizard generation</span><label><input type="checkbox" checked={queueVizard} onChange={event=>setQueueVizard(event.target.checked)}/><div><b>Queue episodes for Vizard</b><small>Optional and off by default. Saving the drama will not use Vizard credits unless this is checked.</small></div></label></section>
     {error && <div className="form-error" role="alert">{error} <a href="/admin/dramas">Check Drama bundles</a></div>}
-    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published to catalog"}: {result.title}</b><span>{result.episodeCount} preview episodes saved.</span>{result.vizard && <span className={result.vizard.status==="failed"?"field-error":""}>{result.vizard.status==="queued" ? `Queue checked for ${result.vizard.requested} episodes · ${result.vizard.accepted} newly queued. Waiting for your approval in Hook Studio.` : result.vizard.message}</span>}{Boolean(result.changedEpisodes?.length)&&<span>Replaced video for EP {result.changedEpisodes!.join(", ")}. Existing hooks were kept; select these episodes in Hook Studio if you want to regenerate.</span>}<div className="onboarding-next-actions"><a href="/admin/hooks">View queue · approve generation</a><a href={`/admin/dramas/${result.id}/edit`}>Edit saved drama</a>{result.vizard?.status==="failed"&&<button type="button" disabled={saving} onClick={()=>void retryQueue()}>Retry queueing only</button>}</div></div></div>}
-    <button className="save-draft" disabled={saving || uploading || rsImporting || Boolean(!initialDrama && result)}>{uploading ? "Finish R2 uploads first" : saving ? "Saving…" : !initialDrama && result ? "Drama saved · use the links above" : initialDrama ? "Save changes & queue new episodes" : "Publish drama & queue episodes"}</button>
+    {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published to catalog"}: {result.title}</b><span>{result.episodeCount} preview episodes saved.</span>{result.vizard && <span className={result.vizard.status==="failed"?"field-error":""}>{result.vizard.status==="queued" ? `Queue checked for ${result.vizard.requested} episodes · ${result.vizard.accepted} newly queued. Waiting for your approval in Hook Studio.` : result.vizard.status==="skipped" ? "Vizard was not queued." : result.vizard.message}</span>}{Boolean(result.changedEpisodes?.length)&&<span>Replaced video for EP {result.changedEpisodes!.join(", ")}. Existing hooks were kept; select these episodes in Hook Studio if you want to regenerate.</span>}<div className="onboarding-next-actions"><a href="/admin/hooks">View Hook Studio</a><a href={`/admin/dramas/${result.id}/edit`}>Edit saved drama</a>{result.vizard?.status==="failed"&&<button type="button" disabled={saving} onClick={()=>void retryQueue()}>Retry queueing only</button>}</div></div></div>}
+    <button className="save-draft" disabled={saving || uploading || rsImporting || Boolean(!initialDrama && result)}>{uploading ? "Finish R2 uploads first" : saving ? "Saving…" : !initialDrama && result ? "Drama saved · use the links above" : initialDrama ? queueVizard ? "Save changes & queue new episodes" : "Save changes without Vizard" : queueVizard ? "Publish drama & queue Vizard" : "Publish drama without Vizard"}</button>
   </form>;
 }

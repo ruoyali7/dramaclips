@@ -6,7 +6,7 @@ vi.mock("@/lib/admin/vizard-repository",()=>({enqueueVizardSubmissions:enqueue})
 import {POST} from "@/app/api/admin/dramas/route";
 
 const body={title:"Test Drama",slug:"test-drama",publicCode:"1234",promoCode:"1234",language:"en",tags:[],description:"A sufficiently long drama description.",coverUrl:"/cover.jpg",cpsUrl:"https://reelslink.com/cps/test",episodes:[{episodeNumber:1,videoUrl:"https://cdn.example.com/1.mp4"},{episodeNumber:2,videoUrl:"https://cdn.example.com/2.mp4"}]};
-const request=()=>new Request("http://localhost/api/admin/dramas",{method:"POST",body:JSON.stringify(body)});
+const request=(queueVizard=true)=>new Request("http://localhost/api/admin/dramas",{method:"POST",body:JSON.stringify({...body,queueVizard})});
 
 describe("Add Drama automatic Vizard production",()=>{
   beforeEach(()=>{save.mockReset();publish.mockReset();enqueue.mockReset();save.mockResolvedValue({id:"drama-1",slug:"test-drama",title:"Test Drama",episodeCount:2});publish.mockResolvedValue({});});
@@ -21,5 +21,10 @@ describe("Add Drama automatic Vizard production",()=>{
     enqueue.mockRejectedValue(new Error("queue unavailable"));
     const response=await POST(request() as never);const json=await response.json();
     expect(response.status).toBe(201);expect(json.draft.status).toBe("published");expect(json.vizard.status).toBe("failed");
+  });
+
+  it("publishes without queueing Vizard when the option is off",async()=>{
+    const response=await POST(request(false) as never);const json=await response.json();
+    expect(response.status).toBe(201);expect(enqueue).not.toHaveBeenCalled();expect(json.vizard).toEqual({status:"skipped",requested:2,accepted:0});
   });
 });

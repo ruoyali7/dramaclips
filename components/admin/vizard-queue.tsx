@@ -2,7 +2,7 @@
 
 import {useEffect, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
-import {Play, RefreshCw} from "lucide-react";
+import {Play, RefreshCw, Trash2} from "lucide-react";
 import {useAdaptivePolling} from "@/lib/use-adaptive-polling";
 
 type Job = {id:string;dramaSlug:string;episodeNumber:number;status:string;errorMessage?:string;updatedAt:string};
@@ -44,6 +44,15 @@ export function VizardQueue({sources}:{sources:Source[]}){
       await refresh();
     }catch(reason){setError(reason instanceof Error?reason.message:"Could not start generation");}finally{setBusy(false);}
   }
+  async function clearWaiting(){
+    if(!waiting.length||busy||!window.confirm(`Clear ${waiting.length} waiting Vizard episode${waiting.length===1?"":"s"}? Already submitted projects will not be changed.`))return;
+    setBusy(true);setNotice("");setError("");
+    try{
+      const response=await fetch("/api/admin/vizard/worker",{method:"DELETE"});const data=await response.json();
+      if(!response.ok)throw new Error(data.message||"Could not clear queue");
+      setNotice(`Cleared ${data.cleared} waiting episode${data.cleared===1?"":"s"}.`);await refresh();
+    }catch(reason){setError(reason instanceof Error?reason.message:"Could not clear queue");}finally{setBusy(false);}
+  }
   async function saveRecovery(event:React.FormEvent<HTMLFormElement>,project:Project){
     event.preventDefault();setError("");setNotice("");const form=new FormData(event.currentTarget);
     try{
@@ -53,9 +62,9 @@ export function VizardQueue({sources}:{sources:Source[]}){
     }catch(reason){setError(reason instanceof Error?reason.message:"Could not save recovery");}
   }
   return <section className="generation-queue-panel" aria-label="Vizard generation queue">
-    <div className="operations-heading"><div><span className="eyebrow">01 · Generation queue</span><h2>Ready when you are</h2><p>Add Drama queues every episode. Approve one batch across all waiting dramas.</p></div><button className="secondary-button" onClick={()=>void refresh()} aria-label="Refresh generation queue"><RefreshCw size={16}/> Refresh</button></div>
+    <div className="operations-heading"><div><span className="eyebrow">01 · Generation queue</span><h2>Ready when you are</h2><p>Add Drama only queues episodes when you choose Vizard. Approve one batch across all waiting dramas.</p></div><button className="secondary-button" onClick={()=>void refresh()} aria-label="Refresh generation queue"><RefreshCw size={16}/> Refresh</button></div>
     <div className="operations-metrics"><div><b>{loaded?waiting.length:"—"}</b><span>Waiting to start</span></div><div><b>{submitting.length+activeProjects.filter(project=>project.status!=="failed").length}</b><span>In progress</span></div><div><b>{failed.length+activeProjects.filter(project=>project.status==="failed").length}</b><span>Need attention</span></div><div><b>{projects.filter(project=>project.status==="ready").length}</b><span>Completed projects</span></div></div>
-    <div className="queue-approval"><div><b>{waiting.length} episodes · {dramaCount} dramas</b><p>{Array.from(new Set(waiting.map(job=>job.dramaSlug))).map(slug=>sources.find(source=>source.slug===slug)?.title||slug).join(" · ")||"New episodes will appear here automatically."}</p><small>Applies to the whole waiting queue, including dramas outside the current filter. Failed jobs need review first. A run may stop at its batch limit; any remaining episodes stay queued.</small></div><button className="primary-button" disabled={!loaded||!waiting.length||busy||submitting.length>0} onClick={()=>void start()}><Play size={17}/>{busy?"Requesting start…":submitting.length?"Submitting batch…":`Start ${waiting.length} queued episodes`}</button></div>
+    <div className="queue-approval"><div><b>{waiting.length} episodes · {dramaCount} dramas</b><p>{Array.from(new Set(waiting.map(job=>job.dramaSlug))).map(slug=>sources.find(source=>source.slug===slug)?.title||slug).join(" · ")||"No episodes are waiting for Vizard."}</p><small>Applies to the whole waiting queue, including dramas outside the current filter. Clear cancels only waiting tasks; already submitted projects are kept.</small></div><div className="queue-approval-actions"><button className="secondary-button danger-button" disabled={!loaded||!waiting.length||busy} onClick={()=>void clearWaiting()}><Trash2 size={16}/> Clear queue</button><button className="primary-button" disabled={!loaded||!waiting.length||busy||submitting.length>0} onClick={()=>void start()}><Play size={17}/>{busy?"Working…":submitting.length?"Submitting batch…":`Start ${waiting.length} queued episodes`}</button></div></div>
     {notice&&<p className="operation-notice" role="status">{notice}</p>}{error&&<p className="form-error" role="alert">{error}</p>}
     <div className="queue-filter"><label>Show <select value={filter} onChange={event=>setFilter(event.target.value)}><option value="all">All tasks</option><option value="waiting">Waiting</option><option value="active">In progress</option><option value="failed">Needs attention</option></select></label></div>
     <div className="generation-queue-list">{rows.filter(row=>filter==="all"||filter==="waiting"&&["queued","rate_limited"].includes(row.status)||filter==="active"&&["submitting","submitted","editing"].includes(row.status)||filter==="failed"&&row.status==="failed").map(row=><article key={row.id}><div><b>{sources.find(source=>source.slug===row.dramaSlug)?.title||row.dramaSlug}</b><small>Episode {row.episodeNumber}</small></div><span className={`queue-state ${row.status}`}>{labels[row.status]||row.status}</span>{row.status==="failed"&&<div><small>Review the provider result before submitting again.</small>{"errorMessage" in row&&Boolean(row.errorMessage)&&<details><summary>Error details</summary><p>{String(row.errorMessage)}</p></details>}</div>}</article>)}</div>

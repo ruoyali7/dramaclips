@@ -23,11 +23,15 @@ describe("drama onboarding",()=>{
   expect(schema.safeParse([body.episodes[0],body.episodes[0]]).success).toBe(false);
  });
  it("queues only new episodes on edit and reports replaced media",async()=>{
-  const response=await PATCH(new Request("http://local",{method:"PATCH",body:JSON.stringify(body)}) as never,{params:Promise.resolve({id:"d"})});
+  const response=await PATCH(new Request("http://local",{method:"PATCH",body:JSON.stringify({...body,queueVizard:true})}) as never,{params:Promise.resolve({id:"d"})});
   const data=await response.json();expect(response.status).toBe(200);expect(enqueue.mock.calls[0][0].map((x:{episodeNumber:number})=>x.episodeNumber)).toEqual([3]);expect(data.changedEpisodes).toEqual([1]);expect(data.queueEpisodeNumbers).toEqual([3]);
  });
  it("keeps a saved edit successful when queueing fails",async()=>{
-  enqueue.mockRejectedValue(new Error("offline"));const response=await PATCH(new Request("http://local",{method:"PATCH",body:JSON.stringify(body)}) as never,{params:Promise.resolve({id:"d"})});expect(response.status).toBe(200);expect((await response.json()).vizard.status).toBe("failed");
+  enqueue.mockRejectedValue(new Error("offline"));const response=await PATCH(new Request("http://local",{method:"PATCH",body:JSON.stringify({...body,queueVizard:true})}) as never,{params:Promise.resolve({id:"d"})});expect(response.status).toBe(200);expect((await response.json()).vizard.status).toBe("failed");
+ });
+ it("saves new episodes without Vizard when the option is off",async()=>{
+  const response=await PATCH(new Request("http://local",{method:"PATCH",body:JSON.stringify({...body,queueVizard:false})}) as never,{params:Promise.resolve({id:"d"})});
+  const data=await response.json();expect(response.status).toBe(200);expect(enqueue).not.toHaveBeenCalled();expect(data.vizard).toEqual({status:"skipped",requested:1,accepted:0});
  });
  it("retries only requested queue episodes without saving the drama again",async()=>{
   get.mockResolvedValue({id:"d",...body});const response=await POST(new Request("http://local",{method:"POST",body:JSON.stringify({episodeNumbers:[3]})}),{params:Promise.resolve({id:"d"})});expect(response.status).toBe(200);expect(update).not.toHaveBeenCalled();expect(enqueue.mock.calls[0][0].map((x:{episodeNumber:number})=>x.episodeNumber)).toEqual([3]);
