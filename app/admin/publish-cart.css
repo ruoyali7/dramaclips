@@ -3,10 +3,12 @@
 .shared-drama-library-expanded .drama-hook-row { cursor: default; }
 .shared-drama-library-expanded .hook-review-button { border: 0; background: transparent; text-align: left; padding: 0; font: inherit; cursor: pointer; }
 .shared-drama-library-expanded .hook-cart-button { border: 1px solid #171717; background: #171717; color: #fff; padding: 6px; font-size: 8px; }
-.shared-drama-library-expanded .hook-cart-button:disabled { border-color: #ccc; background: #eee; color: #777; }
+.shared-drama-library-expanded .library-cart-button.added,
+.shared-drama-library-expanded .library-cart-button:disabled { border-color: #c7b8e6; background: #f2edff; color: #6845a5; }
+.shared-drama-library-expanded .episode-selection-grid article.in-cart { background: #f8f5ff; border-color: #d8cbed; }
+.shared-drama-library-expanded .drama-hook-row.in-cart { background: #f8f5ff; }
 .shared-drama-library-expanded .episode-actions { display: flex; align-items: center; gap: 5px; }
 .shared-drama-library-expanded .episode-selection-grid .episode-cart-button { border: 1px solid #171717; background: #171717; color: #fff; padding: 6px; }
-.shared-drama-library-expanded .episode-selection-grid .episode-cart-button:disabled { border-color: #ccc; background: #eee; color: #777; }
 .publish-cart { position: relative; border: 1px solid #dedbd3; background: #faf9f6; padding: 16px; margin: 14px 0 20px; }
 .publish-cart-head { display: flex; justify-content: space-between; gap: 20px; }
 .publish-cart-head b, .publish-cart-head small { display: block; }

@@ -1,6 +1,6 @@
 import unittest
 
-from hook_worker.upload import primary_publish_channel, retry_upload
+from hook_worker.upload import primary_publish_channel, retry_upload, should_optimize_publish_video, video_upload_timeout
 
 
 class UploadRetryTests(unittest.TestCase):
@@ -30,6 +30,16 @@ class UploadRetryTests(unittest.TestCase):
                 lambda attempt: (_ for _ in ()).throw(RuntimeError("invalid upload")),
                 lambda attempt: self.fail("unexpected retry"),
             )
+
+    def test_large_original_video_gets_longer_upload_window(self):
+        self.assertEqual(video_upload_timeout(5 * 1024 * 1024), 1800)
+        self.assertEqual(video_upload_timeout(38 * 1024 * 1024), 5400)
+        self.assertEqual(video_upload_timeout(200 * 1024 * 1024), 5400)
+
+    def test_only_large_original_videos_are_optimized(self):
+        self.assertTrue(should_optimize_publish_video("original", 38 * 1024 * 1024))
+        self.assertFalse(should_optimize_publish_video("original", 12 * 1024 * 1024))
+        self.assertFalse(should_optimize_publish_video("hook", 38 * 1024 * 1024))
 
 
 if __name__ == "__main__":

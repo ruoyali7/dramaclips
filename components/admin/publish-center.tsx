@@ -57,6 +57,7 @@ type Package = {
   yixiaoerAccounts?: Record<string, string>;
   yixiaoerProgress?: number;
   yixiaoerError?: string;
+  yixiaoerLeaseOwner?: string;
   yixiaoerUpdatedAt?: string;
 };
 type YAccount = { id: string; name: string; platform: string; status: number };
@@ -93,6 +94,8 @@ const stageNames: Record<string, string> = {
   awaiting_scheduled_time: "Waiting for scheduled publish time",
   downloading_from_r2: "Downloading video from R2",
   uploading_to_yixiaoer: "Uploading video to Yixiaoer",
+  optimizing_video_for_publish: "Optimizing original video for publishing",
+  using_original_video: "Optimization unavailable · using original video",
   retrying_yixiaoer_upload: "Retrying video upload",
   video_uploaded_to_yixiaoer: "Video uploaded",
   uploading_cover_to_yixiaoer: "Uploading cover to Yixiaoer",
@@ -111,8 +114,9 @@ function operationOf(value: Package) {
     : null;
 }
 function uploadFailed(value: Package) {
-  const stage=String(operationOf(value)?.stage||"");
-  return value.status==="failed"&&["uploading_to_yixiaoer","retrying_yixiaoer_upload","uploading_cover_to_yixiaoer","retrying_yixiaoer_cover_upload","downloading_from_r2"].includes(stage);
+  const operation=operationOf(value);const stage=String(operation?.stage||"");
+  const diagnostic=[value.yixiaoerError,operation?.error,operation?.diagnostic].filter(Boolean).join(" ");
+  return value.status==="failed"&&(["uploading_to_yixiaoer","optimizing_video_for_publish","using_original_video","retrying_yixiaoer_upload","uploading_cover_to_yixiaoer","retrying_yixiaoer_cover_upload","downloading_from_r2"].includes(stage)||/yxer upload|upload(?:ing)?[^.]{0,80}(?:timed out|failed)/i.test(diagnostic));
 }
 function durationLabel(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -158,6 +162,8 @@ function packageState(value: Package) {
   if (value.status === "failed" && value.yixiaoerError === "Canceled by user")
     return "Canceled";
   if (value.status === "failed") return "Failed";
+  if (value.yixiaoerAction && !value.yixiaoerLeaseOwner)
+    return "Queued · waiting for Railway";
   if (value.yixiaoerAction)
     return cancelRequested(value)
       ? "Canceling"
@@ -166,6 +172,12 @@ function packageState(value: Package) {
         : "Processing";
   if (Object.keys(value.yixiaoerVideo || {}).length) return "Uploaded to Yixiaoer";
   return "Generated only";
+}
+function taskProgress(value: Package) {
+  const uploadPercent = operationOf(value)?.uploadPercent;
+  return typeof uploadPercent === "number"
+    ? `Upload ${uploadPercent}%`
+    : `${value.yixiaoerProgress || 0}%`;
 }
 function platformState(value: Package, platform: string) {
   const draft = value.yixiaoerResults?._draft;
@@ -1507,7 +1519,7 @@ export function PublishCenter({
                     {uploaded
                       ? "Uploaded"
                       : x.yixiaoerAction
-                        ? `${x.yixiaoerProgress || 0}%`
+                        ? taskProgress(x)
                         : "Not uploaded"}
                   </span>
                   <span className={`delivery ${x.status}`}>
@@ -1524,7 +1536,7 @@ export function PublishCenter({
                     </div>
                   </details>}
                   <div className="history-inline-result">
-                    <div><span>{packageState(x)}</span><b>{x.yixiaoerProgress || 0}%</b></div>
+                    <div><span>{packageState(x)}</span><b>{taskProgress(x)}</b></div>
                     <small>{x.status==="failed"||hasUncertainOutcome(x)?recoveryGuidance(x):"Review platform delivery and confirmed post links below."}</small>
                     <div className="history-inline-actions">{!x.yixiaoerAction&&x.status!=="published"&&!hasUncertainOutcome(x)&&<button onClick={()=>editPackage(x)}>Edit copy</button>}
                       {x.status === "scheduled" && <button onClick={() => beginReschedule(x)}>Reschedule</button>}

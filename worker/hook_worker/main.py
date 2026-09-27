@@ -12,7 +12,7 @@ from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure
-from .upload import primary_publish_channel,retry_upload
+from .upload import primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -253,21 +253,22 @@ def process_group_written_bytes(group_id):
   except (FileNotFoundError,PermissionError,ValueError,IndexError):continue
  return total if found else None
 def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False):
- safe_command=" ".join(str(part).replace(secret,"[REDACTED]") for part in command)
+ def redact(value):return str(value).replace(secret,"[REDACTED]") if secret else str(value)
+ safe_command=" ".join(redact(part) for part in command)
  print(f"Starting CLI: {safe_command}",flush=True)
  started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True);deadline=started+timeout
  while True:
   try:
    raw,_=process.communicate(timeout=min(10,max(1,deadline-time.time())))
    if process.returncode:
-    detail=(raw or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip();raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}")
+    detail=redact((raw or b"").decode("utf-8","replace")).strip();raise RuntimeError(f"Yixiaoer CLI failed: {detail or 'command exited unsuccessfully'}")
    print(f"Completed CLI after {int(time.time()-started)}s: {safe_command}",flush=True)
    return raw
   except subprocess.TimeoutExpired:
    if time.time()>=deadline:
     os.killpg(process.pid,signal.SIGKILL)
     captured,_=process.communicate()
-    detail=(captured or b"").decode("utf-8","replace").replace(secret,"[REDACTED]").strip()
+    detail=redact((captured or b"").decode("utf-8","replace")).strip()
     print(f"Timed out CLI after {int(time.time()-started)}s: {safe_command}",flush=True)
     if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
     suffix=f"; output: {detail[-1000:]}" if detail else ""
@@ -424,7 +425,18 @@ def run_publish(job):
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
   started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
-  video_size=local_video.stat().st_size
+  original_video_size=local_video.stat().st_size;upload_video_path=local_video
+  if should_optimize_publish_video(job.get("videoKind"),original_video_size):
+   optimized=local_video.with_name(f"publish-optimized-{job['id']}.mp4")
+   def optimize_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,27,results={**results,"_operation":{"stage":"optimizing_video_for_publish","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesTotal":original_video_size}}))
+   try:
+    cli_output(["ffmpeg","-y","-i",str(local_video),"-map","0:v:0","-map","0:a:0?","-vf","scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p","-c:v","libx264","-preset","veryfast","-crf","26","-maxrate","1800k","-bufsize","3600k","-c:a","aac","-b:a","96k","-movflags","+faststart",str(optimized)],os.environ,1800,"",optimize_heartbeat)
+    if optimized.exists() and optimized.stat().st_size<original_video_size:upload_video_path=optimized
+   except PublishCanceled:raise
+   except Exception as optimize_error:
+    publish_update(job,status,28,results={**results,"_operation":{"stage":"using_original_video","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"reason":str(optimize_error)[:500]}})
+  video_size=upload_video_path.stat().st_size
+  results["_media"]={"optimized":upload_video_path!=local_video,"originalBytes":original_video_size,"uploadBytes":video_size}
   def upload_heartbeat(process_group=None):
    sent=process_group_written_bytes(process_group) if process_group else None;percent=min(99,round(sent/video_size*100)) if sent is not None and video_size else None
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesTotal":video_size,**({"bytesSent":min(sent,video_size),"uploadPercent":percent} if sent is not None and percent is not None else {})}
@@ -432,7 +444,7 @@ def run_publish(job):
   if upload_heartbeat():raise PublishCanceled("Canceled by user")
   def upload_video(attempt):
    publish_update(job,status,30,results={**results,"_operation":{"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}})
-   return yixer_video(yxer(job,["upload","--file",str(local_video),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=1800))
+   return yixer_video(yxer(job,["upload","--file",str(upload_video_path),"--bucket","cloud-publish","--auto-meta"],upload_heartbeat,timeout=video_upload_timeout(video_size)))
   video=retry_upload(upload_video,lambda attempt:publish_update(job,status,30,results={**results,"_operation":{"stage":"retrying_yixiaoer_upload","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"attempt":attempt,"maxAttempts":2}}))
   publish_update(job,status,31,video={"video":video},results={**results,"_operation":{"stage":"video_uploaded_to_yixiaoer","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
  if not cover:
