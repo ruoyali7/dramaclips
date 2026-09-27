@@ -24,7 +24,9 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     if(item.yixiaoerAction)return NextResponse.json({message:"A Yixiaoer operation is already running"},{status:409});
     if(input.action==="retry-upload"){
       const operation=item.yixiaoerResults?._operation as Record<string,unknown>|undefined;const stage=String(operation?.stage||"");
-      if(item.status!=="failed"||(!stage.includes("upload")&&stage!=="downloading_from_r2"))return NextResponse.json({message:"Only a failed upload can be retried here"},{status:409});
+      const diagnostic=[item.yixiaoerError,operation?.error,operation?.diagnostic].filter(Boolean).join(" ");
+      const uploadFailure=stage.includes("upload")||stage==="downloading_from_r2"||/yxer upload|upload(?:ing)?[^.]{0,80}(?:timed out|failed)/i.test(diagnostic);
+      if(item.status!=="failed"||!uploadFailure)return NextResponse.json({message:"Only a failed upload can be retried here"},{status:409});
       const intent=item.yixiaoerResults?._intent as Record<string,unknown>|undefined;const draft=intent?.deliveryMode==="draft";
       if(!draft&&input.deliveryMode==="scheduled"&&(!input.scheduledAt||new Date(input.scheduledAt).getTime()<=Date.now()))return NextResponse.json({message:"Choose a scheduled time in the future"},{status:400});
       return queued(await enqueueYixiaoerPackage(id,{action:draft?"validate":"publish",accounts:input.accounts,control:draft?{saveDraft:true}:undefined,scheduledAt:!draft&&input.deliveryMode==="scheduled"?input.scheduledAt:undefined,clearSchedule:!draft&&input.deliveryMode==="now"}));

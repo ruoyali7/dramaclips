@@ -44,6 +44,14 @@ describe("publish retry route",()=>{
     expect(enqueue).toHaveBeenCalledWith("package-1",{action:"publish",accounts:{tiktok:"account-1"},control:undefined,scheduledAt:undefined,clearSchedule:true});
   });
 
+  it("recognizes a terminal upload timeout after the operation stage becomes failed",async()=>{
+    getPackage.mockResolvedValue({...failedUpload,yixiaoerResults:{_intent:{deliveryMode:"now"},_operation:{stage:"failed",error:"Yixiaoer CLI timed out while running yxer upload --file video.mp4"}}});
+    enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
+    const response=await POST(request({action:"retry-upload",deliveryMode:"now",accounts:{tiktok:"account-1"}}) as never,context);
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalled();
+  });
+
   it("continues only platforms without a confirmed published result",async()=>{
     getPackage.mockResolvedValue({
       id:"package-1",status:"failed",yixiaoerAction:null,
