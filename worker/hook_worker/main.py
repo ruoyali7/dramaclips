@@ -9,7 +9,7 @@ from .scoring import candidate_title,lexical_components,normalized_words,select_
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
-from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_record_state,should_resume,should_process_platform,terminal_operation
+from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_platform_allowed,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure
 from .upload import primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
@@ -454,7 +454,7 @@ def run_publish(job):
   if cover_heartbeat():raise PublishCanceled("Canceled by user")
   cover=retry_upload(lambda attempt:yixer_video(yxer(job,["upload","--file",str(cover_path),"--bucket","cloud-publish","--auto-meta"],cover_heartbeat,timeout=300)),lambda attempt:publish_update(job,status,33,video={"video":video},results={**results,"_operation":{"stage":"retrying_yixiaoer_cover_upload","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"attempt":attempt,"maxAttempts":2}}))
  assets={"video":video,"cover":cover,"coverPackageId":job["id"],"coverTimestampSeconds":float(job.get("coverTimestampSeconds") or 0)};publish_update(job,status,35,video=assets,results={**results,"_operation":{"stage":"preparing_platform_validation","heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})
- channel=primary_publish_channel(os.getenv("YIXIAOER_PRIMARY_CHANNEL","local"),os.getenv("YIXIAOER_CLIENT_ID",""));payloads={pack["source"]:yixer_payload(job,pack,video,cover,channel) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused_sources}
+ channel=primary_publish_channel(os.getenv("YIXIAOER_PRIMARY_CHANNEL","local"),os.getenv("YIXIAOER_CLIENT_ID",""));payloads={pack["source"]:yixer_payload(job,pack,video,cover,channel) for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused_sources and publish_platform_allowed(job.get("videoKind"),pack["source"])}
  if control.get("reconcilePlatforms"):
   for source in control["reconcilePlatforms"]:
    prior=results.get(source) if isinstance(results.get(source),dict) else {}

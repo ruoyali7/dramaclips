@@ -246,7 +246,6 @@ export function PublishCenter({
   const [platforms, setPlatforms] = useState<string[]>([
     "tiktok",
     "instagram",
-    "youtube",
     "facebook",
   ]);
   const [account, setAccount] = useState("");
@@ -564,6 +563,9 @@ export function PublishCenter({
     const next = sources.find((x) => x.id === id);
     setSourceId(id);
     setKind(nextKind);
+    if (nextKind === "original") {
+      setPlatforms((current) => current.filter((platform) => platform !== "youtube"));
+    }
     const nextHooks = next ? [...next.hooks, ...next.builtInAssets, ...next.vizardAssets.map((asset) => ({ id: asset.id, title: asset.title, sourceEpisodes: [asset.episodeNumber], videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds }))] : [];
     if (nextKind === "hook" && nextHooks[0]) {
       setAsset(nextHooks[0].id);
@@ -1217,6 +1219,7 @@ export function PublishCenter({
                 <input
                   type="checkbox"
                   checked={platforms.includes(v)}
+                  disabled={kind === "original" && v === "youtube"}
                   onChange={() => {
                     setPlatforms((x) =>
                       x.includes(v) ? x.filter((p) => p !== v) : [...x, v],
@@ -1225,7 +1228,7 @@ export function PublishCenter({
                     setValidated(false);
                   }}
                 />
-                {l}
+                {l}{kind === "original" && v === "youtube" ? " · Hooks only" : ""}
               </label>
             ))}
           </div>

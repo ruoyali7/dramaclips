@@ -4,7 +4,12 @@ const { listItems, markScheduled, createPackage, enqueue, getPackage, slots } = 
   listItems: vi.fn(), markScheduled: vi.fn(), createPackage: vi.fn(), enqueue: vi.fn(), getPackage: vi.fn(), slots: vi.fn(),
 }));
 vi.mock("@/lib/admin/publish-cart-repository", () => ({ listPublishCartItems: listItems, markPublishCartItemScheduled: markScheduled }));
-vi.mock("@/lib/admin/publish-repository", () => ({ createPublishPackage: createPackage, enqueueYixiaoerPackage: enqueue, getPublishPackage: getPackage }));
+vi.mock("@/lib/admin/publish-repository", () => ({
+  createPublishPackage: createPackage,
+  enqueueYixiaoerPackage: enqueue,
+  getPublishPackage: getPackage,
+  publishingPlatformsForVideoKind: (videoKind: string, platforms: string[]) => videoKind === "original" ? platforms.filter((platform) => platform !== "youtube") : platforms,
+}));
 vi.mock("@/lib/admin/yixiaoer-account-cache", () => ({ getCachedYixiaoerAccounts: vi.fn(async () => ({ accounts: [
   { id: "tt", platform: "TikTok", status: 1 }, { id: "ig", platform: "Instagram", status: 1 },
   { id: "yt", platform: "Youtube", status: 1 }, { id: "fb", platform: "Facebook", status: 1 },
@@ -33,7 +38,8 @@ describe("publish cart confirmation", () => {
     listItems.mockImplementation(async (_dates, statuses) => statuses?.includes("scheduled") ? [] : [{ ...item, assetSource: "episode", title: "Episode 2", videoUrl: "https://video.test/episode-2.mp4" }]);
     const response = await POST(request());
     expect(response.status).toBe(201);
-    expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ videoKind: "original", videoLabel: "Episode 2", hookClipId: undefined }));
+    expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ videoKind: "original", videoLabel: "Episode 2", hookClipId: undefined, platforms: ["tiktok", "instagram", "facebook"] }));
+    expect(enqueue).toHaveBeenCalledWith("package-1", { action: "publish", accounts: { tiktok: "tt", instagram: "ig", facebook: "fb" }, scheduledAt: "2026-09-08T14:00:00.000Z" });
   });
 
   it("does not enqueue an already scheduled idempotent cart package again", async () => {

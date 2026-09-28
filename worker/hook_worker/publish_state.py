@@ -27,6 +27,12 @@ def should_process_platform(source, detail, action, retry_platforms):
     return not retry_platforms or source in retry_platforms
 
 
+def publish_platform_allowed(video_kind, source):
+    return not (
+        video_kind in ("original", "episode", "orgvideo") and source == "youtube"
+    )
+
+
 def find_publish_record(data, request_id):
     rows = data.get("data") if isinstance(data, dict) else None
     if not isinstance(rows, list):

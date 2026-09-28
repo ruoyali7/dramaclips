@@ -12,6 +12,15 @@ export const publishingPlatforms = [
   "x",
 ] as const;
 export type PublishingPlatform = (typeof publishingPlatforms)[number];
+export type PublishVideoKind = "original" | "hook" | "upload";
+export function publishingPlatformsForVideoKind(
+  videoKind: PublishVideoKind,
+  platforms: PublishingPlatform[],
+) {
+  return videoKind === "original"
+    ? platforms.filter((platform) => platform !== "youtube")
+    : platforms;
+}
 export type PlatformPack = {
   source: PublishingPlatform;
   shortCode: string;
@@ -192,7 +201,7 @@ export async function preparePublishingCopy(input: {
   description: string;
   tags: string[];
   episodeNumber: number;
-  videoKind: "original" | "hook" | "upload";
+  videoKind: PublishVideoKind;
   videoLabel?: string;
   account?: string;
   campaign?: string;
@@ -219,7 +228,7 @@ export async function createPublishPackage(input: {
   tags: string[];
   episodeNumber: number;
   videoUrl: string;
-  videoKind: "original" | "hook" | "upload";
+  videoKind: PublishVideoKind;
   videoLabel?: string;
   hookClipId?: string;
   cartItemId?: string;
@@ -230,6 +239,8 @@ export async function createPublishPackage(input: {
   platforms: PublishingPlatform[];
   siteUrl: string;
 }) {
+  const eligiblePlatforms = publishingPlatformsForVideoKind(input.videoKind, input.platforms);
+  if (!eligiblePlatforms.length) throw new Error("Original episodes cannot be published to YouTube");
   await request("publish_packages?select=id&limit=0");
   if (input.cartItemId) {
     const existing = await request(`publish_packages?publish_cart_item_id=eq.${encodeURIComponent(input.cartItemId)}&select=*&limit=1`) as Row[];
@@ -260,10 +271,10 @@ export async function createPublishPackage(input: {
   const reusableVideo = reusable
     ? { video: (reusable.yixiaoer_video?.video || reusable.yixiaoer_video) as Record<string, unknown> }
     : {};
-  const prepared = input.preparedPlatforms?.filter((pack) => input.platforms.includes(pack.source));
-  const packs = prepared?.length === input.platforms.length
+  const prepared = input.preparedPlatforms?.filter((pack) => eligiblePlatforms.includes(pack.source));
+  const packs = prepared?.length === eligiblePlatforms.length
     ? prepared
-    : await preparePublishingCopy(input);
+    : await preparePublishingCopy({...input, platforms: eligiblePlatforms});
   const packageBody = {
       drama_slug: input.dramaSlug,
       episode_number: input.episodeNumber,

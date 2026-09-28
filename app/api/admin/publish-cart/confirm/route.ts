@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { getDramaBySlug } from "@/lib/catalog";
 import { listPublishCartItems, markPublishCartItemScheduled } from "@/lib/admin/publish-cart-repository";
-import { createPublishPackage, enqueueYixiaoerPackage, getPublishPackage, type PublishingPlatform } from "@/lib/admin/publish-repository";
+import { createPublishPackage, enqueueYixiaoerPackage, getPublishPackage, publishingPlatformsForVideoKind, type PublishingPlatform } from "@/lib/admin/publish-repository";
 import { getCachedYixiaoerAccounts } from "@/lib/admin/yixiaoer-account-cache";
 import { pacificCartDates } from "@/lib/publish-cart-date";
 import { futurePacificPublishSlots } from "@/lib/publish-slots";
@@ -24,10 +24,9 @@ export async function POST(request: NextRequest) {
     if (slots.length < items.length) return NextResponse.json({ message: `Only ${slots.length} unoccupied future publish slots remain for ${input.cartDate}` }, { status: 400 });
     const cache = await getCachedYixiaoerAccounts();
     if (!cache) return NextResponse.json({ message: "Yixiaoer account cache is unavailable" }, { status: 503 });
-    const accounts = Object.fromEntries(platforms.map((platform) => {
+    const availableAccounts = Object.fromEntries(platforms.map((platform) => {
       const account = cache.accounts.find((item) => item.status === 1 && item.platform.toLowerCase() === platformNames[platform]);
-      if (!account) throw new Error(`No active default Yixiaoer account for ${platform}`);
-      return [platform, account.id];
+      return [platform, account?.id];
     }));
     const dramas = new Map<string, NonNullable<Awaited<ReturnType<typeof getDramaBySlug>>>>();
     for (const item of items) {
@@ -42,13 +41,20 @@ export async function POST(request: NextRequest) {
       const item = items[index];
       const drama = dramas.get(item.dramaSlug)!;
       try {
+        const videoKind = item.assetSource === "episode" ? "original" : "hook";
+        const itemPlatforms = publishingPlatformsForVideoKind(videoKind, platforms);
+        const accounts = Object.fromEntries(itemPlatforms.map((platform) => {
+          const accountId = availableAccounts[platform];
+          if (!accountId) throw new Error(`No active default Yixiaoer account for ${platform}`);
+          return [platform, accountId];
+        }));
         const packageItem = await createPublishPackage({
           cartItemId: item.id, dramaSlug: item.dramaSlug, title: drama.title,
           promoCode: drama.promoCode || drama.publicCode, contentPromotionUrl: drama.contentPromotionUrl,
           description: drama.description, tags: drama.tags, episodeNumber: item.episodeNumber,
-          videoUrl: item.videoUrl, videoKind: item.assetSource === "episode" ? "original" : "hook", videoLabel: item.title,
+          videoUrl: item.videoUrl, videoKind, videoLabel: item.title,
           hookClipId: item.assetSource === "hook_clip" ? item.assetId : undefined,
-          deliveryMode: "scheduled", scheduledAt: slots[index], platforms, siteUrl,
+          deliveryMode: "scheduled", scheduledAt: slots[index], platforms: itemPlatforms, siteUrl,
         });
         const effectiveSlot = packageItem.status === "scheduled" && packageItem.scheduledAt ? packageItem.scheduledAt : slots[index];
         const queued = packageItem.status === "scheduled"

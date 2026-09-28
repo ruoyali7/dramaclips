@@ -5,7 +5,7 @@ vi.mock("@/lib/admin/supabase-config",()=>({getSupabaseConfig:()=>({configured:t
 vi.mock("@/lib/admin/analytics-repository",()=>({createShortLink:vi.fn()}));
 vi.mock("@/lib/admin/hashtag-recommendation",()=>({recommendHashtags:vi.fn(()=>[])}));
 
-import {createPublishPackage,enqueueYixiaoerPackage,ExistingPublishPackageError} from "@/lib/admin/publish-repository";
+import {createPublishPackage,enqueueYixiaoerPackage,ExistingPublishPackageError,publishingPlatformsForVideoKind} from "@/lib/admin/publish-repository";
 
 const existing={
   id:"package-1",drama_slug:"drama",episode_number:1,video_url:"https://video.test/hook.mp4",video_kind:"hook",video_label:"Hook 1",hook_clip_id:"11111111-1111-4111-8111-111111111111",account:"main",campaign:"organic",
@@ -16,6 +16,12 @@ function response(value:unknown){return Promise.resolve(new Response(JSON.string
 
 describe("publish package idempotency",()=>{
   beforeEach(()=>vi.stubGlobal("fetch",vi.fn()));
+
+  it("allows YouTube for hooks but removes it from original episodes",()=>{
+    const selected=["tiktok","youtube","facebook"] as const;
+    expect(publishingPlatformsForVideoKind("hook",[...selected])).toEqual([...selected]);
+    expect(publishingPlatformsForVideoKind("original",[...selected])).toEqual(["tiktok","facebook"]);
+  });
 
   it("returns the existing task instead of creating another task for the same hook",async()=>{
     vi.mocked(fetch)
