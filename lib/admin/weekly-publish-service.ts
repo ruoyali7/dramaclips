@@ -4,7 +4,6 @@ import { addPublishCartItem, listActivePublishCartItemsFrom } from "./publish-ca
 import { schedulePublishCartDate } from "./publish-cart-scheduler";
 import { listPublishPackages } from "./publish-repository";
 import { createWeeklyPublishPlan, getLatestWeeklyPublishPlan, updateWeeklyPublishPlan } from "./weekly-publish-repository";
-import { triggerRailwayWorker } from "./railway-worker-trigger";
 import { pacificCartDates } from "@/lib/publish-cart-date";
 import { addPacificDays, buildWeeklyPlan, nextWeeklyStartDate, WEEKLY_PUBLISH_VIDEOS, WEEKLY_START_DRAMA, WEEKLY_START_EPISODE } from "@/lib/weekly-publish-plan";
 
@@ -50,8 +49,7 @@ export async function scheduleNextPublishWeek(siteUrl: string, action: "schedule
     ? await updateWeeklyPublishPlan(latest.id, { status: missing ? "paused" : "planning", startDate, endDate, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber, errorMessage: undefined })
     : await createWeeklyPublishPlan({ status: missing ? "paused" : "planning", startDate, endDate, requiredVideos: WEEKLY_PUBLISH_VIDEOS, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber });
   if (missing) {
-    const workerTrigger = await triggerRailwayWorker("publish");
-    return { plan: run, workerTrigger };
+    return { plan: run };
   }
   const plan = buildWeeklyPlan(eligible, startDate);
   if (plan.length !== 7) throw new Error("Could not build a complete seven-day publish plan");

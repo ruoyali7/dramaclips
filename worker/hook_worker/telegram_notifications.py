@@ -41,13 +41,10 @@ def notify_publish_failure(job, status, results, error=None):
     )
 
 
-def notify_weekly_inventory_shortage(plan):
+def notify_scheduled_queue_nearly_finished(remaining, last_scheduled_at):
     return send_telegram(
-        "📅 DramaClips weekly scheduling paused\n"
-        f"Week: {plan.get('start_date', '?')} to {plan.get('end_date', '?')}\n"
-        f"Required original videos: {plan.get('required_videos', 70)}\n"
-        f"Available: {plan.get('available_videos', 0)}\n"
-        f"Missing: {plan.get('missing_videos', 0)}\n"
-        f"Resume from: {plan.get('next_drama_slug') or 'next available drama'} · EP {plan.get('next_episode_number') or '?'}\n"
-        "Add enough original videos, then click Resume weekly schedule in Publish Center."
+        "📦 DramaClips 排期即将发布完，请补货\n"
+        f"未来 scheduled original 剩余：{remaining} 条\n"
+        f"最后一条计划发布时间：{last_scheduled_at or '?'}\n"
+        "请现在补充 Drama Library，因为马上需要安排下一个 week。"
     )

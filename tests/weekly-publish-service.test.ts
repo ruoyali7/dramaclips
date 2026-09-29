@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listAssets: vi.fn(), listPackages: vi.fn(), listActive: vi.fn(), addItem: vi.fn(), scheduleDate: vi.fn(),
-  latestPlan: vi.fn(), createPlan: vi.fn(), updatePlan: vi.fn(), trigger: vi.fn(),
+  latestPlan: vi.fn(), createPlan: vi.fn(), updatePlan: vi.fn(),
 }));
 vi.mock("@/lib/admin/asset-library", () => ({ listLibraryAssets: mocks.listAssets }));
 vi.mock("@/lib/admin/publish-repository", () => ({ listPublishPackages: mocks.listPackages }));
@@ -11,7 +11,6 @@ vi.mock("@/lib/admin/publish-cart-scheduler", () => ({ schedulePublishCartDate: 
 vi.mock("@/lib/admin/weekly-publish-repository", () => ({
   getLatestWeeklyPublishPlan: mocks.latestPlan, createWeeklyPublishPlan: mocks.createPlan, updateWeeklyPublishPlan: mocks.updatePlan,
 }));
-vi.mock("@/lib/admin/railway-worker-trigger", () => ({ triggerRailwayWorker: mocks.trigger }));
 vi.mock("@/lib/publish-cart-date", () => ({ pacificCartDates: () => ["2026-09-29", "2026-09-30"] }));
 
 import { scheduleNextPublishWeek } from "@/lib/admin/weekly-publish-service";
@@ -34,20 +33,19 @@ function originals(count: number) {
 describe("weekly publish service", () => {
   beforeEach(() => {
     vi.clearAllMocks(); mocks.latestPlan.mockResolvedValue(null); mocks.listPackages.mockResolvedValue([]); mocks.listActive.mockResolvedValue([{ cartDate: "2026-09-30", assetId: "manual" }]);
-    mocks.trigger.mockResolvedValue({ status: "restarted" }); mocks.addItem.mockResolvedValue({});
+    mocks.addItem.mockResolvedValue({});
     mocks.scheduleDate.mockImplementation(async (date) => ({ cartDate: date, packages: Array.from({ length: 10 }, (_, index) => ({ id: `${date}-${index}` })), failures: [] }));
     mocks.createPlan.mockImplementation(async (input) => ({ id: "plan-1", createdAt: "", ...input }));
     mocks.updatePlan.mockImplementation(async (_id, input) => ({ id: "plan-1", createdAt: "", startDate: "2026-10-01", endDate: "2026-10-07", requiredVideos: 70, availableVideos: 70, missingVideos: 0, scheduledVideos: 0, ...input }));
   });
 
-  it("pauses the whole week and triggers Telegram when inventory is short", async () => {
+  it("pauses the whole week without Telegram when inventory is short", async () => {
     mocks.listAssets.mockResolvedValue(originals(64));
     const result = await scheduleNextPublishWeek("https://dramaclips.example", "schedule");
     expect(result.plan.status).toBe("paused");
     expect(result.plan.missingVideos).toBe(6);
     expect(result.plan.startDate).toBe("2026-10-01");
     expect(mocks.addItem).not.toHaveBeenCalled();
-    expect(mocks.trigger).toHaveBeenCalledWith("publish");
   });
 
   it("leaves tomorrow untouched and schedules the following seven full days", async () => {

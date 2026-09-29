@@ -13,7 +13,7 @@ export type WeeklyPublishPlan = {
   nextDramaSlug?: string;
   nextEpisodeNumber?: number;
   errorMessage?: string;
-  telegramNotifiedAt?: string;
+  scheduleTailWarningNotifiedAt?: string;
   createdAt: string;
 };
 
@@ -23,7 +23,8 @@ const fromRow = (row: Row): WeeklyPublishPlan => ({
   requiredVideos: Number(row.required_videos), availableVideos: Number(row.available_videos),
   missingVideos: Number(row.missing_videos), scheduledVideos: Number(row.scheduled_videos),
   nextDramaSlug: row.next_drama_slug || undefined, nextEpisodeNumber: row.next_episode_number == null ? undefined : Number(row.next_episode_number),
-  errorMessage: row.error_message || undefined, telegramNotifiedAt: row.telegram_notified_at || undefined,
+  errorMessage: row.error_message || undefined,
+  scheduleTailWarningNotifiedAt: row.schedule_tail_warning_notified_at || undefined,
   createdAt: row.created_at,
 });
 
@@ -42,7 +43,7 @@ export async function getLatestWeeklyPublishPlan() {
   return rows[0] ? fromRow(rows[0]) : null;
 }
 
-export async function createWeeklyPublishPlan(input: Omit<WeeklyPublishPlan, "id" | "createdAt" | "telegramNotifiedAt">) {
+export async function createWeeklyPublishPlan(input: Omit<WeeklyPublishPlan, "id" | "createdAt" | "scheduleTailWarningNotifiedAt">) {
   const rows = await request("publish_weekly_plans", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({
     status: input.status, start_date: input.startDate, end_date: input.endDate,
     required_videos: input.requiredVideos, available_videos: input.availableVideos,

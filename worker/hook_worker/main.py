@@ -11,7 +11,7 @@ from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_platform_allowed,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
-from .telegram_notifications import notify_publish_failure,notify_weekly_inventory_shortage
+from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
 from .upload import primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
@@ -54,12 +54,15 @@ def yixiaoer_worker_api_key():
  value=supabase("rpc/get_yixiaoer_worker_api_key",method="POST",payload={})
  if isinstance(value,str) and value.strip():return value.strip()
  raise RuntimeError("Yixiaoer worker API key is not configured in Supabase Vault")
-def process_weekly_plan_notification():
- rows=supabase("publish_weekly_plans?status=eq.paused&telegram_notified_at=is.null&select=*&order=created_at.asc&limit=1") or []
+def process_schedule_tail_notification():
+ rows=supabase("publish_weekly_plans?status=eq.scheduled&schedule_tail_warning_notified_at=is.null&select=*&order=created_at.desc&limit=1") or []
  if not rows:return False
  plan=rows[0]
- if not notify_weekly_inventory_shortage(plan):return False
- supabase(f"publish_weekly_plans?id=eq.{quote(str(plan['id']),safe='')}",method="PATCH",payload={"telegram_notified_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())},prefer="return=minimal")
+ now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ scheduled=supabase(f"publish_cart_items?status=eq.scheduled&asset_source=eq.episode&scheduled_at=gt.{quote(now,safe='')}&select=id,scheduled_at&order=scheduled_at.asc") or []
+ if not scheduled or len(scheduled)>10:return False
+ if not notify_scheduled_queue_nearly_finished(len(scheduled),scheduled[-1].get("scheduled_at")):return False
+ supabase(f"publish_weekly_plans?id=eq.{quote(str(plan['id']),safe='')}",method="PATCH",payload={"schedule_tail_warning_notified_at":now,"updated_at":now},prefer="return=minimal")
  return True
 def rendered_cover_timestamp(row):
  source_time=float(row.get("cover_source_timestamp") or 0);source_ranges=row.get("source_ranges") or [];rendered_ranges=row.get("rendered_ranges") or []
@@ -558,7 +561,7 @@ def main():
    worked=False
    if time.time()>=next_weekly_notification_check:
     try:
-     if process_weekly_plan_notification():worked=True
+     if process_schedule_tail_notification():worked=True
      next_weekly_notification_check=time.time()+60
     except Exception:traceback.print_exc();next_weekly_notification_check=time.time()+60
    if vizard_batch_pending:

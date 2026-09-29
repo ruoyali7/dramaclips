@@ -62,7 +62,7 @@ type Package = {
 };
 type YAccount = { id: string; name: string; platform: string; status: number };
 type CartItem = { id: string; cartDate: string; position: number; assetId: string; assetSource: "episode" | "hook_clip" | "vizard"; dramaTitle: string; episodeNumber: number; title: string; videoUrl: string; status: "cart" | "scheduled" | "canceled"; publishPackageId?: string; scheduledAt?: string };
-type WeeklyPlan = { id: string; status: "planning" | "paused" | "scheduled" | "failed"; startDate: string; endDate: string; requiredVideos: number; availableVideos: number; missingVideos: number; scheduledVideos: number; nextDramaSlug?: string; nextEpisodeNumber?: number; errorMessage?: string; telegramNotifiedAt?: string };
+type WeeklyPlan = { id: string; status: "planning" | "paused" | "scheduled" | "failed"; startDate: string; endDate: string; requiredVideos: number; availableVideos: number; missingVideos: number; scheduledVideos: number; nextDramaSlug?: string; nextEpisodeNumber?: number; errorMessage?: string; scheduleTailWarningNotifiedAt?: string };
 type DeliveryMode = "draft" | "now" | "scheduled";
 type AssetRow = {
   key: string;
@@ -355,7 +355,7 @@ export function PublishCenter({
       if (!response.ok) throw new Error(json.message || "Could not schedule the next seven days");
       setWeeklyPlan(json.plan);
       setWeeklyMessage(json.plan.status === "paused"
-        ? `Paused · ${json.plan.availableVideos}/${json.plan.requiredVideos} original videos available · ${json.plan.missingVideos} missing. Telegram notification queued.`
+        ? `Paused · ${json.plan.availableVideos}/${json.plan.requiredVideos} original videos available · ${json.plan.missingVideos} missing.`
         : `${json.plan.scheduledVideos} videos scheduled from ${json.plan.startDate} through ${json.plan.endDate}.`);
       await loadCart();
       const packagesResponse = await fetch("/api/admin/publish-packages", { cache: "no-store" });
