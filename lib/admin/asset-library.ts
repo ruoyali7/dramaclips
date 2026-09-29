@@ -11,6 +11,7 @@ export type LibraryAsset = {
   dramaId: string;
   dramaSlug: string;
   dramaTitle: string;
+  dramaPublishedAt?: string;
   coverUrl: string;
   episodeNumber: number;
   title: string;
@@ -57,6 +58,7 @@ export async function listLibraryAssets(): Promise<LibraryAsset[]> {
         dramaId: source.id,
         dramaSlug: source.slug,
         dramaTitle: source.title,
+        dramaPublishedAt: source.publishedAt,
         coverUrl: source.coverUrl,
         episodeNumber: episode.episodeNumber,
         title: `Episode ${episode.episodeNumber}`,
@@ -78,10 +80,10 @@ export async function listLibraryAssets(): Promise<LibraryAsset[]> {
   return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-function fromHook(hook: HookClip, source: { id: string; title: string; slug: string; coverUrl: string }, packages: Awaited<ReturnType<typeof listPublishPackages>>, publishedAssets: Awaited<ReturnType<typeof listPublishedAssetIdentities>>): LibraryAsset {
-  return { id: hook.id, source: "hook_clip", kind: "hook", dramaId: source.id, dramaSlug: source.slug, dramaTitle: source.title, coverUrl: source.coverUrl, episodeNumber: hook.sourceEpisodes[0] || 0, title: hook.title, videoUrl: hook.videoUrl, durationSeconds: hook.durationSeconds, hook: { id: hook.id, text: hook.title, status: "saved" }, publishing: publishStatus(packages, publishedAssets, hook.id, hook.videoUrl), createdAt: hook.createdAt };
+function fromHook(hook: HookClip, source: { id: string; title: string; slug: string; coverUrl: string; publishedAt?: string }, packages: Awaited<ReturnType<typeof listPublishPackages>>, publishedAssets: Awaited<ReturnType<typeof listPublishedAssetIdentities>>): LibraryAsset {
+  return { id: hook.id, source: "hook_clip", kind: "hook", dramaId: source.id, dramaSlug: source.slug, dramaTitle: source.title, dramaPublishedAt: source.publishedAt, coverUrl: source.coverUrl, episodeNumber: hook.sourceEpisodes[0] || 0, title: hook.title, videoUrl: hook.videoUrl, durationSeconds: hook.durationSeconds, hook: { id: hook.id, text: hook.title, status: "saved" }, publishing: publishStatus(packages, publishedAssets, hook.id, hook.videoUrl), createdAt: hook.createdAt };
 }
 
-function fromVizard(asset: VizardAsset, source: { id: string; title: string; slug: string; coverUrl: string }, packages: Awaited<ReturnType<typeof listPublishPackages>>, publishedAssets: Awaited<ReturnType<typeof listPublishedAssetIdentities>>): LibraryAsset {
-  return { id: asset.id, source: "vizard", kind: "hook", dramaId: source.id, dramaSlug: source.slug, dramaTitle: source.title, coverUrl: source.coverUrl, episodeNumber: asset.episodeNumber, title: asset.title, videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds, hook: { id: asset.id, text: asset.title, status: "approved" }, publishing: publishStatus(packages, publishedAssets, asset.id, asset.videoUrl), createdAt: asset.createdAt };
+function fromVizard(asset: VizardAsset, source: { id: string; title: string; slug: string; coverUrl: string; publishedAt?: string }, packages: Awaited<ReturnType<typeof listPublishPackages>>, publishedAssets: Awaited<ReturnType<typeof listPublishedAssetIdentities>>): LibraryAsset {
+  return { id: asset.id, source: "vizard", kind: "hook", dramaId: source.id, dramaSlug: source.slug, dramaTitle: source.title, dramaPublishedAt: source.publishedAt, coverUrl: source.coverUrl, episodeNumber: asset.episodeNumber, title: asset.title, videoUrl: asset.videoUrl, durationSeconds: asset.durationSeconds, hook: { id: asset.id, text: asset.title, status: "approved" }, publishing: publishStatus(packages, publishedAssets, asset.id, asset.videoUrl), createdAt: asset.createdAt };
 }

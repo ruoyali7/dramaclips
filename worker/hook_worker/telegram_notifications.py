@@ -39,3 +39,15 @@ def notify_publish_failure(job, status, results, error=None):
         f"Status: {status}\nPlatforms: {platforms}\n"
         f"Error: {summary}\nPackage: {job.get('id', 'unknown')}"
     )
+
+
+def notify_weekly_inventory_shortage(plan):
+    return send_telegram(
+        "📅 DramaClips weekly scheduling paused\n"
+        f"Week: {plan.get('start_date', '?')} to {plan.get('end_date', '?')}\n"
+        f"Required original videos: {plan.get('required_videos', 70)}\n"
+        f"Available: {plan.get('available_videos', 0)}\n"
+        f"Missing: {plan.get('missing_videos', 0)}\n"
+        f"Resume from: {plan.get('next_drama_slug') or 'next available drama'} · EP {plan.get('next_episode_number') or '?'}\n"
+        "Add enough original videos, then click Resume weekly schedule in Publish Center."
+    )

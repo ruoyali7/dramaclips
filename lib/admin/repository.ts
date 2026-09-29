@@ -8,5 +8,5 @@ export const updateDrama=(id:string,input:import("./drama-schema").DramaUpdateIn
 export const deleteDrama=(id:string)=>repositoryMode()==="supabase"?remote.deleteSupabaseDrama(id):local.deleteDrama(id);
 export async function listVizardSources(){
   const rows=await getPublishedDramaDrafts();
-  return rows.map(row=>({id:row.id,title:row.title,slug:row.slug,publicCode:row.publicCode,promoCode:row.promoCode,language:row.language,tags:row.tags,description:row.description,coverUrl:row.coverUrl,contentPromotionUrl:decryptSensitive(row.cpsUrlEncrypted),episodes:row.episodes.map(episode=>({episodeNumber:episode.episodeNumber,videoUrl:episode.videoUrl}))}));
+  return rows.map(row=>({id:row.id,title:row.title,slug:row.slug,publicCode:row.publicCode,promoCode:row.promoCode,language:row.language,tags:row.tags,description:row.description,coverUrl:row.coverUrl,publishedAt:row.publishedAt||row.createdAt,contentPromotionUrl:decryptSensitive(row.cpsUrlEncrypted),episodes:row.episodes.map(episode=>({episodeNumber:episode.episodeNumber,videoUrl:episode.videoUrl}))}));
 }

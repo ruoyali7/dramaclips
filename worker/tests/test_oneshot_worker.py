@@ -20,6 +20,7 @@ class OneshotWorkerTests(unittest.TestCase):
     def test_empty_queue_exits_after_one_lease_pass(self):
         with (
             patch.object(main, "sync_yixiaoer_accounts"),
+            patch.object(main, "process_weekly_plan_notification", return_value=False),
             patch.object(main, "process_vizard_once", return_value=False),
             patch.object(main, "lease", return_value={"job": None}) as lease,
             patch.object(main, "cleanup_worker_temps"),
@@ -36,6 +37,7 @@ class OneshotWorkerTests(unittest.TestCase):
             patch.object(main, "ENABLE_VIZARD_WORKER", False),
             patch.object(main, "ENABLE_PUBLISH_WORKER", True),
             patch.object(main, "sync_yixiaoer_accounts"),
+            patch.object(main, "process_weekly_plan_notification", return_value=False),
             patch.object(main, "process_vizard_once") as process_vizard,
             patch.object(main, "lease", return_value={"job": None}),
             patch.object(main, "cleanup_worker_temps"),

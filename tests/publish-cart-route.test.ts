@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listAssets, addItem } = vi.hoisted(() => ({ listAssets: vi.fn(), addItem: vi.fn() }));
+const { listAssets, addItem, listItems } = vi.hoisted(() => ({ listAssets: vi.fn(), addItem: vi.fn(), listItems: vi.fn() }));
 vi.mock("@/lib/admin/asset-library", () => ({ listLibraryAssets: listAssets }));
 vi.mock("@/lib/admin/publish-cart-repository", () => ({
   addPublishCartItem: addItem,
-  listPublishCartItems: vi.fn(),
+  listPublishCartItems: listItems,
   removePublishCartItem: vi.fn(),
   reorderPublishCartItems: vi.fn(),
 }));
@@ -20,7 +20,7 @@ const original = {
 };
 
 describe("publish cart assets", () => {
-  beforeEach(() => { vi.clearAllMocks(); listAssets.mockResolvedValue([original]); addItem.mockResolvedValue({ id: "cart-1" }); });
+  beforeEach(() => { vi.clearAllMocks(); listAssets.mockResolvedValue([original]); listItems.mockResolvedValue([]); addItem.mockResolvedValue({ id: "cart-1" }); });
 
   it("adds an original episode from the existing asset library", async () => {
     const request = new Request("http://localhost/api/admin/publish-cart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cartDate: "2026-09-22", assetId: original.id }) });
@@ -32,6 +32,14 @@ describe("publish cart assets", () => {
   it("does not accept a video URL or unknown asset id", async () => {
     const request = new Request("http://localhost/api/admin/publish-cart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cartDate: "2026-09-22", assetId: original.videoUrl }) });
     expect((await POST(request as never)).status).toBe(404);
+    expect(addItem).not.toHaveBeenCalled();
+  });
+
+  it("does not mix manual Cart items into a confirmed day", async () => {
+    listItems.mockResolvedValue([{ id: "scheduled-1" }]);
+    const request = new Request("http://localhost/api/admin/publish-cart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cartDate: "2026-09-22", assetId: original.id }) });
+    const response = await POST(request as never);
+    expect(response.status).toBe(409);
     expect(addItem).not.toHaveBeenCalled();
   });
 });

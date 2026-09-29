@@ -11,7 +11,7 @@ from .ai_reranker import rerank
 from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_platform_allowed,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
-from .telegram_notifications import notify_publish_failure
+from .telegram_notifications import notify_publish_failure,notify_weekly_inventory_shortage
 from .upload import primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
@@ -54,6 +54,13 @@ def yixiaoer_worker_api_key():
  value=supabase("rpc/get_yixiaoer_worker_api_key",method="POST",payload={})
  if isinstance(value,str) and value.strip():return value.strip()
  raise RuntimeError("Yixiaoer worker API key is not configured in Supabase Vault")
+def process_weekly_plan_notification():
+ rows=supabase("publish_weekly_plans?status=eq.paused&telegram_notified_at=is.null&select=*&order=created_at.asc&limit=1") or []
+ if not rows:return False
+ plan=rows[0]
+ if not notify_weekly_inventory_shortage(plan):return False
+ supabase(f"publish_weekly_plans?id=eq.{quote(str(plan['id']),safe='')}",method="PATCH",payload={"telegram_notified_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())},prefer="return=minimal")
+ return True
 def rendered_cover_timestamp(row):
  source_time=float(row.get("cover_source_timestamp") or 0);source_ranges=row.get("source_ranges") or [];rendered_ranges=row.get("rendered_ranges") or []
  for index,source in enumerate(source_ranges):
@@ -541,6 +548,7 @@ def main():
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
  next_account_sync=0
+ next_weekly_notification_check=0
  vizard_batch_pending=WORKER_ONESHOT and ENABLE_VIZARD_WORKER
  while True:
   try:
@@ -548,6 +556,11 @@ def main():
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
+   if time.time()>=next_weekly_notification_check:
+    try:
+     if process_weekly_plan_notification():worked=True
+     next_weekly_notification_check=time.time()+60
+    except Exception:traceback.print_exc();next_weekly_notification_check=time.time()+60
    if vizard_batch_pending:
     if process_vizard_batch():worked=True
     vizard_batch_pending=False

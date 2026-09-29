@@ -37,6 +37,10 @@ export async function listPublishCartItems(dates: string[], statuses: PublishCar
   const rows = await request(`publish_cart_items?cart_date=in.(${dates.join(",")})&status=in.(${statuses.join(",")})&select=*&order=cart_date.asc,position.asc`) as Row[];
   return rows.map(fromRow);
 }
+export async function listActivePublishCartItemsFrom(date: string) {
+  const rows = await request(`publish_cart_items?cart_date=gte.${encodeURIComponent(date)}&status=in.(cart,scheduled)&select=*&order=cart_date.asc,position.asc`) as Row[];
+  return rows.map(fromRow);
+}
 export async function addPublishCartItem(cartDate: string, asset: LibraryAsset) {
   const result = await request("rpc/add_publish_cart_item", { method: "POST", body: JSON.stringify({
     p_cart_date: cartDate, p_asset_id: asset.id, p_asset_source: asset.source,

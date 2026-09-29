@@ -10,6 +10,7 @@
 .shared-drama-library-expanded .episode-actions { display: flex; align-items: center; gap: 5px; }
 .shared-drama-library-expanded .episode-selection-grid .episode-cart-button { border: 1px solid #171717; background: #171717; color: #fff; padding: 6px; }
 .publish-cart { position: relative; border: 1px solid #dedbd3; background: #faf9f6; padding: 16px; margin: 14px 0 20px; }
+.weekly-publish-planner{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;align-items:center;margin:14px 0;padding:14px;border:1px solid #d9d4c8;background:#fff}.weekly-publish-planner b,.weekly-publish-planner small{display:block}.weekly-publish-planner small{margin-top:4px;color:#777;font-size:11px;line-height:1.45}.weekly-publish-planner>button{border:1px solid #171717;background:#171717;color:#fff;padding:10px 14px;white-space:nowrap}.weekly-publish-planner>button:disabled{opacity:.5}.weekly-plan-status,.weekly-publish-planner>.cart-scheduled-message{grid-column:1/-1;margin:0;padding:10px 12px;background:#f3f1eb}.weekly-plan-status.paused{background:#fff4df;color:#765518}.weekly-plan-status.failed{background:#fff0ec;color:#913d2a}.weekly-plan-status.scheduled{background:#e8f5ec;color:#2f6845}@media(max-width:700px){.weekly-publish-planner{grid-template-columns:1fr}.weekly-publish-planner>button{width:100%}}
 .publish-cart-head { display: flex; justify-content: space-between; gap: 20px; }
 .publish-cart-head b, .publish-cart-head small { display: block; }
 .publish-cart-head small, .publish-cart p { color: #85827b; font-size: 8px; margin-top: 4px; }

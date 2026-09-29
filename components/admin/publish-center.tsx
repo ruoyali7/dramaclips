@@ -62,6 +62,7 @@ type Package = {
 };
 type YAccount = { id: string; name: string; platform: string; status: number };
 type CartItem = { id: string; cartDate: string; position: number; assetId: string; assetSource: "episode" | "hook_clip" | "vizard"; dramaTitle: string; episodeNumber: number; title: string; videoUrl: string; status: "cart" | "scheduled" | "canceled"; publishPackageId?: string; scheduledAt?: string };
+type WeeklyPlan = { id: string; status: "planning" | "paused" | "scheduled" | "failed"; startDate: string; endDate: string; requiredVideos: number; availableVideos: number; missingVideos: number; scheduledVideos: number; nextDramaSlug?: string; nextEpisodeNumber?: number; errorMessage?: string; telegramNotifiedAt?: string };
 type DeliveryMode = "draft" | "now" | "scheduled";
 type AssetRow = {
   key: string;
@@ -292,8 +293,12 @@ export function PublishCenter({
   const [scheduleCollapsed, setScheduleCollapsed] = useState(true);
   const [cartBusy, setCartBusy] = useState(false);
   const [cartScheduled, setCartScheduled] = useState("");
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
+  const [weeklyBusy, setWeeklyBusy] = useState(false);
+  const [weeklyMessage, setWeeklyMessage] = useState("");
   const visibleCartItems = cartItems.filter((item) => item.cartDate === cartDate);
   const visibleScheduledItems = scheduledCartItems.filter((item) => item.cartDate === cartDate);
+  const cartDateLocked = visibleScheduledItems.length > 0;
   const visibleCartSlots = cartDate ? futurePacificPublishSlots(cartDate) : [];
   const resultsRef = useRef<HTMLElement>(null);
   useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem("dramaclips:publish-history")||"{}");if(Number.isInteger(saved.page)&&saved.page>0)setHistoryPage(saved.page);if([5,10,20].includes(saved.size))setHistorySize(saved.size);}catch{}setHistoryRestored(true);},[]);
@@ -334,8 +339,32 @@ export function PublishCenter({
     setCartItems(json.items || []); setScheduledCartItems(json.scheduledItems || []);
   }
   useEffect(() => { loadCart().catch((reason) => setError(reason.message)); }, []);
+  async function loadWeeklyPlan() {
+    const response = await fetch("/api/admin/publish-cart/weekly", { cache: "no-store" });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.message || "Could not load weekly schedule");
+    setWeeklyPlan(json.plan || null);
+  }
+  useEffect(() => { loadWeeklyPlan().catch((reason) => setError(reason.message)); }, []);
+  async function scheduleWeek(action: "schedule" | "resume") {
+    if (weeklyBusy || cartBusy) return;
+    setWeeklyBusy(true); setError(""); setWeeklyMessage("");
+    try {
+      const response = await fetch("/api/admin/publish-cart/weekly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.message || "Could not schedule the next seven days");
+      setWeeklyPlan(json.plan);
+      setWeeklyMessage(json.plan.status === "paused"
+        ? `Paused · ${json.plan.availableVideos}/${json.plan.requiredVideos} original videos available · ${json.plan.missingVideos} missing. Telegram notification queued.`
+        : `${json.plan.scheduledVideos} videos scheduled from ${json.plan.startDate} through ${json.plan.endDate}.`);
+      await loadCart();
+      const packagesResponse = await fetch("/api/admin/publish-packages", { cache: "no-store" });
+      if (packagesResponse.ok) setRecent((await packagesResponse.json()).packages || []);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not schedule the next seven days"); }
+    finally { setWeeklyBusy(false); }
+  }
   async function addToCart(assetId: string) {
-    if (!cartDate || cartBusy) return;
+    if (!cartDate || cartBusy || cartDateLocked) return;
     setCartBusy(true); setError("");
     try {
       const response = await fetch("/api/admin/publish-cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cartDate, assetId }) });
@@ -1020,7 +1049,16 @@ export function PublishCenter({
         <span>01 · Video asset library</span>
         <div className="publish-cart">
           <div className="publish-cart-head"><div><b>Daily publish cart</b><small>Choose up to 10 original episodes or Hooks, review their fixed Pacific times, then confirm once.</small></div><div>{cartDates.map((date, index) => <button key={date} className={cartDate === date ? "selected" : ""} onClick={() => setCartDate(date)}>{index === 0 ? "Today" : "Tomorrow"}<small>{date}</small></button>)}</div></div>
+          <div className="weekly-publish-planner">
+            <div><b>Seven-day original schedule</b><small>Leaves every existing future date untouched, then schedules 70 original videos across the following seven days.</small></div>
+            {weeklyPlan?.status === "paused"
+              ? <button type="button" disabled={weeklyBusy || cartBusy} onClick={() => scheduleWeek("resume")}>{weeklyBusy ? "Checking…" : "Resume weekly schedule"}</button>
+              : <button type="button" disabled={weeklyBusy || cartBusy || weeklyPlan?.status === "planning"} onClick={() => scheduleWeek("schedule")}>{weeklyBusy ? "Scheduling…" : "Schedule next 7 days"}</button>}
+            {weeklyPlan && <p className={`weekly-plan-status ${weeklyPlan.status}`}><b>{weeklyPlan.status === "paused" ? "Paused — waiting for original videos" : weeklyPlan.status === "scheduled" ? "Weekly schedule confirmed" : weeklyPlan.status === "failed" ? "Weekly schedule needs attention" : "Creating weekly schedule"}</b><small>{weeklyPlan.startDate} → {weeklyPlan.endDate} · {weeklyPlan.scheduledVideos}/{weeklyPlan.requiredVideos} scheduled{weeklyPlan.missingVideos ? ` · ${weeklyPlan.missingVideos} missing` : ""}</small>{weeklyPlan.errorMessage && <small>{weeklyPlan.errorMessage}</small>}</p>}
+            {weeklyMessage && <p className="cart-scheduled-message">{weeklyMessage}</p>}
+          </div>
           <ol>{visibleCartItems.map((item, index, items) => <li key={item.id}><span>{index + 1}</span><div><b>{item.title}</b><small>{item.dramaTitle} · EP {item.episodeNumber}</small></div><time>{visibleCartSlots[index] ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(visibleCartSlots[index])) : "No slot"}</time><button disabled={cartBusy || index === 0} onClick={() => moveCartItem(item.id, -1)} aria-label="Move up">↑</button><button disabled={cartBusy || index === items.length - 1} onClick={() => moveCartItem(item.id, 1)} aria-label="Move down">↓</button><button disabled={cartBusy} onClick={() => removeFromCart(item.id)}>Remove</button></li>)}</ol>
+          {cartDateLocked && <p className="cart-scheduled-message">This date already has a confirmed schedule. Manual Cart additions are disabled to prevent conflicts.</p>}
           {!cartItems.some((item) => item.cartDate === cartDate) && <p>No videos awaiting confirmation.</p>}
           <strong>{visibleCartItems.length + visibleScheduledItems.length} / 10</strong>
           {cartItems.some((item) => item.cartDate === cartDate) && <button className="confirm-cart-button" disabled={cartBusy} onClick={confirmCart}>{cartBusy ? "Scheduling…" : "Confirm fixed schedule"}</button>}
@@ -1051,8 +1089,8 @@ export function PublishCenter({
                 <div className="drama-status">{group.processing ? <span className="working">Processing</span> : group.scheduled ? <span className="scheduled">Scheduled</span> : group.failed ? <span className="failed">Needs attention</span> : group.published ? <span className="published">Published</span> : <span>Ready</span>}<small>Expand details</small></div>
               </summary>
               <DramaLibraryExpanded
-                episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { id: row.key, episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber), inCart: cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }; })}
-                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.publishingStatus === "published" ? "Published" : row.latest ? packageState(row.latest) : "Saved", inCart: cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }))}
+                episodes={group.assets.filter((row) => row.kind === "original").map((row) => { const episodeNumber = Number(row.label.replace("EP ", "")); return { id: row.key, episodeNumber, videoUrl: row.videoUrl, generated: group.source.libraryAssets.some((asset) => asset.kind === "hook" && asset.episodeNumber === episodeNumber), inCart: cartDateLocked || cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }; })}
+                hooks={group.assets.filter((row) => row.kind !== "original").map((row) => ({ id: row.key, title: row.label, episodes: [Number(row.detail.match(/EP (\d+)/)?.[1] || 0)], generator: row.detail.split(" hook")[0], status: row.publishingStatus === "published" ? "Published" : row.latest ? packageState(row.latest) : "Saved", inCart: cartDateLocked || cartItems.some((item) => item.cartDate === cartDate && item.assetId === row.key) }))}
                 previewEpisode={libraryPreviewKey.startsWith(`episode:${group.source.id}:`) ? Number(libraryPreviewKey.split(":").at(-1)) : null}
                 onPreviewEpisode={(episode) => setLibraryPreviewKey((current) => current === `episode:${group.source.id}:${episode.episodeNumber}` ? "" : `episode:${group.source.id}:${episode.episodeNumber}`)}
                 onAddEpisodeToCart={(episode) => addToCart(episode.id)}

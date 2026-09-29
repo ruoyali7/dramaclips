@@ -30,6 +30,20 @@ class TelegramNotificationTests(unittest.TestCase):
             {},
         ))
 
+    @patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "bot-token", "TELEGRAM_CHAT_ID": "chat-id"})
+    @patch.object(telegram_notifications.requests, "post")
+    def test_reports_weekly_inventory_shortage(self, post):
+        post.return_value.ok = True
+        sent = telegram_notifications.notify_weekly_inventory_shortage({
+            "start_date": "2026-10-01", "end_date": "2026-10-07",
+            "required_videos": 70, "available_videos": 64, "missing_videos": 6,
+            "next_drama_slug": "the-triplets-final-regret", "next_episode_number": 3,
+        })
+        self.assertTrue(sent)
+        message = post.call_args.kwargs["json"]["text"]
+        self.assertIn("Missing: 6", message)
+        self.assertIn("Resume weekly schedule", message)
+
 
 if __name__ == "__main__":
     unittest.main()
