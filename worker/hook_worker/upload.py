@@ -1,9 +1,18 @@
+import requests
+
+
+def is_transient_network_error(error):
+    return isinstance(error, (requests.Timeout, requests.ConnectionError))
+
+
 def retry_upload(operation, on_retry, attempts=2):
     for attempt in range(1, attempts + 1):
         try:
             return operation(attempt)
         except RuntimeError as error:
-            if not str(error).startswith("Yixiaoer CLI timed out") or attempt >= attempts:
+            message = str(error).lower()
+            retryable = message.startswith("yixiaoer cli timed out") or "tls handshake timeout" in message
+            if not retryable or attempt >= attempts:
                 raise
             on_retry(attempt + 1)
 

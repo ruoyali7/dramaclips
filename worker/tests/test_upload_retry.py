@@ -1,6 +1,8 @@
 import unittest
 
-from hook_worker.upload import primary_publish_channel, retry_upload, should_optimize_publish_video, video_upload_timeout
+import requests
+
+from hook_worker.upload import is_transient_network_error, primary_publish_channel, retry_upload, should_optimize_publish_video, video_upload_timeout
 
 
 class UploadRetryTests(unittest.TestCase):
@@ -30,6 +32,23 @@ class UploadRetryTests(unittest.TestCase):
                 lambda attempt: (_ for _ in ()).throw(RuntimeError("invalid upload")),
                 lambda attempt: self.fail("unexpected retry"),
             )
+
+    def test_retries_tls_handshake_timeout(self):
+        attempts = []
+
+        def upload(attempt):
+            attempts.append(attempt)
+            if attempt == 1:
+                raise RuntimeError("Yixiaoer CLI failed: TLS handshake timeout")
+            return {"key": "uploaded.jpg"}
+
+        self.assertEqual(retry_upload(upload, lambda attempt: None)["key"], "uploaded.jpg")
+        self.assertEqual(attempts, [1, 2])
+
+    def test_only_request_network_failures_are_transient(self):
+        self.assertTrue(is_transient_network_error(requests.ReadTimeout("slow heartbeat")))
+        self.assertTrue(is_transient_network_error(requests.ConnectionError("connection reset")))
+        self.assertFalse(is_transient_network_error(RuntimeError("lease not owned")))
 
     def test_large_original_video_gets_longer_upload_window(self):
         self.assertEqual(video_upload_timeout(5 * 1024 * 1024), 1800)

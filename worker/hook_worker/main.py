@@ -12,7 +12,7 @@ from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_platform_allowed,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
-from .upload import primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
+from .upload import is_transient_network_error,primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -266,7 +266,7 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
  def redact(value):return str(value).replace(secret,"[REDACTED]") if secret else str(value)
  safe_command=" ".join(redact(part) for part in command)
  print(f"Starting CLI: {safe_command}",flush=True)
- started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True);deadline=started+timeout
+ started=time.time();process=subprocess.Popen(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True);deadline=started+timeout;heartbeat_failures=0
  while True:
   try:
    raw,_=process.communicate(timeout=min(10,max(1,deadline-time.time())))
@@ -283,11 +283,16 @@ def cli_output(command,env,timeout,secret,heartbeat=None,ambiguous_timeout=False
     if ambiguous_timeout:raise PublishOutcomeUnknown("Yixiaoer publish timed out after submission; automatic retry is blocked to prevent a duplicate post")
     suffix=f"; output: {detail[-1000:]}" if detail else ""
     raise RuntimeError(f"Yixiaoer CLI timed out after {int(time.time()-started)}s while running {safe_command}{suffix}")
-   if heartbeat and heartbeat(process.pid):
-    os.killpg(process.pid,signal.SIGTERM)
-    try:process.wait(timeout=5)
-    except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
-    raise PublishCanceled("Canceled by user")
+   if heartbeat:
+    try:canceled=heartbeat(process.pid);heartbeat_failures=0
+    except Exception as error:
+     if not is_transient_network_error(error) or heartbeat_failures>=1:raise
+     heartbeat_failures+=1;print(f"Transient heartbeat failure; retrying: {type(error).__name__}",flush=True);continue
+    if canceled:
+     os.killpg(process.pid,signal.SIGTERM)
+     try:process.wait(timeout=5)
+     except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
+     raise PublishCanceled("Canceled by user")
 def yxer(job,args,heartbeat=None,ambiguous_timeout=False,timeout=900):
  env={**os.environ,"HOME":"/work","YIXIAOER_API_KEY":job["apiKey"],"YIXIAOER_CONFIG":f"/tmp/yxer-{job['id']}.json"}
  cli_output(["yxer","config","set-api-key",job["apiKey"],"--json"],env,60,job["apiKey"])
