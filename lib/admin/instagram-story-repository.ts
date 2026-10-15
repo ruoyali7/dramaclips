@@ -43,3 +43,13 @@ export async function leaseInstagramStoryJob(workerId:string,leaseSeconds:number
   const rows=await request("rpc/lease_instagram_story_job",{method:"POST",body:JSON.stringify({p_worker_id:workerId,p_lease_seconds:leaseSeconds})}) as InstagramStoryJob[];
   return rows[0]||null;
 }
+
+export type InstagramStoryConnectionStatus={sessionIdConfigured:boolean;settingsConfigured:boolean};
+
+export async function getInstagramStoryConnectionStatus(){
+  return await request("rpc/instagram_story_connection_status",{method:"POST",body:"{}"}) as InstagramStoryConnectionStatus;
+}
+
+export async function saveInstagramStorySessionId(sessionId:string){
+  return await request("rpc/save_instagram_story_session_id",{method:"POST",body:JSON.stringify({p_session_id:sessionId})}) as string;
+}

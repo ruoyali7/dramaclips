@@ -1,4 +1,13 @@
 const PENDING_KEY = "pendingRsImport";
+const INSTAGRAM_LOGIN_URL = "https://www.instagram.com/accounts/login/";
+
+function trustedAdminPage(value) {
+  try {
+    const url = new URL(value);
+    const local = (url.hostname === "localhost" || url.hostname === "127.0.0.1") && (url.port === "3000" || url.port === "3001");
+    return (url.protocol === "https:" && url.hostname === "dramaclips.vercel.app" || url.protocol === "http:" && local) && url.pathname === "/admin/posters";
+  } catch { return false; }
+}
 
 function validRsUrl(value) {
   try {
@@ -14,6 +23,22 @@ async function fail(sourceTabId, message, rsTabId) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "OPEN_INSTAGRAM_LOGIN") {
+    if (!trustedAdminPage(sender.url)) { sendResponse({ ok: false, message: "Open this from the DramaClips Poster page." }); return; }
+    void chrome.tabs.create({ url: INSTAGRAM_LOGIN_URL, active: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false, message: "Could not open Instagram login." }));
+    return true;
+  }
+
+  if (message?.type === "READ_INSTAGRAM_SESSION") {
+    if (!trustedAdminPage(sender.url)) { sendResponse({ ok: false, message: "Open this from the DramaClips Poster page." }); return; }
+    void chrome.cookies.get({ url: "https://www.instagram.com/", name: "sessionid" })
+      .then((cookie) => sendResponse(cookie?.value ? { ok: true, sessionId: cookie.value } : { ok: false, message: "No signed-in Instagram session was found. Log in to Instagram first." }))
+      .catch(() => sendResponse({ ok: false, message: "Could not read the Instagram session." }));
+    return true;
+  }
+
   if (message?.type === "START_RS_IMPORT") {
     void (async () => {
       const url = validRsUrl(message.url);

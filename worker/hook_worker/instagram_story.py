@@ -60,6 +60,13 @@ def _session(supabase):
     return None
 
 
+def _session_id(supabase):
+    stored = supabase("rpc/get_instagram_story_session_id", method="POST", payload={})
+    if isinstance(stored, str) and stored.strip():
+        return stored.strip()
+    return os.getenv("INSTAGRAM_SESSION_ID", "").strip()
+
+
 def _story_links(story):
     links = getattr(story, "links", None) or []
     return [str(getattr(link, "webUri", "")) for link in links if getattr(link, "webUri", None)]
@@ -70,7 +77,6 @@ def login_story_client(supabase):
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
-    session_id = os.getenv("INSTAGRAM_SESSION_ID", "").strip()
     if not username or not password:
         raise RuntimeError("INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are required")
 
@@ -79,7 +85,7 @@ def login_story_client(supabase):
     if session:
         client.set_settings(session)
         client.login(username, password)
-    elif session_id:
+    elif session_id := _session_id(supabase):
         client.login_by_sessionid(session_id)
     else:
         client.login(username, password)

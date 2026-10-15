@@ -1,10 +1,11 @@
 "use client";
 
-import {AlertCircle,Check,Clock3,Download,ExternalLink,Link2,RefreshCw,Search} from "lucide-react";
+import {AlertCircle,Check,Clock3,Download,ExternalLink,Instagram,Link2,RefreshCw,Search,ShieldCheck} from "lucide-react";
 import {useEffect,useMemo,useRef,useState} from "react";
 
 type PosterSource={id:string;title:string;slug:string;contentCode:string;coverUrl:string;sourceCoverUrl:string;description:string;tags:string[];contentPromotionUrl:string};
 type StoryJob={id:string;drama_slug:string;drama_title:string;selection_source:"daily_post"|"library"|"manual";status:string;scheduled_at:string;published_at?:string;story_result?:Record<string,unknown>;error?:string};
+type InstagramConnection={sessionIdConfigured:boolean;settingsConfigured:boolean};
 
 function drawPoster(canvas:HTMLCanvasElement,image:HTMLImageElement,code:string){
   const width=1080,height=1920;canvas.width=width;canvas.height=height;
@@ -25,6 +26,9 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const [query,setQuery]=useState("");
   const [jobs,setJobs]=useState<StoryJob[]>([]);
   const [loadingJobs,setLoadingJobs]=useState(true);
+  const [extensionReady,setExtensionReady]=useState(false);
+  const [connection,setConnection]=useState<InstagramConnection|null>(null);
+  const [connecting,setConnecting]=useState(false);
   const [message,setMessage]=useState<{kind:"success"|"error";text:string}|null>(null);
   const [previewError,setPreviewError]=useState("");
   const canvasRef=useRef<HTMLCanvasElement>(null);
@@ -35,10 +39,29 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const eligibleCount=sources.filter(storyEligible).length;
 
   async function refreshStories(){try{const response=await fetch("/api/admin/instagram-stories");if(!response.ok)throw new Error();const result=await response.json();setJobs((result.jobs||[]).sort((a:StoryJob,b:StoryJob)=>a.drama_title.localeCompare(b.drama_title)));}catch{}finally{setLoadingJobs(false)}}
+  async function refreshConnection(){try{const response=await fetch("/api/admin/instagram-session");if(!response.ok)throw new Error();const result=await response.json();setConnection(result.connection);}catch{setConnection(null)}}
   useEffect(()=>{void refreshStories();const timer=window.setInterval(()=>void refreshStories(),15000);return()=>window.clearInterval(timer)},[]);
+  useEffect(()=>{
+    function receiveExtensionMessage(event:MessageEvent){
+      if(event.source!==window||event.origin!==window.location.origin||event.data?.source!=="dramaclips-rs-extension")return;
+      if(event.data.type==="RS_EXTENSION_READY")setExtensionReady(true);
+      if(event.data.type==="INSTAGRAM_LOGIN_OPEN_RESULT"&&!event.data.ok)setMessage({kind:"error",text:event.data.message||"Could not open Instagram login."});
+      if(event.data.type==="INSTAGRAM_SESSION_CONNECT_RESULT"){
+        setConnecting(false);
+        if(event.data.ok){void refreshConnection();setMessage({kind:"success",text:"Instagram session saved. The Story worker can now verify it."});}
+        else setMessage({kind:"error",text:event.data.message||"Could not connect Instagram."});
+      }
+    }
+    window.addEventListener("message",receiveExtensionMessage);
+    window.postMessage({source:"dramaclips",type:"RS_EXTENSION_PING"},window.location.origin);
+    void refreshConnection();
+    return()=>window.removeEventListener("message",receiveExtensionMessage);
+  },[]);
   useEffect(()=>{if(!source||!canvasRef.current)return;let active=true;setPreviewError("");void loadImage(source.coverUrl).then(image=>{if(active&&canvasRef.current)drawPoster(canvasRef.current,image,source.contentCode)}).catch(error=>{if(active)setPreviewError(error instanceof Error?error.message:"The poster could not be loaded.")});return()=>{active=false}},[source]);
 
   async function downloadCurrent(){if(!source||!canvasRef.current)return;setMessage(null);try{await saveCanvas(canvasRef.current,`${source.slug}-story.jpg`);setMessage({kind:"success",text:`${source.title} Story poster downloaded.`});}catch(error){setMessage({kind:"error",text:error instanceof Error?error.message:"The poster could not be downloaded."});}}
+  function openInstagramLogin(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}window.postMessage({source:"dramaclips",type:"INSTAGRAM_LOGIN_OPEN_REQUEST"},window.location.origin)}
+  function connectInstagram(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}setConnecting(true);window.postMessage({source:"dramaclips",type:"INSTAGRAM_SESSION_CONNECT_REQUEST"},window.location.origin)}
 
   if(!sources.length)return <section className="poster-empty"><h2>No published dramas</h2><p>Publish a drama before adding it to Story rotation.</p></section>;
   return <section className="poster-publisher" aria-labelledby="poster-publisher-title">
@@ -49,6 +72,13 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
       <div><small>Batch</small><b>Morning<em>8:30–9:30 AM Pacific</em></b></div>
       <div><small>Rotation</small><b>3 + 5<em>current + library</em></b></div>
       <div><small>Next action</small><b>{nextJob?"Queued":"Tomorrow"}<em>{nextJob?"Railway Story worker":"plan automatically"}</em></b></div>
+    </section>
+
+    <section className="instagram-connection">
+      <div className="instagram-connection-icon"><Instagram/></div>
+      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{connection?.settingsConfigured?"Connected":connection?.sessionIdConfigured?"Session saved · verification pending":"Sign in once to enable Story publishing"}</h3><p>Login happens on Instagram. After you return, the extension saves only the signed-in session; DramaClips never receives your password.</p></div>
+      <div className="instagram-connection-state"><ShieldCheck/><span><b>{extensionReady?"Extension ready":"Extension update required"}</b><small>{connection?.settingsConfigured?"Worker session ready":connection?.sessionIdConfigured?"Ready for worker verification":"No Instagram session saved"}</small></span></div>
+      <div className="instagram-connection-actions"><button type="button" onClick={openInstagramLogin} disabled={!extensionReady}>Open Instagram login</button><button type="button" onClick={connectInstagram} disabled={!extensionReady||connecting}>{connecting?"Connecting…":connection?.sessionIdConfigured||connection?.settingsConfigured?"Reconnect signed-in account":"Connect signed-in account"}</button></div>
     </section>
 
     <section className="story-today">

@@ -22,6 +22,7 @@ class InstagramStoryTests(unittest.TestCase):
             patch.dict(os.environ, {"INSTAGRAM_USERNAME": "account", "INSTAGRAM_PASSWORD": "secret", "INSTAGRAM_SESSION_ID": "session-cookie"}, clear=False),
             patch.dict(sys.modules, {"instagrapi": instagrapi}),
             patch.object(story_module, "_session", return_value=None),
+            patch.object(story_module, "_session_id", return_value="session-cookie"),
         ):
             result = story_module.login_story_client(supabase)
 
@@ -29,6 +30,13 @@ class InstagramStoryTests(unittest.TestCase):
         client.login_by_sessionid.assert_called_once_with("session-cookie")
         client.login.assert_not_called()
         self.assertEqual(supabase.call_args.kwargs["payload"]["p_session"], client.get_settings.return_value)
+
+    def test_session_id_prefers_vault_over_environment(self):
+        supabase = MagicMock(return_value="vault-session")
+        with patch.dict(os.environ, {"INSTAGRAM_SESSION_ID": "environment-session"}, clear=False):
+            result = story_module._session_id(supabase)
+        self.assertEqual(result, "vault-session")
+        supabase.assert_called_once_with("rpc/get_instagram_story_session_id", method="POST", payload={})
 
     def test_publish_attaches_reelshort_link_and_saves_session(self):
         client = MagicMock()
