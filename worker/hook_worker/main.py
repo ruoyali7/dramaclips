@@ -12,7 +12,7 @@ from .media import extract_ending_frame,video_timing
 from .publish_state import final_publish_status,find_publish_record,is_ambiguous_instagram_timeout,provider_request_id,publish_platform_allowed,publish_record_state,should_resume,should_process_platform,terminal_operation
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
-from .upload import is_transient_network_error,primary_publish_channel,retry_upload,should_optimize_publish_video,video_upload_timeout
+from .upload import is_transient_network_error,primary_publish_channel,publish_video_optimization_command,retry_upload,should_optimize_publish_video,video_upload_timeout
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -429,6 +429,12 @@ def download_publish_video(job,status,results):
     operation={"stage":"downloading_from_r2","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesReceived":received,"bytesTotal":total}
     if cancel_requested(publish_update(job,status,min(25,progress),results={**results,"_operation":operation})):raise PublishCanceled("Canceled by user")
  return target
+def remote_video_size(url):
+ try:
+  with requests.head(url,allow_redirects=True,timeout=(30,60)) as response:
+   response.raise_for_status()
+   return int(response.headers.get("content-length") or 0)
+ except (requests.RequestException,ValueError):return 0
 def run_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};candidate_video=stored.get("video") or (stored if stored.get("key") else {});video=candidate_video if "publish-video-" in str(candidate_video.get("key") or "") else {};cover=stored.get("cover") if stored.get("coverPackageId")==job["id"] else {};results=job.get("yixiaoerResults") or {};control=results.get("_control") or {};local_video=None
  if control.get("cancelRequested"):raise PublishCanceled("Canceled by user")
@@ -436,22 +442,27 @@ def run_publish(job):
  for source in paused_sources:
   prior=results.get(source) if isinstance(results.get(source),dict) else {}
   if prior.get("state")!="published":results[source]={**prior,"state":"paused","error":None,"reason":"Platform publishing is temporarily paused"}
- if not video.get("duration") or not cover:
+ original_video_size=remote_video_size(job["videoUrl"]) if not video.get("duration") and job.get("videoKind")=="original" else 0
+ optimize_remote=should_optimize_publish_video(job.get("videoKind"),original_video_size)
+ if (not video.get("duration") or not cover) and not optimize_remote:
   local_video=download_publish_video(job,status,results)
  if not video.get("duration"):
   started=time.time();started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(started))
-  original_video_size=local_video.stat().st_size;upload_video_path=local_video
-  if should_optimize_publish_video(job.get("videoKind"),original_video_size):
-   optimized=local_video.with_name(f"publish-optimized-{job['id']}.mp4")
+  if not original_video_size:original_video_size=local_video.stat().st_size
+  upload_video_path=local_video;optimized_for_publish=False
+  if optimize_remote or should_optimize_publish_video(job.get("videoKind"),original_video_size):
+   root=Path(tempfile.mkdtemp(prefix="drama-publish-",dir=os.getenv("WORK_DIR","/tmp"))) if local_video is None else local_video.parent
+   optimized=root/f"publish-optimized-{job['id']}.mp4"
    def optimize_heartbeat(_process_group=None):return cancel_requested(publish_update(job,status,27,results={**results,"_operation":{"stage":"optimizing_video_for_publish","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesTotal":original_video_size}}))
    try:
-    cli_output(["ffmpeg","-y","-i",str(local_video),"-map","0:v:0","-map","0:a:0?","-vf","scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p","-c:v","libx264","-preset","veryfast","-crf","26","-maxrate","1800k","-bufsize","3600k","-c:a","aac","-b:a","96k","-movflags","+faststart",str(optimized)],os.environ,1800,"",optimize_heartbeat)
-    if optimized.exists() and optimized.stat().st_size<original_video_size:upload_video_path=optimized
+    cli_output(publish_video_optimization_command(job["videoUrl"] if optimize_remote else local_video,optimized),os.environ,1800,"",optimize_heartbeat)
+    if optimized.exists() and (optimize_remote or optimized.stat().st_size<original_video_size):upload_video_path=optimized;local_video=optimized;optimized_for_publish=True
    except PublishCanceled:raise
    except Exception as optimize_error:
+    if local_video is None:local_video=download_publish_video(job,status,results);upload_video_path=local_video
     publish_update(job,status,28,results={**results,"_operation":{"stage":"using_original_video","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"reason":str(optimize_error)[:500]}})
   video_size=upload_video_path.stat().st_size
-  results["_media"]={"optimized":upload_video_path!=local_video,"originalBytes":original_video_size,"uploadBytes":video_size}
+  results["_media"]={"optimized":optimized_for_publish,"originalBytes":original_video_size,"uploadBytes":video_size}
   def upload_heartbeat(process_group=None):
    sent=process_group_written_bytes(process_group) if process_group else None;percent=min(99,round(sent/video_size*100)) if sent is not None and video_size else None
    operation={"stage":"uploading_to_yixiaoer","startedAt":started_at,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"elapsedSeconds":int(time.time()-started),"bytesTotal":video_size,**({"bytesSent":min(sent,video_size),"uploadPercent":percent} if sent is not None and percent is not None else {})}

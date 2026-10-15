@@ -28,5 +28,16 @@ def should_optimize_publish_video(video_kind, size_bytes):
     return video_kind == "original" and size_bytes > 20 * 1024 * 1024
 
 
+def publish_video_optimization_command(source, target):
+    return [
+        "ffmpeg", "-y", "-filter_threads", "1", "-filter_complex_threads", "1",
+        "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
+        "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p",
+        "-c:v", "libx264", "-threads:v", "1", "-preset", "veryfast", "-crf", "26",
+        "-maxrate", "1800k", "-bufsize", "3600k", "-c:a", "aac", "-b:a", "96k",
+        "-movflags", "+faststart", str(target),
+    ]
+
+
 def primary_publish_channel(requested, client_id):
     return "local" if requested.lower() == "local" and client_id.strip() else "cloud"

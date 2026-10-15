@@ -2,7 +2,7 @@ import unittest
 
 import requests
 
-from hook_worker.upload import is_transient_network_error, primary_publish_channel, retry_upload, should_optimize_publish_video, video_upload_timeout
+from hook_worker.upload import is_transient_network_error, primary_publish_channel, publish_video_optimization_command, retry_upload, should_optimize_publish_video, video_upload_timeout
 
 
 class UploadRetryTests(unittest.TestCase):
@@ -59,6 +59,14 @@ class UploadRetryTests(unittest.TestCase):
         self.assertTrue(should_optimize_publish_video("original", 38 * 1024 * 1024))
         self.assertFalse(should_optimize_publish_video("original", 12 * 1024 * 1024))
         self.assertFalse(should_optimize_publish_video("hook", 38 * 1024 * 1024))
+
+    def test_publish_optimization_limits_ffmpeg_threads(self):
+        command = publish_video_optimization_command("https://video.test/source.mp4", "/tmp/output.mp4")
+
+        self.assertIn("https://video.test/source.mp4", command)
+        self.assertEqual(command[command.index("-filter_threads") + 1], "1")
+        self.assertEqual(command[command.index("-filter_complex_threads") + 1], "1")
+        self.assertEqual(command[command.index("-threads:v") + 1], "1")
 
 
 if __name__ == "__main__":
