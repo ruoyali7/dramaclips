@@ -18,6 +18,7 @@ ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_INSTAGRAM_STORY_WORKER=os.getenv("ENABLE_INSTAGRAM_STORY_WORKER","false").lower() in ("1","true","yes","on")
+INSTAGRAM_STORY_TEST_MODE=os.getenv("INSTAGRAM_STORY_TEST_MODE","false").lower() in ("1","true","yes","on")
 STORY_UPLOAD_DELAY_SECONDS=max(0,int(os.getenv("STORY_UPLOAD_DELAY_SECONDS","60")))
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 ACCOUNT_SYNC_INTERVAL_SECONDS=RUNTIME["account_sync_interval_seconds"];SCHEDULE_NOTIFICATION_INTERVAL_SECONDS=RUNTIME["schedule_notification_interval_seconds"]
@@ -572,7 +573,7 @@ def run_publish(job):
  terminal_status=final_publish_status(results,[p for p in job["platforms"] if p["source"] in payloads],action)
  publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} story_test_mode={INSTAGRAM_STORY_TEST_MODE} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
@@ -582,9 +583,13 @@ def main():
  story_client=None
  if ENABLE_INSTAGRAM_STORY_WORKER:
   try:
-   planned=lease("/api/internal/instagram-story-worker/plan",{})
-   print(f"Instagram Story plan ready; jobs={planned.get('count',0)}",flush=True)
-   if planned.get("pendingCount",0):story_client=login_story_client(supabase)
+   if INSTAGRAM_STORY_TEST_MODE:
+    print("Instagram Story test mode; skipping daily plan and limiting this run to one job",flush=True)
+    story_client=login_story_client(supabase)
+   else:
+    planned=lease("/api/internal/instagram-story-worker/plan",{})
+    print(f"Instagram Story plan ready; jobs={planned.get('count',0)}",flush=True)
+    if planned.get("pendingCount",0):story_client=login_story_client(supabase)
   except Exception:
    traceback.print_exc()
    if WORKER_ONESHOT:return
@@ -630,6 +635,7 @@ def main():
      update_instagram_story(story_job,"outcome_unknown",error=f"Story upload may have started: {str(e)[:850]}")
     except Exception as e:
      update_instagram_story(story_job,"failed",error=str(e)[:900])
+    if INSTAGRAM_STORY_TEST_MODE:return
     if WORKER_ONESHOT and STORY_UPLOAD_DELAY_SECONDS:
      time.sleep(random.uniform(STORY_UPLOAD_DELAY_SECONDS*.75,STORY_UPLOAD_DELAY_SECONDS*1.25))
    cleanup_worker_temps()

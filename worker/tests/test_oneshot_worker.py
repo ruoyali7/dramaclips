@@ -70,6 +70,32 @@ class OneshotWorkerTests(unittest.TestCase):
 
         process_vizard.assert_not_called()
 
+    def test_story_test_mode_skips_plan_and_attempts_only_one_job(self):
+        story = {"id": "story-1"}
+        client = object()
+        with (
+            patch.object(main, "ENABLE_HOOK_WORKER", False),
+            patch.object(main, "ENABLE_VIZARD_WORKER", False),
+            patch.object(main, "ENABLE_PUBLISH_WORKER", False),
+            patch.object(main, "ENABLE_INSTAGRAM_STORY_WORKER", True),
+            patch.object(main, "INSTAGRAM_STORY_TEST_MODE", True),
+            patch.object(main, "login_story_client", return_value=client),
+            patch.object(main, "sync_yixiaoer_accounts"),
+            patch.object(main, "process_schedule_tail_notification", return_value=False),
+            patch.object(main, "lease", return_value={"job": story}) as lease,
+            patch.object(main, "publish_story", return_value={"storyPk": "123"}) as publish,
+            patch.object(main, "update_instagram_story") as update,
+            patch.object(main, "cleanup_worker_temps"),
+        ):
+            main.main()
+
+        lease.assert_called_once_with(
+            "/api/internal/instagram-story-worker/lease",
+            {"workerId": main.WORKER, "leaseSeconds": 300},
+        )
+        publish.assert_called_once_with(story, main.supabase, client)
+        update.assert_called_once_with(story, "published", result={"storyPk": "123"})
+
     def test_vizard_batch_drains_jobs_with_rate_limit_gap(self):
         with (
             patch.object(main, "VIZARD_BATCH_MAX_JOBS", 3),
