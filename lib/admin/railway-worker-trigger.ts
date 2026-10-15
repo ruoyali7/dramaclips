@@ -59,13 +59,13 @@ type RestartMutationData = {
 };
 
 type RedeployServiceMutationData = {
-  serviceInstanceRedeploy?: string;
+  serviceInstanceRedeploy?: boolean;
 };
 
 export type RailwayWorkerTriggerResult =
   | { status: "disabled" }
   | { status: "already_running"; deploymentId: string }
-  | { status: "restarted"; deploymentId: string }
+  | { status: "restarted"; deploymentId?: string }
   | { status: "failed"; error: string };
 
 function getConfig(kind: RailwayWorkerKind): RailwayConfig | null {
@@ -112,8 +112,8 @@ export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<Rai
         serviceId: config.serviceId,
         environmentId: config.environmentId,
       });
-      if (!redeployData.serviceInstanceRedeploy) return { status: "failed", error: SAFE_FAILURE };
-      return { status: "restarted", deploymentId: redeployData.serviceInstanceRedeploy };
+      if (redeployData.serviceInstanceRedeploy !== true) return { status: "failed", error: SAFE_FAILURE };
+      return { status: "restarted" };
     }
 
     const queryData = await request<DeploymentQueryData>(config.token, DEPLOYMENTS_QUERY, {

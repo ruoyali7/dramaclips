@@ -99,9 +99,9 @@ describe("Railway worker trigger",()=>{
   it("uses the dedicated Story service",async()=>{
     configure();
     vi.stubEnv("RAILWAY_STORY_SERVICE_ID","story-service");
-    fetchMock.mockResolvedValueOnce(jsonResponse({data:{serviceInstanceRedeploy:"story-deployment"}}));
+    fetchMock.mockResolvedValueOnce(jsonResponse({data:{serviceInstanceRedeploy:true}}));
 
-    await expect(triggerRailwayWorker("story")).resolves.toEqual({status:"restarted",deploymentId:"story-deployment"});
+    await expect(triggerRailwayWorker("story")).resolves.toEqual({status:"restarted"});
 
     const body=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
     expect(body.variables).toEqual({serviceId:"story-service",environmentId:"environment-id"});
