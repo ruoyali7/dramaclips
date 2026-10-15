@@ -42,7 +42,10 @@ class InstagramStoryTests(unittest.TestCase):
         client = MagicMock()
         client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
         client.photo_upload_to_story.return_value = SimpleNamespace(pk="12345")
-        client.story_info.return_value = SimpleNamespace(links=[SimpleNamespace(webUri="https://reelslink.com/cps/test")])
+        client.story_info.return_value = SimpleNamespace(
+            links=[SimpleNamespace(webUri="https://l.instagram.com/?u=https%3A%2F%2Freelslink.com%2Fcps%2Ftest%3Ffbclid%3Dtracking")],
+            user=SimpleNamespace(username="dramoraai_"),
+        )
         link_type = MagicMock(side_effect=lambda **values: SimpleNamespace(**values))
         instagrapi = SimpleNamespace(Client=MagicMock(return_value=client))
         instagrapi_types = SimpleNamespace(StoryLink=link_type)
@@ -61,7 +64,14 @@ class InstagramStoryTests(unittest.TestCase):
         self.assertNotIn("resize_mode", client.photo_upload_to_story.call_args.kwargs)
         self.assertTrue(result["linkVerified"])
         self.assertEqual(result["storyPk"], "12345")
+        self.assertEqual(result["storyUrl"], "https://www.instagram.com/stories/dramoraai_/12345/")
         self.assertEqual(supabase.call_args_list[1].kwargs["payload"]["p_session"], client.get_settings.return_value)
+
+    def test_link_matcher_rejects_a_different_destination(self):
+        self.assertFalse(story_module._link_matches(
+            "https://reelslink.com/cps/correct",
+            "https://l.instagram.com/?u=https%3A%2F%2Freelslink.com%2Fcps%2Fwrong",
+        ))
 
     def test_render_poster_matches_poster_publisher_dimensions_and_code(self):
         source = Path(tempfile.mkdtemp()) / "source.jpg"

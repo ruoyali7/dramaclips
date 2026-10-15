@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import parse_qsl, parse_qs, urlparse
 
 import requests
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -72,6 +73,20 @@ def _story_links(story):
     return [str(getattr(link, "webUri", "")) for link in links if getattr(link, "webUri", None)]
 
 
+def _link_matches(expected, actual):
+    actual_url = urlparse(actual)
+    if actual_url.hostname in {"l.instagram.com", "lm.instagram.com"}:
+        wrapped = parse_qs(actual_url.query).get("u", [])
+        if wrapped:
+            actual_url = urlparse(wrapped[0])
+    expected_url = urlparse(expected)
+    if (expected_url.scheme.lower(), expected_url.hostname, expected_url.path.rstrip("/")) != (
+        actual_url.scheme.lower(), actual_url.hostname, actual_url.path.rstrip("/")
+    ):
+        return False
+    return set(parse_qsl(expected_url.query)).issubset(set(parse_qsl(actual_url.query)))
+
+
 def login_story_client(supabase):
     from instagrapi import Client
 
@@ -120,7 +135,10 @@ def publish_story(job, supabase, client=None):
     }
     try:
         fetched = client.story_info(story_pk)
-        result["linkVerified"] = job["target_url"].rstrip("/") in {value.rstrip("/") for value in _story_links(fetched)}
+        result["linkVerified"] = any(_link_matches(job["target_url"], value) for value in _story_links(fetched))
+        story_username = getattr(getattr(fetched, "user", None), "username", None)
+        if story_username:
+            result["storyUrl"] = f"https://www.instagram.com/stories/{story_username}/{story_pk}/"
     except Exception as error:
         result["verificationError"] = str(error)[:500]
     return result
