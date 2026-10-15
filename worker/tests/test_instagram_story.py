@@ -59,7 +59,7 @@ class InstagramStoryTests(unittest.TestCase):
         ):
             result = story_module.publish_story(job, supabase)
 
-        link_type.assert_called_once_with(webUri=job["target_url"])
+        link_type.assert_called_once_with(webUri=job["target_url"], x=0.5, y=0.79427, width=0.722222, height=0.067708)
         client.photo_upload_to_story.assert_called_once()
         self.assertNotIn("resize_mode", client.photo_upload_to_story.call_args.kwargs)
         self.assertTrue(result["linkVerified"])

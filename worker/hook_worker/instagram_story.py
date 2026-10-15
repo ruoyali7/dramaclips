@@ -13,11 +13,16 @@ class StoryUploadStarted(RuntimeError):
 
 
 def _font(size):
-    path = os.getenv("HOOK_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
-    try:
-        return ImageFont.truetype(path, size)
-    except OSError:
-        return ImageFont.load_default()
+    paths = [
+        os.getenv("HOOK_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    ]
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def render_poster(source_url, content_code, target):
@@ -44,6 +49,17 @@ def render_poster(source_url, content_code, target):
         shade = Image.new("RGBA", background.size, (0, 0, 0, 105))
         background = Image.alpha_composite(background.convert("RGBA"), shade).convert("RGB")
         background.paste(poster, (0, (1920 - height) // 2))
+        draw = ImageDraw.Draw(background, "RGBA")
+        left, top, right, bottom = 150, 1460, 930, 1590
+        draw.rounded_rectangle((left, top, right, bottom), radius=34, fill=(12, 12, 12, 224), outline=(255, 255, 255, 110), width=3)
+        draw.ellipse((220, 1497, 270, 1547), outline="white", width=7)
+        draw.ellipse((254, 1503, 304, 1553), outline="white", width=7)
+        draw.line((256, 1522, 268, 1528), fill="white", width=7)
+        cta = "TAP TO WATCH"
+        cta_font = _font(44)
+        bounds = draw.textbbox((0, 0), cta, font=cta_font)
+        text_top = top + ((bottom - top) - (bounds[3] - bounds[1])) / 2 - bounds[1]
+        draw.text((342, text_top), cta, font=cta_font, fill="white")
         background.save(target, "JPEG", quality=94, optimize=True)
     return target
 
@@ -119,7 +135,7 @@ def publish_story(job, supabase, client=None):
     try:
         story = client.photo_upload_to_story(
             poster,
-            links=[StoryLink(webUri=job["target_url"])],
+            links=[StoryLink(webUri=job["target_url"], x=0.5, y=0.79427, width=0.722222, height=0.067708)],
         )
     except Exception as error:
         raise StoryUploadStarted(str(error)) from error
