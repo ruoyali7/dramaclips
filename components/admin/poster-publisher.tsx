@@ -15,10 +15,11 @@ function drawPoster(canvas:HTMLCanvasElement,image:HTMLImageElement,code:string)
   context.drawImage(image,(width-imageWidth)/2,(height-imageHeight)/2,imageWidth,imageHeight);
   const label=`CONTENT CODE · ${code}`;context.font="700 30px Arial, sans-serif";const labelWidth=context.measureText(label).width+48;
   context.fillStyle="rgba(0,0,0,.76)";context.fillRect(34,34,labelWidth,66);context.fillStyle="#fff";context.fillText(label,58,75);
-  context.beginPath();context.roundRect(150,1460,780,130,34);context.fillStyle="rgba(12,12,12,.88)";context.fill();context.strokeStyle="rgba(255,255,255,.43)";context.lineWidth=3;context.stroke();
-  context.beginPath();context.ellipse(245,1522,25,25,0,0,Math.PI*2);context.ellipse(279,1528,25,25,0,0,Math.PI*2);context.strokeStyle="#fff";context.lineWidth=7;context.stroke();
-  context.beginPath();context.moveTo(256,1522);context.lineTo(268,1528);context.stroke();
-  context.font="700 44px Arial, sans-serif";context.fillStyle="#fff";context.textBaseline="middle";context.fillText("TAP TO WATCH",342,1525);context.textBaseline="alphabetic";
+  context.save();context.shadowColor="rgba(0,0,0,.42)";context.shadowBlur=20;context.shadowOffsetY=9;context.beginPath();context.roundRect(230,960,620,125,28);context.fillStyle="#fff";context.fill();context.restore();
+  context.save();context.translate(298,1022);context.rotate(-Math.PI/4);context.lineWidth=8;context.lineCap="round";context.lineJoin="round";
+  context.strokeStyle="#ff27ae";context.beginPath();context.roundRect(-42,-13,50,26,13);context.stroke();
+  context.strokeStyle="#ff7e18";context.beginPath();context.roundRect(-8,-13,50,26,13);context.stroke();context.restore();
+  context.font="700 52px 'Arial Narrow','Roboto Condensed',Arial,sans-serif";context.fillStyle="#181818";context.textBaseline="middle";context.fillText("TAP TO WATCH",345,1022);context.textBaseline="alphabetic";
 }
 function loadImage(url:string){return new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.crossOrigin="anonymous";image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("The poster could not be loaded."));image.src=url;if(image.complete&&image.naturalWidth)resolve(image);});}
 function saveCanvas(canvas:HTMLCanvasElement,name:string){return new Promise<void>((resolve,reject)=>canvas.toBlob(blob=>{if(!blob){reject(new Error("The poster could not be generated."));return;}const url=URL.createObjectURL(blob),link=document.createElement("a");link.download=name;link.href=url;link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);resolve();},"image/jpeg",.94));}

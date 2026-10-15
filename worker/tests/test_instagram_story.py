@@ -12,6 +12,27 @@ story_module = importlib.import_module("hook_worker.instagram_story")
 
 
 class InstagramStoryTests(unittest.TestCase):
+    def test_login_uses_saved_settings_without_account_password(self):
+        settings = {"authorization_data": {"ds_user_id": "1"}}
+        client = MagicMock()
+        client.get_settings.return_value = settings
+        instagrapi = SimpleNamespace(Client=MagicMock(return_value=client))
+        supabase = MagicMock()
+
+        with (
+            patch.dict(os.environ, {"INSTAGRAM_USERNAME": "", "INSTAGRAM_PASSWORD": ""}, clear=False),
+            patch.dict(sys.modules, {"instagrapi": instagrapi}),
+            patch.object(story_module, "_session", return_value=settings),
+        ):
+            result = story_module.login_story_client(supabase)
+
+        self.assertIs(result, client)
+        client.set_settings.assert_called_once_with(settings)
+        client.get_timeline_feed.assert_called_once_with()
+        client.login.assert_not_called()
+        client.login_by_sessionid.assert_not_called()
+        self.assertEqual(supabase.call_args.kwargs["payload"]["p_session"], settings)
+
     def test_login_uses_session_id_for_first_session(self):
         client = MagicMock()
         client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
@@ -59,7 +80,7 @@ class InstagramStoryTests(unittest.TestCase):
         ):
             result = story_module.publish_story(job, supabase)
 
-        link_type.assert_called_once_with(webUri=job["target_url"], x=0.5, y=0.79427, width=0.722222, height=0.067708)
+        link_type.assert_called_once_with(webUri=job["target_url"], x=0.5, y=0.532552, width=0.574074, height=0.065104)
         client.photo_upload_to_story.assert_called_once()
         self.assertNotIn("resize_mode", client.photo_upload_to_story.call_args.kwargs)
         self.assertTrue(result["linkVerified"])

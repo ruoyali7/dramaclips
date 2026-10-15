@@ -25,6 +25,29 @@ def _font(size):
     return ImageFont.load_default()
 
 
+def _cta_font(size):
+    paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Narrow Bold.ttf",
+        os.getenv("HOOK_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ]
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _draw_link_icon(image, left, top):
+    icon = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(icon)
+    draw.rounded_rectangle((9, 37, 59, 63), radius=13, outline=(255, 39, 174, 255), width=8)
+    draw.rounded_rectangle((41, 37, 91, 63), radius=13, outline=(255, 126, 24, 255), width=8)
+    icon = icon.rotate(-42, resample=Image.Resampling.BICUBIC)
+    image.alpha_composite(icon, (left, top))
+
+
 def render_poster(source_url, content_code, target):
     response = requests.get(source_url, timeout=(30, 120))
     response.raise_for_status()
@@ -49,18 +72,20 @@ def render_poster(source_url, content_code, target):
         shade = Image.new("RGBA", background.size, (0, 0, 0, 105))
         background = Image.alpha_composite(background.convert("RGBA"), shade).convert("RGB")
         background.paste(poster, (0, (1920 - height) // 2))
+        background = background.convert("RGBA")
+        left, top, right, bottom = 230, 960, 850, 1085
+        shadow = Image.new("RGBA", background.size, (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).rounded_rectangle((left + 5, top + 9, right + 5, bottom + 9), radius=28, fill=(0, 0, 0, 110))
+        background = Image.alpha_composite(background, shadow.filter(ImageFilter.GaussianBlur(10)))
         draw = ImageDraw.Draw(background, "RGBA")
-        left, top, right, bottom = 150, 1460, 930, 1590
-        draw.rounded_rectangle((left, top, right, bottom), radius=34, fill=(12, 12, 12, 224), outline=(255, 255, 255, 110), width=3)
-        draw.ellipse((220, 1497, 270, 1547), outline="white", width=7)
-        draw.ellipse((254, 1503, 304, 1553), outline="white", width=7)
-        draw.line((256, 1522, 268, 1528), fill="white", width=7)
+        draw.rounded_rectangle((left, top, right, bottom), radius=28, fill="white")
+        _draw_link_icon(background, 248, 972)
         cta = "TAP TO WATCH"
-        cta_font = _font(44)
+        cta_font = _cta_font(52)
         bounds = draw.textbbox((0, 0), cta, font=cta_font)
         text_top = top + ((bottom - top) - (bounds[3] - bounds[1])) / 2 - bounds[1]
-        draw.text((342, text_top), cta, font=cta_font, fill="white")
-        background.save(target, "JPEG", quality=94, optimize=True)
+        draw.text((345, text_top), cta, font=cta_font, fill=(24, 24, 24, 255))
+        background.convert("RGB").save(target, "JPEG", quality=94, optimize=True)
     return target
 
 
@@ -108,18 +133,20 @@ def login_story_client(supabase):
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
-    if not username or not password:
-        raise RuntimeError("INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are required")
-
     client = Client()
     session = _session(supabase)
     if session:
         client.set_settings(session)
-        client.login(username, password)
+        if username and password:
+            client.login(username, password)
+        else:
+            client.get_timeline_feed()
     elif session_id := _session_id(supabase):
         client.login_by_sessionid(session_id)
-    else:
+    elif username and password:
         client.login(username, password)
+    else:
+        raise RuntimeError("Connect Instagram in Poster Publisher before starting the Story worker")
     supabase("rpc/save_instagram_story_session", method="POST", payload={"p_session": client.get_settings()})
     return client
 
@@ -135,7 +162,7 @@ def publish_story(job, supabase, client=None):
     try:
         story = client.photo_upload_to_story(
             poster,
-            links=[StoryLink(webUri=job["target_url"], x=0.5, y=0.79427, width=0.722222, height=0.067708)],
+            links=[StoryLink(webUri=job["target_url"], x=0.5, y=0.532552, width=0.574074, height=0.065104)],
         )
     except Exception as error:
         raise StoryUploadStarted(str(error)) from error
