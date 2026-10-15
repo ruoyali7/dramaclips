@@ -1,0 +1,54 @@
+import importlib
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+
+story_module = importlib.import_module("hook_worker.instagram_story")
+
+
+class InstagramStoryTests(unittest.TestCase):
+    def test_publish_attaches_reelshort_link_and_saves_session(self):
+        client = MagicMock()
+        client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
+        client.photo_upload_to_story.return_value = SimpleNamespace(pk="12345")
+        client.story_info.return_value = SimpleNamespace(links=[SimpleNamespace(webUri="https://reelslink.com/cps/test")])
+        link_type = MagicMock(side_effect=lambda **values: SimpleNamespace(**values))
+        instagrapi = SimpleNamespace(Client=MagicMock(return_value=client))
+        instagrapi_types = SimpleNamespace(StoryLink=link_type)
+        supabase = MagicMock(side_effect=[{"cookies": {}}, None])
+        job = {"id": "job-1", "image_url": "https://example.com/poster.jpg", "content_code": "5159963", "target_url": "https://reelslink.com/cps/test"}
+
+        with (
+            patch.dict(os.environ, {"INSTAGRAM_USERNAME": "account", "INSTAGRAM_PASSWORD": "secret"}, clear=False),
+            patch.dict(sys.modules, {"instagrapi": instagrapi, "instagrapi.types": instagrapi_types}),
+            patch.object(story_module, "render_poster", side_effect=lambda _url, _code, target: target),
+        ):
+            result = story_module.publish_story(job, supabase)
+
+        link_type.assert_called_once_with(webUri=job["target_url"])
+        client.photo_upload_to_story.assert_called_once()
+        self.assertNotIn("resize_mode", client.photo_upload_to_story.call_args.kwargs)
+        self.assertTrue(result["linkVerified"])
+        self.assertEqual(result["storyPk"], "12345")
+        self.assertEqual(supabase.call_args_list[1].kwargs["payload"]["p_session"], client.get_settings.return_value)
+
+    def test_render_poster_matches_poster_publisher_dimensions_and_code(self):
+        source = Path(tempfile.mkdtemp()) / "source.jpg"
+        target = source.with_name("story.jpg")
+        from PIL import Image
+        Image.new("RGB", (600, 900), "#9c4f38").save(source)
+        response = MagicMock(content=source.read_bytes())
+        response.raise_for_status.return_value = None
+        with patch.object(story_module.requests, "get", return_value=response):
+            story_module.render_poster("https://example.com/poster.jpg", "5159963", target)
+        with Image.open(target) as result:
+            self.assertEqual(result.size, (1080, 1920))
+
+
+if __name__ == "__main__":
+    unittest.main()

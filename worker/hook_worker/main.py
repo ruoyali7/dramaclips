@@ -10,12 +10,14 @@ from .publish_state import final_publish_status,find_publish_record,is_ambiguous
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
 from .upload import is_transient_network_error,primary_publish_channel,publish_video_optimization_command,retry_upload,should_optimize_publish_video,video_upload_timeout
+from .instagram_story import StoryUploadStarted,publish_story
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
 ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
+ENABLE_INSTAGRAM_STORY_WORKER=os.getenv("ENABLE_INSTAGRAM_STORY_WORKER","false").lower() in ("1","true","yes","on")
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 ACCOUNT_SYNC_INTERVAL_SECONDS=RUNTIME["account_sync_interval_seconds"];SCHEDULE_NOTIFICATION_INTERVAL_SECONDS=RUNTIME["schedule_notification_interval_seconds"]
 VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","20")));VIZARD_SUBMISSION_GAP_SECONDS=max(60,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","65")))
@@ -29,7 +31,7 @@ FONT=os.getenv("HOOK_FONT","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 ENDING_HOLD_SECONDS=1.2
 def cleanup_worker_temps(max_age=3600):
  root=Path(os.getenv("WORK_DIR","/tmp"));cutoff=time.time()-max_age
- for prefix in ("drama-hook-","drama-publish-","drama-yixer-"):
+ for prefix in ("drama-hook-","drama-publish-","drama-yixer-","drama-story-"):
   for path in root.glob(f"{prefix}*"):
    try:
     if path.is_dir() and path.stat().st_mtime<cutoff:shutil.rmtree(path)
@@ -91,14 +93,18 @@ def lease(path,payload):
   "/api/internal/hook-worker/lease":"lease_hook_generation_job",
   "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",
   "/api/internal/vizard-worker/lease":"lease_vizard_submission_job",
+  "/api/internal/instagram-story-worker/lease":"lease_instagram_story_job",
  }.get(path)
  if not (rpc and SUPABASE_URL and SUPABASE_KEY):return call(path,payload)
  params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
  rows=supabase(f"rpc/{rpc}",method="POST",payload=params)
  row=rows[0] if rows else None
  if row and rpc=="lease_yixiaoer_publish_job":row=hydrate_publish_job(row)
- elif row and rpc!="lease_vizard_submission_job":row=camelize_row(row)
+ elif row and rpc not in ("lease_vizard_submission_job","lease_instagram_story_job"):row=camelize_row(row)
  return {"job":row}
+def update_instagram_story(job,status,result=None,error=None):
+ rows=supabase("rpc/update_instagram_story_job",method="POST",payload={"p_id":job["id"],"p_worker_id":WORKER,"p_status":status,"p_result":result,"p_error":error})
+ if not rows:raise RuntimeError("Instagram Story lease was lost before the result could be saved")
 def run_vizard_submission(job):
  settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
  if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
@@ -565,7 +571,7 @@ def run_publish(job):
  terminal_status=final_publish_status(results,[p for p in job["platforms"] if p["source"] in payloads],action)
  publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
@@ -604,6 +610,16 @@ def main():
      current_results["_operation"] = terminal_operation(current_results, "outcome_unknown" if uncertain else "failed", str(e)[:900])
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,results=current_results,error=str(e)[:900])
+   story_job=lease("/api/internal/instagram-story-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job") if ENABLE_INSTAGRAM_STORY_WORKER else None
+   if story_job:
+    worked=True
+    try:
+     result=publish_story(story_job,supabase)
+     update_instagram_story(story_job,"published",result=result)
+    except StoryUploadStarted as e:
+     update_instagram_story(story_job,"outcome_unknown",error=f"Story upload may have started: {str(e)[:850]}")
+    except Exception as e:
+     update_instagram_story(story_job,"failed",error=str(e)[:900])
    cleanup_worker_temps()
    if WORKER_ONESHOT:
     if not worked:return

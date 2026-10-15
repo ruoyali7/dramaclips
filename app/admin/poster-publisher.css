@@ -47,3 +47,6 @@
 @media(max-width:1120px){.poster-workspace{grid-template-columns:1fr}.poster-source-panel{border-right:0;border-bottom:1px solid #e5e2da}.poster-list{max-height:430px}}
 @media(max-width:760px){.poster-publisher,.poster-empty{margin:0 18px 38px}.poster-publisher-head{padding:21px;display:block}.poster-publisher-head>button{margin-top:16px}.poster-source-head{grid-template-columns:1fr}.poster-editor{grid-template-columns:1fr;padding:18px}.poster-preview-card{position:static;max-width:360px;width:100%;margin:auto}.poster-saved>div{grid-template-columns:1fr}}
 @media(max-width:520px){.poster-list-row{grid-template-columns:18px minmax(0,1fr) auto;padding:10px 12px}.poster-row-download span{display:none}.poster-row-caption{grid-column:2/-1}.poster-editor-title{display:block}.poster-editor-title>button{margin-top:12px}.poster-caption-card textarea{min-height:220px}}
+.poster-story-controls{display:grid;grid-template-columns:minmax(130px,.8fr) minmax(190px,1fr) auto;gap:12px;align-items:end;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
+.poster-story-controls label{display:grid;gap:6px}.poster-story-controls select,.poster-story-controls input{min-height:42px}.poster-story-controls>small{grid-column:1/-1;color:var(--muted,#8f96a3)}
+@media(max-width:760px){.poster-story-controls{grid-template-columns:1fr}.poster-story-controls>small{grid-column:auto}}
