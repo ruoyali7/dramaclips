@@ -17,6 +17,7 @@ ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
+ACCOUNT_SYNC_INTERVAL_SECONDS=RUNTIME["account_sync_interval_seconds"];SCHEDULE_NOTIFICATION_INTERVAL_SECONDS=RUNTIME["schedule_notification_interval_seconds"]
 VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","20")));VIZARD_SUBMISSION_GAP_SECONDS=max(60,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","65")))
 HEAD={"X-Hook-Worker-Token":TOKEN,"Content-Type":"application/json"}; BYPASS=os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
 if BYPASS: HEAD["X-Vercel-Protection-Bypass"]=BYPASS
@@ -564,7 +565,7 @@ def run_publish(job):
  terminal_status=final_publish_status(results,[p for p in job["platforms"] if p["source"] in payloads],action)
  publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} idle_poll={IDLE_POLL_SECONDS}s",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
  cleanup_worker_temps(0)
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
@@ -574,14 +575,14 @@ def main():
  while True:
   try:
    if time.time()>=next_account_sync:
-    try:sync_yixiaoer_accounts();next_account_sync=time.time()+300
+    try:sync_yixiaoer_accounts();next_account_sync=time.time()+ACCOUNT_SYNC_INTERVAL_SECONDS
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
    if time.time()>=next_weekly_notification_check:
     try:
      if process_schedule_tail_notification():worked=True
-     next_weekly_notification_check=time.time()+60
-    except Exception:traceback.print_exc();next_weekly_notification_check=time.time()+60
+     next_weekly_notification_check=time.time()+SCHEDULE_NOTIFICATION_INTERVAL_SECONDS
+    except Exception:traceback.print_exc();next_weekly_notification_check=time.time()+SCHEDULE_NOTIFICATION_INTERVAL_SECONDS
    if vizard_batch_pending:
     if process_vizard_batch():worked=True
     vizard_batch_pending=False

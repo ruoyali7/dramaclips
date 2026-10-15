@@ -11,8 +11,10 @@ def load_runtime_config(env):
         raise RuntimeError("WORKER_MODE=cron requires WORKER_ONESHOT=true; continuous requires false")
     try:
         idle_poll_seconds = max(5, int(env.get("IDLE_POLL_SECONDS", "30")))
+        account_sync_interval_seconds = max(300, int(env.get("ACCOUNT_SYNC_INTERVAL_SECONDS", "300")))
+        schedule_notification_interval_seconds = max(60, int(env.get("SCHEDULE_NOTIFICATION_INTERVAL_SECONDS", "60")))
     except ValueError as error:
-        raise RuntimeError("IDLE_POLL_SECONDS must be an integer") from error
+        raise RuntimeError("Worker intervals must be integers") from error
     supabase_url = env.get("SUPABASE_URL", env.get("NEXT_PUBLIC_SUPABASE_URL", "")).rstrip("/")
     supabase_key = env.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     production = env.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower() == "production"
@@ -22,6 +24,8 @@ def load_runtime_config(env):
         "mode": mode,
         "oneshot": oneshot,
         "idle_poll_seconds": idle_poll_seconds,
+        "account_sync_interval_seconds": account_sync_interval_seconds,
+        "schedule_notification_interval_seconds": schedule_notification_interval_seconds,
         "supabase_url": supabase_url,
         "supabase_key": supabase_key,
         "lease_backend": "supabase" if supabase_url and supabase_key else "control-plane",
