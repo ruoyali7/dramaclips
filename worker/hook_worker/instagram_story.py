@@ -70,6 +70,7 @@ def login_story_client(supabase):
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
+    session_id = os.getenv("INSTAGRAM_SESSION_ID", "").strip()
     if not username or not password:
         raise RuntimeError("INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are required")
 
@@ -77,7 +78,11 @@ def login_story_client(supabase):
     session = _session(supabase)
     if session:
         client.set_settings(session)
-    client.login(username, password)
+        client.login(username, password)
+    elif session_id:
+        client.login_by_sessionid(session_id)
+    else:
+        client.login(username, password)
     supabase("rpc/save_instagram_story_session", method="POST", payload={"p_session": client.get_settings()})
     return client
 

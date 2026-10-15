@@ -12,6 +12,24 @@ story_module = importlib.import_module("hook_worker.instagram_story")
 
 
 class InstagramStoryTests(unittest.TestCase):
+    def test_login_uses_session_id_for_first_session(self):
+        client = MagicMock()
+        client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
+        instagrapi = SimpleNamespace(Client=MagicMock(return_value=client))
+        supabase = MagicMock()
+
+        with (
+            patch.dict(os.environ, {"INSTAGRAM_USERNAME": "account", "INSTAGRAM_PASSWORD": "secret", "INSTAGRAM_SESSION_ID": "session-cookie"}, clear=False),
+            patch.dict(sys.modules, {"instagrapi": instagrapi}),
+            patch.object(story_module, "_session", return_value=None),
+        ):
+            result = story_module.login_story_client(supabase)
+
+        self.assertIs(result, client)
+        client.login_by_sessionid.assert_called_once_with("session-cookie")
+        client.login.assert_not_called()
+        self.assertEqual(supabase.call_args.kwargs["payload"]["p_session"], client.get_settings.return_value)
+
     def test_publish_attaches_reelshort_link_and_saves_session(self):
         client = MagicMock()
         client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
