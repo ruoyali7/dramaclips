@@ -2,9 +2,6 @@ import hashlib,json,os,random,shutil,signal,subprocess,tempfile,threading,time,t
 from pathlib import Path
 from urllib.parse import quote
 import requests
-import cv2
-from faster_whisper import WhisperModel
-from scenedetect import detect,ContentDetector
 from .scoring import candidate_title,lexical_components,normalized_words,select_ranked,snap_windows,title_lines,total_score
 from .direction import parse_direction,score_direction
 from .ai_reranker import rerank
@@ -140,10 +137,14 @@ def download(url,target):
  with requests.get(url,stream=True,timeout=60) as r:r.raise_for_status();target.write_bytes(r.content)
 def probe(path): return json.loads(subprocess.check_output(["ffprobe","-v","error","-show_format","-show_streams","-of","json",str(path)]))
 def transcribe(path):
+ from faster_whisper import WhisperModel
  model=WhisperModel(MODEL,device="cpu",compute_type="int8");segments,_=model.transcribe(str(path),word_timestamps=True,vad_filter=True)
  return [{"start":w.start,"end":w.end,"word":w.word} for s in segments for w in (s.words or [])]
-def scenes(path): return [{"start":a.get_seconds(),"end":b.get_seconds()} for a,b in detect(str(path),ContentDetector(threshold=27.0))]
+def scenes(path):
+ from scenedetect import detect,ContentDetector
+ return [{"start":a.get_seconds(),"end":b.get_seconds()} for a,b in detect(str(path),ContentDetector(threshold=27.0))]
 def visual_stats(path,start,end):
+ import cv2
  cap=cv2.VideoCapture(str(path));cascade=None;samples=[];previous=None;motion=[]
  if hasattr(cv2,"CascadeClassifier") and hasattr(cv2,"data"):
   candidate=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml");cascade=None if candidate.empty() else candidate
@@ -187,6 +188,7 @@ def candidates(assets,words,bounds,direction_schema,max_hooks=6):
   out.append({"id":f"{item['episodeNumber']}-{rank}","rank":rank,"title":candidate_title(item["text"],dominant),"hookType":dominant,"transcript":item["text"],"sourceRanges":[{"episodeNumber":item["episodeNumber"],"start":item["start"],"end":item["end"]}],"renderedRanges":[{"start":0,"end":item["end"]-item["start"]}],"score":round(item["score"],2),"scoreComponents":{key:round(value,2) for key,value in item["parts"].items()},"rationale":f"Selected for {dominant}, visual quality, and grounded dialogue.{match_text}","riskLevel":item["risk"],"riskAssessment":{"keywordHeuristic":item["risk"],"coverFrame":item["visual"]["details"]},"directionMatchScore":direction.get("score"),"directionEvidence":direction["evidence"],"coverSourceTimestamp":item["visual"]["cover"],"reviewState":"pending"})
  return out
 def render(asset,candidate,target,drama_cover,content_code,cover_duration=.1):
+ import cv2
  source=asset["path"];rng=candidate["sourceRanges"][0]
  source_duration,source_fps=video_timing(probe(source))
  cap=cv2.VideoCapture(str(source));clean_end=min(source_duration,rng["end"]+1.2)
