@@ -10,7 +10,7 @@ from .publish_state import final_publish_status,find_publish_record,is_ambiguous
 from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
 from .upload import is_transient_network_error,primary_publish_channel,publish_video_optimization_command,retry_upload,should_optimize_publish_video,video_upload_timeout
-from .instagram_story import StoryUploadStarted,publish_story
+from .instagram_story import StoryUploadStarted,login_story_client,publish_story
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -18,6 +18,7 @@ ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_INSTAGRAM_STORY_WORKER=os.getenv("ENABLE_INSTAGRAM_STORY_WORKER","false").lower() in ("1","true","yes","on")
+STORY_UPLOAD_DELAY_SECONDS=max(0,int(os.getenv("STORY_UPLOAD_DELAY_SECONDS","60")))
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 ACCOUNT_SYNC_INTERVAL_SECONDS=RUNTIME["account_sync_interval_seconds"];SCHEDULE_NOTIFICATION_INTERVAL_SECONDS=RUNTIME["schedule_notification_interval_seconds"]
 VIZARD_BATCH_MAX_JOBS=max(1,int(os.getenv("VIZARD_BATCH_MAX_JOBS","20")));VIZARD_SUBMISSION_GAP_SECONDS=max(60,int(os.getenv("VIZARD_SUBMISSION_GAP_SECONDS","65")))
@@ -578,6 +579,15 @@ def main():
  next_account_sync=0
  next_weekly_notification_check=0
  vizard_batch_pending=WORKER_ONESHOT and ENABLE_VIZARD_WORKER
+ story_client=None
+ if ENABLE_INSTAGRAM_STORY_WORKER:
+  try:
+   planned=lease("/api/internal/instagram-story-worker/plan",{})
+   print(f"Instagram Story plan ready; jobs={planned.get('count',0)}",flush=True)
+   if planned.get("pendingCount",0):story_client=login_story_client(supabase)
+  except Exception:
+   traceback.print_exc()
+   if WORKER_ONESHOT:return
  while True:
   try:
    if time.time()>=next_account_sync:
@@ -610,16 +620,18 @@ def main():
      current_results["_operation"] = terminal_operation(current_results, "outcome_unknown" if uncertain else "failed", str(e)[:900])
      if uncertain:publish_update(publish_job,"outcome_unknown",100,terminal=True,results=current_results,error=str(e)[:900])
      else:publish_update(publish_job,"failed",100,terminal=True,results=current_results,error=str(e)[:900])
-   story_job=lease("/api/internal/instagram-story-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job") if ENABLE_INSTAGRAM_STORY_WORKER else None
+   story_job=lease("/api/internal/instagram-story-worker/lease",{"workerId":WORKER,"leaseSeconds":300}).get("job") if ENABLE_INSTAGRAM_STORY_WORKER and story_client else None
    if story_job:
     worked=True
     try:
-     result=publish_story(story_job,supabase)
+     result=publish_story(story_job,supabase,story_client)
      update_instagram_story(story_job,"published",result=result)
     except StoryUploadStarted as e:
      update_instagram_story(story_job,"outcome_unknown",error=f"Story upload may have started: {str(e)[:850]}")
     except Exception as e:
      update_instagram_story(story_job,"failed",error=str(e)[:900])
+    if WORKER_ONESHOT and STORY_UPLOAD_DELAY_SECONDS:
+     time.sleep(random.uniform(STORY_UPLOAD_DELAY_SECONDS*.75,STORY_UPLOAD_DELAY_SECONDS*1.25))
    cleanup_worker_temps()
    if WORKER_ONESHOT:
     if not worked:return

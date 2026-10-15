@@ -30,7 +30,7 @@ type RailwayConfig = {
   serviceId: string;
 };
 
-export type RailwayWorkerKind = "hook" | "vizard" | "publish";
+export type RailwayWorkerKind = "hook" | "vizard" | "publish" | "story";
 
 type GraphQLResponse<T> = {
   data?: T;
@@ -60,7 +60,9 @@ export type RailwayWorkerTriggerResult =
   | { status: "failed"; error: string };
 
 function getConfig(kind: RailwayWorkerKind): RailwayConfig | null {
-  const kindServiceId = kind === "publish"
+  const kindServiceId = kind === "story"
+    ? process.env.RAILWAY_STORY_SERVICE_ID?.trim()
+    : kind === "publish"
     ? process.env.RAILWAY_PUBLISH_SERVICE_ID?.trim()
     : kind === "vizard"
       ? process.env.RAILWAY_VIZARD_SERVICE_ID?.trim() || process.env.RAILWAY_HOOK_SERVICE_ID?.trim()

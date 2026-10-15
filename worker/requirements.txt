@@ -1,8 +1,9 @@
-requests==2.32.5
+requests==2.34.2
 boto3==1.40.21
 faster-whisper==1.2.0
 scenedetect[opencv]==0.6.7.1
 pydantic==2.13.3
-Pillow==11.3.0
+Pillow==12.2.0
 PySocks==1.7.1
 pycryptodomex==3.23.0
+instagrapi==3.0.25

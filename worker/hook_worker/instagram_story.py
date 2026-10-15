@@ -65,9 +65,8 @@ def _story_links(story):
     return [str(getattr(link, "webUri", "")) for link in links if getattr(link, "webUri", None)]
 
 
-def publish_story(job, supabase):
+def login_story_client(supabase):
     from instagrapi import Client
-    from instagrapi.types import StoryLink
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
@@ -80,6 +79,14 @@ def publish_story(job, supabase):
         client.set_settings(session)
     client.login(username, password)
     supabase("rpc/save_instagram_story_session", method="POST", payload={"p_session": client.get_settings()})
+    return client
+
+
+def publish_story(job, supabase, client=None):
+    from instagrapi.types import StoryLink
+
+    client = client or login_story_client(supabase)
+    username = os.getenv("INSTAGRAM_USERNAME", "").strip()
 
     root = Path(tempfile.mkdtemp(prefix="drama-story-", dir=os.getenv("WORK_DIR", "/tmp")))
     poster = render_poster(job["image_url"], job["content_code"], root / f"story-{job['id']}.jpg")
