@@ -100,15 +100,18 @@ describe("Railway worker trigger",()=>{
     configure();
     vi.stubEnv("RAILWAY_STORY_SERVICE_ID","story-service");
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({data:{serviceInstance:{latestDeployment:{id:"story-deployment"}}}}))
+      .mockResolvedValueOnce(jsonResponse({data:{deployments:{edges:[
+        {node:{id:"old-story-deployment",status:"SUCCESS",createdAt:"2026-10-15T18:41:00Z",instances:[]}},
+        {node:{id:"story-deployment",status:"SUCCESS",createdAt:"2026-10-15T18:43:00Z",instances:[]}},
+      ]}}}))
       .mockResolvedValueOnce(jsonResponse({data:{deploymentRestart:true}}));
 
     await expect(triggerRailwayWorker("story")).resolves.toEqual({status:"restarted",deploymentId:"story-deployment"});
 
-    const serviceBody=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const deploymentsBody=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
     const restartBody=JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
-    expect(serviceBody.variables).toEqual({serviceId:"story-service",environmentId:"environment-id"});
-    expect(serviceBody.query).toContain("latestDeployment");
+    expect(deploymentsBody.variables).toEqual({input:{projectId:"project-id",environmentId:"environment-id",serviceId:"story-service"},first:25});
+    expect(deploymentsBody.query).toContain("createdAt");
     expect(restartBody.variables).toEqual({id:"story-deployment"});
     expect(restartBody.query).toContain("deploymentRestart");
   });

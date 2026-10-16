@@ -8,6 +8,7 @@ const DEPLOYMENTS_QUERY = `
         node {
           id
           status
+          createdAt
           instances {
             status
           }
@@ -19,15 +20,6 @@ const DEPLOYMENTS_QUERY = `
 const RESTART_MUTATION = `
   mutation RestartDeployment($id: String!) {
     deploymentRestart(id: $id)
-  }
-`;
-const SERVICE_INSTANCE_QUERY = `
-  query ServiceInstance($serviceId: String!, $environmentId: String!) {
-    serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
-      latestDeployment {
-        id
-      }
-    }
   }
 `;
 const SAFE_FAILURE = "Railway worker trigger failed";
@@ -49,6 +41,7 @@ type GraphQLResponse<T> = {
 type Deployment = {
   id: string;
   status: string;
+  createdAt?: string;
   instances: Array<{ status: string }>;
 };
 
@@ -60,14 +53,6 @@ type DeploymentQueryData = {
 
 type RestartMutationData = {
   deploymentRestart?: boolean;
-};
-
-type ServiceInstanceQueryData = {
-  serviceInstance?: {
-    latestDeployment?: {
-      id?: string;
-    } | null;
-  } | null;
 };
 
 export type RailwayWorkerTriggerResult =
@@ -116,15 +101,22 @@ export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<Rai
 
   try {
     if (kind === "story") {
-      const serviceData = await request<ServiceInstanceQueryData>(config.token, SERVICE_INSTANCE_QUERY, {
-        serviceId: config.serviceId,
-        environmentId: config.environmentId,
+      const queryData = await request<DeploymentQueryData>(config.token, DEPLOYMENTS_QUERY, {
+        input: {
+          projectId: config.projectId,
+          environmentId: config.environmentId,
+          serviceId: config.serviceId,
+        },
+        first: 25,
       });
-      const deploymentId = serviceData.serviceInstance?.latestDeployment?.id;
-      if (!deploymentId) return { status: "failed", error: "No valid deployment found" };
-      const restartData = await request<RestartMutationData>(config.token, RESTART_MUTATION, { id: deploymentId });
+      const deployment = (queryData.deployments?.edges || [])
+        .map((edge) => edge.node)
+        .filter((node): node is Deployment => Boolean(node?.id && node.status === "SUCCESS" && node.createdAt))
+        .sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""))[0];
+      if (!deployment) return { status: "failed", error: "No valid deployment found" };
+      const restartData = await request<RestartMutationData>(config.token, RESTART_MUTATION, { id: deployment.id });
       if (restartData.deploymentRestart !== true) return { status: "failed", error: SAFE_FAILURE };
-      return { status: "restarted", deploymentId };
+      return { status: "restarted", deploymentId: deployment.id };
     }
 
     const queryData = await request<DeploymentQueryData>(config.token, DEPLOYMENTS_QUERY, {
