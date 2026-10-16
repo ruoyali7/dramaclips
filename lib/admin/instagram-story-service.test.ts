@@ -15,7 +15,7 @@ function source(index:number){return {id:`id-${index}`,title:`Drama ${index}`,sl
 describe("daily Instagram Story planning",()=>{
   beforeEach(()=>{vi.clearAllMocks();createInstagramStoryJobs.mockImplementation(async rows=>rows);});
 
-  it("selects three current Post dramas and fills five cooled-down library slots",async()=>{
+  it("selects three current Post dramas, two library dramas, and spaces their publish times",async()=>{
     const now=new Date("2026-10-14T18:00:00.000Z");
     listInstagramStoryJobs.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {drama_slug:"drama-4",published_at:"2026-10-12T18:00:00.000Z"},
@@ -26,11 +26,17 @@ describe("daily Instagram Story planning",()=>{
 
     const jobs=await ensureDailyInstagramStoryPlan(now);
 
-    expect(jobs).toHaveLength(8);
+    expect(jobs).toHaveLength(5);
     expect(jobs.slice(0,3).map((job:{drama_slug:string;selection_source:string})=>[job.drama_slug,job.selection_source])).toEqual([
       ["drama-1","daily_post"],["drama-2","daily_post"],["drama-3","daily_post"],
     ]);
     expect(jobs.map((job:{drama_slug:string})=>job.drama_slug)).not.toContain("drama-4");
-    expect(new Set(jobs.map((job:{scheduled_at:string})=>job.scheduled_at))).toEqual(new Set(["2026-10-14T15:30:00.000Z"]));
+    expect(jobs.map((job:{scheduled_at:string})=>job.scheduled_at)).toEqual([
+      "2026-10-14T16:30:00.000Z",
+      "2026-10-14T18:30:00.000Z",
+      "2026-10-14T20:30:00.000Z",
+      "2026-10-14T22:30:00.000Z",
+      "2026-10-15T00:30:00.000Z",
+    ]);
   });
 });

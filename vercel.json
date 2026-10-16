@@ -1,9 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/cron/instagram-stories",
-      "schedule": "30 16 * * *"
-    }
-  ]
+  "crons": []
 }

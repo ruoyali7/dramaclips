@@ -41,6 +41,7 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const source=sources.find(item=>item.id===sourceId)||sources[0];
   const visibleSources=useMemo(()=>sources.filter(item=>`${item.title} ${item.contentCode}`.toLowerCase().includes(query.trim().toLowerCase())),[sources,query]);
   const published=jobs.filter(job=>job.status==="published").length;
+  const plannedTotal=jobs.length||5;
   const nextJob=jobs.find(job=>job.status==="scheduled");
   const eligibleCount=sources.filter(storyEligible).length;
 
@@ -71,12 +72,12 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
 
   if(!sources.length)return <section className="poster-empty"><h2>No published dramas</h2><p>Publish a drama before adding it to Story rotation.</p></section>;
   return <section className="poster-publisher" aria-labelledby="poster-publisher-title">
-    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>One automatic morning batch · 3 current dramas + 5 library dramas</p></div><div className="story-auto-badge"><i/><span><b>Automatic</b><small>8 Stories / day</small></span></div></header>
+    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>Five Stories spaced through the day · 3 current dramas + 2 library dramas</p></div><div className="story-auto-badge"><i/><span><b>Automatic</b><small>5 Stories / day</small></span></div></header>
 
     <section className="story-overview">
-      <div><small>Today</small><b>{published}<em>/ 8 published</em></b></div>
-      <div><small>Batch</small><b>Morning<em>8:30–9:30 AM Pacific</em></b></div>
-      <div><small>Rotation</small><b>3 + 5<em>current + library</em></b></div>
+      <div><small>Today</small><b>{published}<em>/ {plannedTotal} published</em></b></div>
+      <div><small>Timing</small><b>Spaced<em>9:30 AM–5:30 PM Pacific</em></b></div>
+      <div><small>Rotation</small><b>3 + 2<em>current + library</em></b></div>
       <div><small>Next action</small><b>{nextJob?"Queued":"Tomorrow"}<em>{nextJob?"Railway Story worker":"plan automatically"}</em></b></div>
     </section>
 

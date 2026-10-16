@@ -7,9 +7,9 @@ import {addPacificDays} from "@/lib/weekly-publish-plan";
 import {pacificLocalToIso} from "@/lib/publish-slots";
 import {reelShortUrl} from "@/lib/instagram-story";
 
-export const DAILY_STORY_TARGET=8;
+export const DAILY_STORY_TARGET=5;
 export const DAILY_POST_STORY_TARGET=3;
-export const STORY_BATCH_TIME="08:30";
+export const STORY_PUBLISH_TIMES=["09:30","11:30","13:30","15:30","17:30"] as const;
 const STORY_COOLDOWN_MS=7*24*60*60*1000;
 
 export async function ensureDailyInstagramStoryPlan(now=new Date()){
@@ -40,10 +40,9 @@ export async function ensureDailyInstagramStoryPlan(now=new Date()){
   const library=eligible.filter(source=>!selected.has(source.slug)&&(now.getTime()-(lastPublished.get(source.slug)||0)>=STORY_COOLDOWN_MS))
     .sort((a,b)=>(lastPublished.get(a.slug)||0)-(lastPublished.get(b.slug)||0)||a.slug.localeCompare(b.slug));
   const chosen=[...dailyPostSlugs.map(slug=>({source:bySlug.get(slug)!,selectionSource:"daily_post" as const})),...library.slice(0,DAILY_STORY_TARGET-dailyPostSlugs.length).map(source=>({source,selectionSource:"library" as const}))];
-  const batchTime=pacificLocalToIso(date,STORY_BATCH_TIME);
-  return createInstagramStoryJobs(chosen.map(({source,selectionSource})=>({
+  return createInstagramStoryJobs(chosen.map(({source,selectionSource},index)=>({
     schedule_date:date,drama_slug:source.slug,drama_title:source.title,image_url:source.coverUrl,
     content_code:source.promoCode||source.publicCode,target_url:source.targetUrl,selection_source:selectionSource,
-    scheduled_at:batchTime,
+    scheduled_at:pacificLocalToIso(date,STORY_PUBLISH_TIMES[index]),
   })));
 }
