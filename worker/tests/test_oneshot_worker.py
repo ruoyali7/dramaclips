@@ -96,6 +96,22 @@ class OneshotWorkerTests(unittest.TestCase):
         publish.assert_called_once_with(story, main.supabase, client)
         update.assert_called_once_with(story, "published", result={"storyPk": "123"})
 
+    def test_story_login_only_does_not_plan_or_publish(self):
+        client = object()
+        with (
+            patch.object(main, "ENABLE_INSTAGRAM_STORY_WORKER", True),
+            patch.object(main, "INSTAGRAM_STORY_LOGIN_ONLY", True),
+            patch.object(main, "login_story_client", return_value=client) as login,
+            patch.object(main, "lease") as lease,
+            patch.object(main, "publish_story") as publish,
+            patch.object(main, "cleanup_worker_temps"),
+        ):
+            main.main()
+
+        login.assert_called_once_with(main.supabase)
+        lease.assert_not_called()
+        publish.assert_not_called()
+
     def test_vizard_batch_drains_jobs_with_rate_limit_gap(self):
         with (
             patch.object(main, "VIZARD_BATCH_MAX_JOBS", 3),

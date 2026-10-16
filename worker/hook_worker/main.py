@@ -19,6 +19,7 @@ ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","t
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_INSTAGRAM_STORY_WORKER=os.getenv("ENABLE_INSTAGRAM_STORY_WORKER","false").lower() in ("1","true","yes","on")
 INSTAGRAM_STORY_TEST_MODE=os.getenv("INSTAGRAM_STORY_TEST_MODE","false").lower() in ("1","true","yes","on")
+INSTAGRAM_STORY_LOGIN_ONLY=os.getenv("INSTAGRAM_STORY_LOGIN_ONLY","false").lower() in ("1","true","yes","on")
 STORY_UPLOAD_DELAY_SECONDS=max(0,int(os.getenv("STORY_UPLOAD_DELAY_SECONDS","60")))
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
 ACCOUNT_SYNC_INTERVAL_SECONDS=RUNTIME["account_sync_interval_seconds"];SCHEDULE_NOTIFICATION_INTERVAL_SECONDS=RUNTIME["schedule_notification_interval_seconds"]
@@ -583,6 +584,10 @@ def main():
  story_client=None
  if ENABLE_INSTAGRAM_STORY_WORKER:
   try:
+   if INSTAGRAM_STORY_LOGIN_ONLY:
+    login_story_client(supabase)
+    print("Instagram Story login verified; login-only run complete",flush=True)
+    return
    if INSTAGRAM_STORY_TEST_MODE:
     print("Instagram Story test mode; skipping daily plan and limiting this run to one job",flush=True)
     story_client=login_story_client(supabase)
