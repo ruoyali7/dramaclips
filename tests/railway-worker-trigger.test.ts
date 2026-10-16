@@ -99,13 +99,18 @@ describe("Railway worker trigger",()=>{
   it("uses the dedicated Story service",async()=>{
     configure();
     vi.stubEnv("RAILWAY_STORY_SERVICE_ID","story-service");
-    fetchMock.mockResolvedValueOnce(jsonResponse({data:{serviceInstanceRedeploy:true}}));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({data:{serviceInstance:{latestDeployment:{id:"story-deployment"}}}}))
+      .mockResolvedValueOnce(jsonResponse({data:{deploymentRestart:true}}));
 
-    await expect(triggerRailwayWorker("story")).resolves.toEqual({status:"restarted"});
+    await expect(triggerRailwayWorker("story")).resolves.toEqual({status:"restarted",deploymentId:"story-deployment"});
 
-    const body=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
-    expect(body.variables).toEqual({serviceId:"story-service",environmentId:"environment-id"});
-    expect(body.query).toContain("serviceInstanceRedeploy");
+    const serviceBody=JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const restartBody=JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(serviceBody.variables).toEqual({serviceId:"story-service",environmentId:"environment-id"});
+    expect(serviceBody.query).toContain("latestDeployment");
+    expect(restartBody.variables).toEqual({id:"story-deployment"});
+    expect(restartBody.query).toContain("deploymentRestart");
   });
 
   it("uses a dedicated Vizard service and falls back to the hook service",async()=>{

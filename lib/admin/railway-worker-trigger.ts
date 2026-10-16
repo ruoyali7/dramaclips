@@ -21,9 +21,13 @@ const RESTART_MUTATION = `
     deploymentRestart(id: $id)
   }
 `;
-const REDEPLOY_SERVICE_MUTATION = `
-  mutation RedeployService($serviceId: String!, $environmentId: String!) {
-    serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)
+const SERVICE_INSTANCE_QUERY = `
+  query ServiceInstance($serviceId: String!, $environmentId: String!) {
+    serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
+      latestDeployment {
+        id
+      }
+    }
   }
 `;
 const SAFE_FAILURE = "Railway worker trigger failed";
@@ -58,8 +62,12 @@ type RestartMutationData = {
   deploymentRestart?: boolean;
 };
 
-type RedeployServiceMutationData = {
-  serviceInstanceRedeploy?: boolean;
+type ServiceInstanceQueryData = {
+  serviceInstance?: {
+    latestDeployment?: {
+      id?: string;
+    } | null;
+  } | null;
 };
 
 export type RailwayWorkerTriggerResult =
@@ -108,12 +116,15 @@ export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<Rai
 
   try {
     if (kind === "story") {
-      const redeployData = await request<RedeployServiceMutationData>(config.token, REDEPLOY_SERVICE_MUTATION, {
+      const serviceData = await request<ServiceInstanceQueryData>(config.token, SERVICE_INSTANCE_QUERY, {
         serviceId: config.serviceId,
         environmentId: config.environmentId,
       });
-      if (redeployData.serviceInstanceRedeploy !== true) return { status: "failed", error: SAFE_FAILURE };
-      return { status: "restarted" };
+      const deploymentId = serviceData.serviceInstance?.latestDeployment?.id;
+      if (!deploymentId) return { status: "failed", error: "No valid deployment found" };
+      const restartData = await request<RestartMutationData>(config.token, RESTART_MUTATION, { id: deploymentId });
+      if (restartData.deploymentRestart !== true) return { status: "failed", error: SAFE_FAILURE };
+      return { status: "restarted", deploymentId };
     }
 
     const queryData = await request<DeploymentQueryData>(config.token, DEPLOYMENTS_QUERY, {
