@@ -15,11 +15,12 @@ function drawPoster(canvas:HTMLCanvasElement,image:HTMLImageElement,code:string)
   context.drawImage(image,(width-imageWidth)/2,(height-imageHeight)/2,imageWidth,imageHeight);
   const label=`CONTENT CODE · ${code}`;context.font="700 30px Arial, sans-serif";const labelWidth=context.measureText(label).width+48;
   context.fillStyle="rgba(0,0,0,.76)";context.fillRect(34,34,labelWidth,66);context.fillStyle="#fff";context.fillText(label,58,75);
-  context.save();context.shadowColor="rgba(0,0,0,.42)";context.shadowBlur=20;context.shadowOffsetY=9;context.beginPath();context.roundRect(230,960,620,125,28);context.fillStyle="#fff";context.fill();context.restore();
-  context.save();context.translate(298,1022);context.rotate(-Math.PI/4);context.lineWidth=8;context.lineCap="round";context.lineJoin="round";
+  const cta="TAP TO WATCH";context.font="700 52px 'Arial Narrow','Roboto Condensed',Arial,sans-serif";const buttonWidth=112+Math.ceil(context.measureText(cta).width)+24,buttonLeft=(width-buttonWidth)/2,buttonTop=970,buttonHeight=104,buttonCenterY=buttonTop+buttonHeight/2;
+  context.save();context.shadowColor="rgba(0,0,0,.42)";context.shadowBlur=20;context.shadowOffsetY=9;context.beginPath();context.roundRect(buttonLeft,buttonTop,buttonWidth,buttonHeight,28);context.fillStyle="#fff";context.fill();context.restore();
+  context.save();context.translate(buttonLeft+62,buttonCenterY);context.rotate(-Math.PI/4);context.lineWidth=8;context.lineCap="round";context.lineJoin="round";
   context.strokeStyle="#ff27ae";context.beginPath();context.roundRect(-42,-13,50,26,13);context.stroke();
   context.strokeStyle="#ff7e18";context.beginPath();context.roundRect(-8,-13,50,26,13);context.stroke();context.restore();
-  context.font="700 52px 'Arial Narrow','Roboto Condensed',Arial,sans-serif";context.fillStyle="#181818";context.textBaseline="middle";context.fillText("TAP TO WATCH",345,1022);context.textBaseline="alphabetic";
+  context.fillStyle="#181818";context.textBaseline="middle";context.fillText(cta,buttonLeft+112,buttonCenterY);context.textBaseline="alphabetic";
 }
 function loadImage(url:string){return new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.crossOrigin="anonymous";image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("The poster could not be loaded."));image.src=url;if(image.complete&&image.naturalWidth)resolve(image);});}
 function saveCanvas(canvas:HTMLCanvasElement,name:string){return new Promise<void>((resolve,reject)=>canvas.toBlob(blob=>{if(!blob){reject(new Error("The poster could not be generated."));return;}const url=URL.createObjectURL(blob),link=document.createElement("a");link.download=name;link.href=url;link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);resolve();},"image/jpeg",.94));}

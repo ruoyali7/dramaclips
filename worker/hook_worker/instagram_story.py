@@ -73,18 +73,21 @@ def render_poster(source_url, content_code, target):
         background = Image.alpha_composite(background.convert("RGBA"), shade).convert("RGB")
         background.paste(poster, (0, (1920 - height) // 2))
         background = background.convert("RGBA")
-        left, top, right, bottom = 230, 960, 850, 1085
+        cta = "TAP TO WATCH"
+        cta_font = _cta_font(52)
+        bounds = ImageDraw.Draw(background).textbbox((0, 0), cta, font=cta_font)
+        text_width = bounds[2] - bounds[0]
+        button_width = 112 + text_width + 24
+        left, top = round((1080 - button_width) / 2), 970
+        right, bottom = left + button_width, top + 104
         shadow = Image.new("RGBA", background.size, (0, 0, 0, 0))
         ImageDraw.Draw(shadow).rounded_rectangle((left + 5, top + 9, right + 5, bottom + 9), radius=28, fill=(0, 0, 0, 110))
         background = Image.alpha_composite(background, shadow.filter(ImageFilter.GaussianBlur(10)))
         draw = ImageDraw.Draw(background, "RGBA")
         draw.rounded_rectangle((left, top, right, bottom), radius=28, fill="white")
-        _draw_link_icon(background, 248, 972)
-        cta = "TAP TO WATCH"
-        cta_font = _cta_font(52)
-        bounds = draw.textbbox((0, 0), cta, font=cta_font)
+        _draw_link_icon(background, left + 12, top + 2)
         text_top = top + ((bottom - top) - (bounds[3] - bounds[1])) / 2 - bounds[1]
-        draw.text((345, text_top), cta, font=cta_font, fill=(24, 24, 24, 255))
+        draw.text((left + 112, text_top), cta, font=cta_font, fill=(24, 24, 24, 255))
         background.convert("RGB").save(target, "JPEG", quality=94, optimize=True)
     return target
 
@@ -162,7 +165,7 @@ def publish_story(job, supabase, client=None):
     try:
         story = client.photo_upload_to_story(
             poster,
-            links=[StoryLink(webUri=job["target_url"], x=0.5, y=0.532552, width=0.574074, height=0.065104)],
+            links=[StoryLink(webUri=job["target_url"], x=0.5, y=0.532292, width=0.48, height=0.054167)],
         )
     except Exception as error:
         raise StoryUploadStarted(str(error)) from error
