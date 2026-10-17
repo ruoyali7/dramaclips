@@ -54,6 +54,23 @@ describe("daily Instagram Story planning",()=>{
     expect(jobs).toHaveLength(5);
   });
 
+  it("uses every eligible current Post slot and applies the cooldown to current Posts too",async()=>{
+    const now=new Date("2026-10-14T18:00:00.000Z");
+    let created:Array<Record<string,unknown>>=[];
+    listInstagramStoryJobs.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {drama_slug:"drama-2",published_at:"2026-10-12T18:00:00.000Z"},
+    ]).mockImplementationOnce(async()=>created);
+    createInstagramStoryJobs.mockImplementation(async rows=>{created=rows;return rows;});
+    listVizardSources.mockResolvedValue(Array.from({length:8},(_,index)=>source(index+1)));
+    listPublishPackages.mockResolvedValue([1,2,3,4,5].map(index=>({dramaSlug:`drama-${index}`,scheduledAt:`2026-10-14T${12+index}:00:00.000Z`,platforms:[{source:"instagram"}]})));
+
+    const jobs=await createReconnectInstagramStoryPlan(now);
+
+    expect(jobs.map((job:{drama_slug:string})=>job.drama_slug)).toEqual(["drama-1","drama-3","drama-4","drama-5","drama-6"]);
+    expect(jobs.slice(0,4).every((job:{selection_source:string})=>job.selection_source==="daily_post")).toBe(true);
+    expect(jobs[4].selection_source).toBe("library");
+  });
+
   it("returns only scheduled jobs that are already due",async()=>{
     listInstagramStoryJobs.mockResolvedValue([{id:"due-job"}]);
     await expect(listDueInstagramStoryJobs(new Date("2026-10-14T20:00:00.000Z"))).resolves.toEqual([{id:"due-job"}]);

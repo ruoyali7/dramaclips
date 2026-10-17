@@ -8,7 +8,6 @@ import {pacificLocalToIso} from "@/lib/publish-slots";
 import {reelShortUrl} from "@/lib/instagram-story";
 
 export const DAILY_STORY_TARGET=5;
-export const DAILY_POST_STORY_TARGET=3;
 export const STORY_FIRST_DELAY_MS=10*60*1000;
 export const STORY_INTERVAL_MS=2*60*60*1000;
 const STORY_COOLDOWN_MS=7*24*60*60*1000;
@@ -37,7 +36,7 @@ export async function createReconnectInstagramStoryPlan(now=new Date()){
   const dailyPostSlugs=Array.from(new Set(packages
     .filter(item=>item.scheduledAt&&new Date(item.scheduledAt).getTime()>=dayStart&&new Date(item.scheduledAt).getTime()<dayEnd&&item.platforms.some(platform=>platform.source==="instagram"))
     .sort((a,b)=>(a.scheduledAt||"").localeCompare(b.scheduledAt||""))
-    .map(item=>item.dramaSlug))).filter(slug=>bySlug.has(slug)).slice(0,DAILY_POST_STORY_TARGET);
+    .map(item=>item.dramaSlug))).filter(slug=>bySlug.has(slug));
 
   const lastPublished=new Map<string,number>();
   for(const job of history){
@@ -45,8 +44,11 @@ export async function createReconnectInstagramStoryPlan(now=new Date()){
     const published=new Date(job.published_at).getTime();
     lastPublished.set(job.drama_slug,Math.max(lastPublished.get(job.drama_slug)||0,published));
   }
+  const eligibleDailyPostSlugs=dailyPostSlugs
+    .filter(slug=>now.getTime()-(lastPublished.get(slug)||0)>=STORY_COOLDOWN_MS)
+    .slice(0,DAILY_STORY_TARGET);
   const selected=new Set(existing.map(job=>job.drama_slug));
-  const availableDailyPostSlugs=dailyPostSlugs.filter(slug=>!selected.has(slug));
+  const availableDailyPostSlugs=eligibleDailyPostSlugs.filter(slug=>!selected.has(slug));
   availableDailyPostSlugs.forEach(slug=>selected.add(slug));
   const library=eligible.filter(source=>!selected.has(source.slug)&&(now.getTime()-(lastPublished.get(source.slug)||0)>=STORY_COOLDOWN_MS))
     .sort((a,b)=>(lastPublished.get(a.slug)||0)-(lastPublished.get(b.slug)||0)||a.slug.localeCompare(b.slug));
