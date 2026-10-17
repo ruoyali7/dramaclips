@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import requests
 
-from .instagram_story import StoryUploadStarted, _session, login_story_client, publish_story
+from .instagram_story import StoryUploadStarted, _session, _session_id, login_story_client, publish_story
 
 
 WORKER_ID = f"story-local-{socket.gethostname()}"
@@ -139,8 +139,22 @@ def login():
     try:
         client.login(username, password)
     except TwoFactorRequired:
-        code = input("Instagram verification code: ").strip()
-        client.login(username, password, verification_code=code)
+        for attempt in range(3):
+            code = input(
+                "Instagram 2FA code (6-digit authenticator/SMS/WhatsApp or 8-digit backup code): "
+            ).strip()
+            if not code:
+                print("A verification code is required; the Instagram Allow prompt is not the code.")
+                continue
+            try:
+                client.login(username, password, verification_code=code)
+                break
+            except TwoFactorRequired:
+                if attempt == 2:
+                    raise
+                print("That code was not accepted or expired. Generate a new code and try again.")
+        else:
+            raise RuntimeError("Instagram verification code was not provided")
     except ChallengeRequired:
         input("Approve the login in the official Instagram app, then press Return here: ")
         client.challenge_bloks_redirect_dismiss()
@@ -150,6 +164,24 @@ def login():
     print("Instagram device session saved. The local Story agent is ready.")
 
 
+def bootstrap_session_id():
+    from instagrapi import Client
+
+    session_id = _session_id(supabase)
+    if not session_id:
+        raise RuntimeError("No Instagram browser sessionid is saved")
+    client = Client()
+    client.login_by_sessionid(session_id)
+    client.get_timeline_feed()
+    supabase("rpc/save_instagram_story_session", method="POST", payload={"p_session": client.get_settings()})
+    AUTH_BLOCK.unlink(missing_ok=True)
+    print("Instagram browser session converted to a device session. The local Story agent is ready.")
+
+
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else "run"
-    raise SystemExit(login() if command == "login" else run_once())
+    if command == "login":
+        raise SystemExit(login())
+    if command == "bootstrap-session-id":
+        raise SystemExit(bootstrap_session_id())
+    raise SystemExit(run_once())
