@@ -6,6 +6,7 @@ import {useEffect,useMemo,useRef,useState} from "react";
 type PosterSource={id:string;title:string;slug:string;contentCode:string;coverUrl:string;sourceCoverUrl:string;description:string;tags:string[];contentPromotionUrl:string};
 type StoryJob={id:string;drama_slug:string;drama_title:string;selection_source:"daily_post"|"library"|"manual";status:string;scheduled_at:string;published_at?:string;story_result?:Record<string,unknown>;error?:string};
 type InstagramConnection={sessionIdConfigured:boolean;settingsConfigured:boolean};
+type ReconnectAttempt={id:string;status:"requested"|"connecting"|"waiting_for_approval"|"connected"|"failed"|"expired";error?:string};
 
 function drawPoster(canvas:HTMLCanvasElement,image:HTMLImageElement,code:string){
   const width=1080,height=1920;canvas.width=width;canvas.height=height;
@@ -35,9 +36,11 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const [extensionReady,setExtensionReady]=useState(false);
   const [connection,setConnection]=useState<InstagramConnection|null>(null);
   const [connecting,setConnecting]=useState(false);
+  const [reconnectAttempt,setReconnectAttempt]=useState<ReconnectAttempt|null>(null);
   const [message,setMessage]=useState<{kind:"success"|"error";text:string}|null>(null);
   const [previewError,setPreviewError]=useState("");
   const canvasRef=useRef<HTMLCanvasElement>(null);
+  const leftForApproval=useRef(false);
   const source=sources.find(item=>item.id===sourceId)||sources[0];
   const visibleSources=useMemo(()=>sources.filter(item=>`${item.title} ${item.contentCode}`.toLowerCase().includes(query.trim().toLowerCase())),[sources,query]);
   const published=jobs.filter(job=>job.status==="published").length;
@@ -48,6 +51,18 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   async function refreshStories(){try{const response=await fetch("/api/admin/instagram-stories");if(!response.ok)throw new Error();const result=await response.json();setJobs((result.jobs||[]).sort((a:StoryJob,b:StoryJob)=>a.scheduled_at.localeCompare(b.scheduled_at)));}catch{}finally{setLoadingJobs(false)}}
   async function refreshConnection(){try{const response=await fetch("/api/admin/instagram-session");if(!response.ok)throw new Error();const result=await response.json();setConnection(result.connection);}catch{setConnection(null)}}
   useEffect(()=>{void refreshStories();const timer=window.setInterval(()=>void refreshStories(),15000);return()=>window.clearInterval(timer)},[]);
+  useEffect(()=>{
+    if(!reconnectAttempt||!["requested","connecting","waiting_for_approval"].includes(reconnectAttempt.status))return;
+    const timer=window.setInterval(async()=>{try{const response=await fetch(`/api/admin/instagram-reconnect?id=${encodeURIComponent(reconnectAttempt.id)}`);if(!response.ok)return;const result=await response.json();setReconnectAttempt(result.attempt);if(result.attempt.status==="connected"){setConnecting(false);setMessage({kind:"success",text:"Instagram connected. Today’s five Stories are scheduled."});void refreshConnection();void refreshStories();}else if(result.attempt.status==="failed"||result.attempt.status==="expired"){setConnecting(false);setMessage({kind:"error",text:result.attempt.error||"Instagram reconnect did not complete."});}}catch{}},2000);
+    return()=>window.clearInterval(timer);
+  },[reconnectAttempt?.id,reconnectAttempt?.status]);
+  useEffect(()=>{
+    function visibilityChanged(){
+      if(document.visibilityState==="hidden"&&reconnectAttempt&&["requested","connecting","waiting_for_approval"].includes(reconnectAttempt.status))leftForApproval.current=true;
+      if(document.visibilityState==="visible"&&leftForApproval.current&&reconnectAttempt?.status==="waiting_for_approval"){leftForApproval.current=false;void confirmMobileApproval();}
+    }
+    document.addEventListener("visibilitychange",visibilityChanged);return()=>document.removeEventListener("visibilitychange",visibilityChanged);
+  },[reconnectAttempt?.id,reconnectAttempt?.status]);
   useEffect(()=>{
     function receiveExtensionMessage(event:MessageEvent){
       if(event.source!==window||event.origin!==window.location.origin||event.data?.source!=="dramaclips-rs-extension")return;
@@ -69,6 +84,8 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   async function downloadCurrent(){if(!source||!canvasRef.current)return;setMessage(null);try{await saveCanvas(canvasRef.current,`${source.slug}-story.jpg`);setMessage({kind:"success",text:`${source.title} Story poster downloaded.`});}catch(error){setMessage({kind:"error",text:error instanceof Error?error.message:"The poster could not be downloaded."});}}
   function openInstagramLogin(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}window.postMessage({source:"dramaclips",type:"INSTAGRAM_LOGIN_OPEN_REQUEST"},window.location.origin)}
   function connectInstagram(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}setConnecting(true);window.postMessage({source:"dramaclips",type:"INSTAGRAM_SESSION_CONNECT_REQUEST"},window.location.origin)}
+  async function startMobileReconnect(){setMessage(null);setConnecting(true);try{const response=await fetch("/api/admin/instagram-reconnect",{method:"POST"});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not start Instagram reconnect.");setReconnectAttempt(result.attempt);setMessage({kind:"success",text:"Login started. Approve the Instagram alert when it appears."});}catch(error){setConnecting(false);setMessage({kind:"error",text:error instanceof Error?error.message:"Could not start Instagram reconnect."});}}
+  async function confirmMobileApproval(){if(!reconnectAttempt)return;try{const response=await fetch("/api/admin/instagram-reconnect",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:reconnectAttempt.id,approved:true})});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not continue Instagram reconnect.");setReconnectAttempt(result.attempt);setMessage({kind:"success",text:"Approval confirmed. Finishing Instagram reconnect…"});}catch(error){setMessage({kind:"error",text:error instanceof Error?error.message:"Could not continue Instagram reconnect."});}}
 
   if(!sources.length)return <section className="poster-empty"><h2>No published dramas</h2><p>Publish a drama before adding it to Story rotation.</p></section>;
   return <section className="poster-publisher" aria-labelledby="poster-publisher-title">
@@ -83,9 +100,9 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
 
     <section className="instagram-connection">
       <div className="instagram-connection-icon"><Instagram/></div>
-      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{connection?.settingsConfigured?"Connected":connection?.sessionIdConfigured?"Session saved · verification pending":"Reconnect to schedule today’s Stories"}</h3><p>Reconnect after Instagram approves the login. That moment starts today’s five-Story schedule; DramaClips never receives your password.</p></div>
-      <div className="instagram-connection-state"><ShieldCheck/><span><b>{extensionReady?"Extension ready":"Extension update required"}</b><small>{connection?.settingsConfigured?"Worker session ready":connection?.sessionIdConfigured?"Ready for worker verification":"No Instagram session saved"}</small></span></div>
-      <div className="instagram-connection-actions"><button type="button" onClick={openInstagramLogin} disabled={!extensionReady}>Open Instagram login</button><button type="button" onClick={connectInstagram} disabled={!extensionReady||connecting}>{connecting?"Connecting…":connection?.sessionIdConfigured||connection?.settingsConfigured?"Reconnect signed-in account":"Connect signed-in account"}</button></div>
+      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{reconnectAttempt?.status==="waiting_for_approval"?"Approve the login in Instagram":reconnectAttempt?.status==="connecting"||reconnectAttempt?.status==="requested"?"Starting Instagram login…":connection?.settingsConfigured?"Session ready":"Reconnect to schedule today’s Stories"}</h3><p>Start here on iPhone, approve the Instagram alert, then return to this page. Today’s schedule is created only after login succeeds.</p></div>
+      <div className="instagram-connection-state"><ShieldCheck/><span><b>{reconnectAttempt?.status==="waiting_for_approval"?"Waiting for Allow":reconnectAttempt?.status==="connected"?"Approved":"Mobile reconnect"}</b><small>{reconnectAttempt?.status==="waiting_for_approval"?"Return here after approving":connection?.settingsConfigured?"Worker session saved":"No morning login until you start"}</small></span></div>
+      <div className="instagram-connection-actions"><button type="button" onClick={()=>void startMobileReconnect()} disabled={connecting}>{connecting?"Connecting…":"Start today’s reconnect"}</button>{reconnectAttempt?.status==="waiting_for_approval"&&<button type="button" onClick={()=>void confirmMobileApproval()}>I approved · continue</button>}{extensionReady&&<button type="button" onClick={connectInstagram} disabled={connecting}>Use browser session</button>}{extensionReady&&<button type="button" onClick={openInstagramLogin}>Open Instagram login</button>}</div>
     </section>
 
     <section className="story-today">

@@ -59,6 +59,31 @@ class InstagramStoryTests(unittest.TestCase):
         self.assertEqual(result, "vault-session")
         supabase.assert_called_once_with("rpc/get_instagram_story_session_id", method="POST", payload={})
 
+    def test_login_resumes_after_mobile_approval(self):
+        class TwoFactorRequired(RuntimeError):
+            pass
+        class ChallengeRequired(RuntimeError):
+            pass
+        client = MagicMock()
+        client.login.side_effect = [TwoFactorRequired("approval required"), True]
+        client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}
+        instagrapi = SimpleNamespace(Client=MagicMock(return_value=client))
+        exceptions = SimpleNamespace(TwoFactorRequired=TwoFactorRequired, ChallengeRequired=ChallengeRequired)
+        supabase = MagicMock()
+        waiter = MagicMock()
+
+        with (
+            patch.dict(os.environ, {"INSTAGRAM_USERNAME": "account", "INSTAGRAM_PASSWORD": "secret"}, clear=False),
+            patch.dict(sys.modules, {"instagrapi": instagrapi, "instagrapi.exceptions": exceptions}),
+            patch.object(story_module, "_session", return_value={"authorization_data": {"ds_user_id": "1"}}),
+        ):
+            result = story_module.login_story_client(supabase, approval_waiter=waiter)
+
+        self.assertIs(result, client)
+        waiter.assert_called_once()
+        self.assertEqual(client.login.call_count, 2)
+        self.assertEqual(supabase.call_args.kwargs["payload"]["p_session"], client.get_settings.return_value)
+
     def test_publish_attaches_reelshort_link_and_saves_session(self):
         client = MagicMock()
         client.get_settings.return_value = {"authorization_data": {"ds_user_id": "1"}}

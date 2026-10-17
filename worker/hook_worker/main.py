@@ -97,17 +97,31 @@ def lease(path,payload):
   "/api/internal/publish-worker/lease":"lease_yixiaoer_publish_job",
   "/api/internal/vizard-worker/lease":"lease_vizard_submission_job",
   "/api/internal/instagram-story-worker/lease":"lease_instagram_story_job",
+  "/api/internal/instagram-story-worker/reconnect/lease":"lease_instagram_story_reconnect",
  }.get(path)
  if not (rpc and SUPABASE_URL and SUPABASE_KEY):return call(path,payload)
  params={"p_worker_id":payload["workerId"],"p_lease_seconds":payload["leaseSeconds"]}
  rows=supabase(f"rpc/{rpc}",method="POST",payload=params)
  row=rows[0] if rows else None
  if row and rpc=="lease_yixiaoer_publish_job":row=hydrate_publish_job(row)
- elif row and rpc not in ("lease_vizard_submission_job","lease_instagram_story_job"):row=camelize_row(row)
+ elif row and rpc not in ("lease_vizard_submission_job","lease_instagram_story_job","lease_instagram_story_reconnect"):row=camelize_row(row)
  return {"job":row}
 def update_instagram_story(job,status,result=None,error=None):
  rows=supabase("rpc/update_instagram_story_job",method="POST",payload={"p_id":job["id"],"p_worker_id":WORKER,"p_status":status,"p_result":result,"p_error":error})
  if not rows:raise RuntimeError("Instagram Story lease was lost before the result could be saved")
+def update_instagram_reconnect(attempt,status,error=None):
+ rows=supabase("rpc/update_instagram_story_reconnect",method="POST",payload={"p_id":attempt["id"],"p_worker_id":WORKER,"p_status":status,"p_error":error})
+ if not rows:raise RuntimeError("Instagram reconnect lease was lost")
+def wait_for_instagram_approval(attempt,error,timeout_seconds=180):
+ update_instagram_reconnect(attempt,"waiting_for_approval")
+ print(f"Instagram approval required; attempt={attempt['id']} reason={type(error).__name__}",flush=True)
+ deadline=time.time()+timeout_seconds
+ identity=quote(str(attempt["id"]),safe="")
+ while time.time()<deadline:
+  rows=supabase(f"instagram_story_reconnect_attempts?id=eq.{identity}&approval_confirmed_at=not.is.null&select=id&limit=1") or []
+  if rows:return
+  time.sleep(3)
+ raise RuntimeError("Instagram approval was not confirmed within 3 minutes")
 def run_vizard_submission(job):
  settings=job.get("settings") or {}; key=os.environ.get("VIZARD_API_KEY","").strip()
  if not key: raise RuntimeError("VIZARD_API_KEY is not configured")
@@ -584,6 +598,17 @@ def main():
  story_client=None
  if ENABLE_INSTAGRAM_STORY_WORKER:
   try:
+   reconnect_attempt=lease("/api/internal/instagram-story-worker/reconnect/lease",{"workerId":WORKER,"leaseSeconds":240}).get("job")
+   if reconnect_attempt:
+    try:
+     login_story_client(supabase,approval_waiter=lambda error:wait_for_instagram_approval(reconnect_attempt,error))
+     call("/api/internal/instagram-story-worker/reconnect-complete",{"attemptId":reconnect_attempt["id"]})
+     update_instagram_reconnect(reconnect_attempt,"connected")
+     print("Instagram reconnect completed; today's Story plan is ready",flush=True)
+    except Exception as error:
+     update_instagram_reconnect(reconnect_attempt,"failed",str(error)[:900])
+     raise
+    return
    if INSTAGRAM_STORY_LOGIN_ONLY:
     login_story_client(supabase)
     print("Instagram Story login verified; login-only run complete",flush=True)

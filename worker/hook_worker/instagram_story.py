@@ -131,25 +131,38 @@ def _link_matches(expected, actual):
     return set(parse_qsl(expected_url.query)).issubset(set(parse_qsl(actual_url.query)))
 
 
-def login_story_client(supabase):
+def login_story_client(supabase, approval_waiter=None):
     from instagrapi import Client
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
     client = Client()
     session = _session(supabase)
-    if session:
-        client.set_settings(session)
-        if username and password:
+    try:
+        if session:
+            client.set_settings(session)
+            if username and password:
+                client.login(username, password)
+            else:
+                client.get_timeline_feed()
+        elif session_id := _session_id(supabase):
+            client.login_by_sessionid(session_id)
+        elif username and password:
             client.login(username, password)
         else:
-            client.get_timeline_feed()
-    elif session_id := _session_id(supabase):
-        client.login_by_sessionid(session_id)
-    elif username and password:
+            raise RuntimeError("Connect Instagram in Poster Publisher before starting the Story worker")
+    except Exception as error:
+        if approval_waiter is None:
+            raise
+        from instagrapi.exceptions import ChallengeRequired, TwoFactorRequired
+        if not isinstance(error, (ChallengeRequired, TwoFactorRequired)):
+            raise
+        if not username or not password:
+            raise RuntimeError("Instagram credentials are required to resume an approved login") from error
+        approval_waiter(error)
+        if isinstance(error, ChallengeRequired) and hasattr(client, "challenge_bloks_redirect_dismiss"):
+            client.challenge_bloks_redirect_dismiss()
         client.login(username, password)
-    else:
-        raise RuntimeError("Connect Instagram in Poster Publisher before starting the Story worker")
     supabase("rpc/save_instagram_story_session", method="POST", payload={"p_session": client.get_settings()})
     return client
 

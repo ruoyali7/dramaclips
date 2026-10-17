@@ -82,17 +82,17 @@ class OneshotWorkerTests(unittest.TestCase):
             patch.object(main, "login_story_client", return_value=client),
             patch.object(main, "sync_yixiaoer_accounts"),
             patch.object(main, "process_schedule_tail_notification", return_value=False),
-            patch.object(main, "lease", return_value={"job": story}) as lease,
+            patch.object(main, "lease", side_effect=[{"job": None},{"job": story}]) as lease,
             patch.object(main, "publish_story", return_value={"storyPk": "123"}) as publish,
             patch.object(main, "update_instagram_story") as update,
             patch.object(main, "cleanup_worker_temps"),
         ):
             main.main()
 
-        lease.assert_called_once_with(
-            "/api/internal/instagram-story-worker/lease",
-            {"workerId": main.WORKER, "leaseSeconds": 300},
-        )
+        lease.assert_has_calls([
+            unittest.mock.call("/api/internal/instagram-story-worker/reconnect/lease",{"workerId":main.WORKER,"leaseSeconds":240}),
+            unittest.mock.call("/api/internal/instagram-story-worker/lease",{"workerId":main.WORKER,"leaseSeconds":300}),
+        ])
         publish.assert_called_once_with(story, main.supabase, client)
         update.assert_called_once_with(story, "published", result={"storyPk": "123"})
 
@@ -102,15 +102,33 @@ class OneshotWorkerTests(unittest.TestCase):
             patch.object(main, "ENABLE_INSTAGRAM_STORY_WORKER", True),
             patch.object(main, "INSTAGRAM_STORY_LOGIN_ONLY", True),
             patch.object(main, "login_story_client", return_value=client) as login,
-            patch.object(main, "lease") as lease,
+            patch.object(main, "lease", return_value={"job": None}) as lease,
             patch.object(main, "publish_story") as publish,
             patch.object(main, "cleanup_worker_temps"),
         ):
             main.main()
 
         login.assert_called_once_with(main.supabase)
-        lease.assert_not_called()
+        lease.assert_called_once_with("/api/internal/instagram-story-worker/reconnect/lease",{"workerId":main.WORKER,"leaseSeconds":240})
         publish.assert_not_called()
+
+    def test_mobile_reconnect_waits_for_approval_then_creates_plan(self):
+        attempt = {"id": "attempt-1"}
+        with (
+            patch.object(main, "ENABLE_INSTAGRAM_STORY_WORKER", True),
+            patch.object(main, "INSTAGRAM_STORY_LOGIN_ONLY", False),
+            patch.object(main, "lease", return_value={"job": attempt}) as lease,
+            patch.object(main, "login_story_client", return_value=object()) as login,
+            patch.object(main, "call", return_value={"count": 5}) as call,
+            patch.object(main, "update_instagram_reconnect") as update,
+            patch.object(main, "cleanup_worker_temps"),
+        ):
+            main.main()
+
+        lease.assert_called_once_with("/api/internal/instagram-story-worker/reconnect/lease",{"workerId":main.WORKER,"leaseSeconds":240})
+        self.assertIsNotNone(login.call_args.kwargs.get("approval_waiter"))
+        call.assert_called_once_with("/api/internal/instagram-story-worker/reconnect-complete",{"attemptId":"attempt-1"})
+        update.assert_called_once_with(attempt,"connected")
 
     def test_vizard_batch_drains_jobs_with_rate_limit_gap(self):
         with (
