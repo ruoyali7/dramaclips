@@ -33,14 +33,13 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const [query,setQuery]=useState("");
   const [jobs,setJobs]=useState<StoryJob[]>([]);
   const [loadingJobs,setLoadingJobs]=useState(true);
-  const [extensionReady,setExtensionReady]=useState(false);
   const [connection,setConnection]=useState<InstagramConnection|null>(null);
   const [connecting,setConnecting]=useState(false);
   const [reconnectAttempt,setReconnectAttempt]=useState<ReconnectAttempt|null>(null);
   const [message,setMessage]=useState<{kind:"success"|"error";text:string}|null>(null);
   const [previewError,setPreviewError]=useState("");
   const canvasRef=useRef<HTMLCanvasElement>(null);
-  const leftForApproval=useRef(false);
+  const completedAttempt=useRef("");
   const source=sources.find(item=>item.id===sourceId)||sources[0];
   const visibleSources=useMemo(()=>sources.filter(item=>`${item.title} ${item.contentCode}`.toLowerCase().includes(query.trim().toLowerCase())),[sources,query]);
   const published=jobs.filter(job=>job.status==="published").length;
@@ -50,64 +49,44 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
 
   async function refreshStories(){try{const response=await fetch("/api/admin/instagram-stories");if(!response.ok)throw new Error();const result=await response.json();setJobs((result.jobs||[]).sort((a:StoryJob,b:StoryJob)=>a.scheduled_at.localeCompare(b.scheduled_at)));}catch{}finally{setLoadingJobs(false)}}
   async function refreshConnection(){try{const response=await fetch("/api/admin/instagram-session");if(!response.ok)throw new Error();const result=await response.json();setConnection(result.connection);}catch{setConnection(null)}}
+  async function completeLocalRequest(id:string){
+    if(completedAttempt.current===id)return;completedAttempt.current=id;
+    try{const response=await fetch("/api/admin/instagram-reconnect/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not schedule today’s Stories.");setConnecting(false);setMessage({kind:"success",text:`Home Mac verified Instagram. ${result.count} Stories are scheduled.`});void refreshConnection();void refreshStories();}
+    catch(error){completedAttempt.current="";setConnecting(false);setMessage({kind:"error",text:error instanceof Error?error.message:"Could not schedule today’s Stories."});}
+  }
   useEffect(()=>{void refreshStories();const timer=window.setInterval(()=>void refreshStories(),15000);return()=>window.clearInterval(timer)},[]);
   useEffect(()=>{
     if(!reconnectAttempt||!["requested","connecting","waiting_for_approval"].includes(reconnectAttempt.status))return;
-    const timer=window.setInterval(async()=>{try{const response=await fetch(`/api/admin/instagram-reconnect?id=${encodeURIComponent(reconnectAttempt.id)}`);if(!response.ok)return;const result=await response.json();setReconnectAttempt(result.attempt);if(result.attempt.status==="connected"){setConnecting(false);setMessage({kind:"success",text:"Instagram connected. Today’s five Stories are scheduled."});void refreshConnection();void refreshStories();}else if(result.attempt.status==="failed"||result.attempt.status==="expired"){setConnecting(false);setMessage({kind:"error",text:result.attempt.error||"Instagram reconnect did not complete."});}}catch{}},2000);
+    const timer=window.setInterval(async()=>{try{const response=await fetch(`/api/admin/instagram-reconnect?id=${encodeURIComponent(reconnectAttempt.id)}`);if(!response.ok)return;const result=await response.json();setReconnectAttempt(result.attempt);if(result.attempt.status==="connected")void completeLocalRequest(result.attempt.id);else if(result.attempt.status==="failed"||result.attempt.status==="expired"){setConnecting(false);setMessage({kind:"error",text:result.attempt.error||"The home Mac could not verify Instagram."});}}catch{}},2000);
     return()=>window.clearInterval(timer);
   },[reconnectAttempt?.id,reconnectAttempt?.status]);
-  useEffect(()=>{
-    function visibilityChanged(){
-      if(document.visibilityState==="hidden"&&reconnectAttempt&&["requested","connecting","waiting_for_approval"].includes(reconnectAttempt.status))leftForApproval.current=true;
-      if(document.visibilityState==="visible"&&leftForApproval.current&&reconnectAttempt?.status==="waiting_for_approval"){leftForApproval.current=false;void confirmMobileApproval();}
-    }
-    document.addEventListener("visibilitychange",visibilityChanged);return()=>document.removeEventListener("visibilitychange",visibilityChanged);
-  },[reconnectAttempt?.id,reconnectAttempt?.status]);
-  useEffect(()=>{
-    function receiveExtensionMessage(event:MessageEvent){
-      if(event.source!==window||event.origin!==window.location.origin||event.data?.source!=="dramaclips-rs-extension")return;
-      if(event.data.type==="RS_EXTENSION_READY")setExtensionReady(true);
-      if(event.data.type==="INSTAGRAM_LOGIN_OPEN_RESULT"&&!event.data.ok)setMessage({kind:"error",text:event.data.message||"Could not open Instagram login."});
-      if(event.data.type==="INSTAGRAM_SESSION_CONNECT_RESULT"){
-        setConnecting(false);
-        if(event.data.ok){void refreshConnection();void refreshStories();setMessage({kind:"success",text:"Instagram reconnected. Five Stories are now scheduled from this time."});}
-        else setMessage({kind:"error",text:event.data.message||"Could not connect Instagram."});
-      }
-    }
-    window.addEventListener("message",receiveExtensionMessage);
-    window.postMessage({source:"dramaclips",type:"RS_EXTENSION_PING"},window.location.origin);
-    void refreshConnection();
-    return()=>window.removeEventListener("message",receiveExtensionMessage);
-  },[]);
+  useEffect(()=>{void refreshConnection()},[]);
   useEffect(()=>{if(!source||!canvasRef.current)return;let active=true;setPreviewError("");void loadImage(source.coverUrl).then(image=>{if(active&&canvasRef.current)drawPoster(canvasRef.current,image,source.contentCode)}).catch(error=>{if(active)setPreviewError(error instanceof Error?error.message:"The poster could not be loaded.")});return()=>{active=false}},[source]);
 
   async function downloadCurrent(){if(!source||!canvasRef.current)return;setMessage(null);try{await saveCanvas(canvasRef.current,`${source.slug}-story.jpg`);setMessage({kind:"success",text:`${source.title} Story poster downloaded.`});}catch(error){setMessage({kind:"error",text:error instanceof Error?error.message:"The poster could not be downloaded."});}}
-  function openInstagramLogin(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}window.postMessage({source:"dramaclips",type:"INSTAGRAM_LOGIN_OPEN_REQUEST"},window.location.origin)}
-  function connectInstagram(){setMessage(null);if(!extensionReady){setMessage({kind:"error",text:"Reload version 1.2.0 of the DramaClips RS Importer extension first."});return;}setConnecting(true);window.postMessage({source:"dramaclips",type:"INSTAGRAM_SESSION_CONNECT_REQUEST"},window.location.origin)}
-  async function startMobileReconnect(){setMessage(null);setConnecting(true);try{const response=await fetch("/api/admin/instagram-reconnect",{method:"POST"});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not start Instagram reconnect.");setReconnectAttempt(result.attempt);setMessage({kind:"success",text:"Login started. Approve the Instagram alert when it appears."});}catch(error){setConnecting(false);setMessage({kind:"error",text:error instanceof Error?error.message:"Could not start Instagram reconnect."});}}
-  async function confirmMobileApproval(){if(!reconnectAttempt)return;try{const response=await fetch("/api/admin/instagram-reconnect",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:reconnectAttempt.id,approved:true})});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not continue Instagram reconnect.");setReconnectAttempt(result.attempt);setMessage({kind:"success",text:"Approval confirmed. Finishing Instagram reconnect…"});}catch(error){setMessage({kind:"error",text:error instanceof Error?error.message:"Could not continue Instagram reconnect."});}}
+  async function startLocalStories(){setMessage(null);setConnecting(true);completedAttempt.current="";try{const response=await fetch("/api/admin/instagram-reconnect",{method:"POST"});const result=await response.json();if(!response.ok)throw new Error(result.message||"Could not reach the home Mac Story agent.");setReconnectAttempt(result.attempt);setMessage({kind:"success",text:"Request queued. Keep the home Mac awake while it verifies the saved Instagram session."});}catch(error){setConnecting(false);setMessage({kind:"error",text:error instanceof Error?error.message:"Could not reach the home Mac Story agent."});}}
 
   if(!sources.length)return <section className="poster-empty"><h2>No published dramas</h2><p>Publish a drama before adding it to Story rotation.</p></section>;
   return <section className="poster-publisher" aria-labelledby="poster-publisher-title">
-    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>Reconnect each day to schedule five Stories · today’s Posts first, then library</p></div><div className="story-auto-badge"><i/><span><b>Reconnect to start</b><small>5 Stories / day</small></span></div></header>
+    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>Start from iPhone · publish through your home Mac and home network</p></div><div className="story-auto-badge"><i/><span><b>Home Mac agent</b><small>5 Stories / day</small></span></div></header>
 
     <section className="story-overview">
       <div><small>Today</small><b>{published}<em>/ {plannedTotal} published</em></b></div>
-      <div><small>Timing</small><b>Spaced<em>10 min after reconnect · every 2 hours</em></b></div>
+      <div><small>Timing</small><b>Spaced<em>10 min after start · every 2 hours</em></b></div>
       <div><small>Rotation</small><b>Current first<em>then 7-day library rotation</em></b></div>
-      <div><small>Next action</small><b>{nextJob?"Queued":"Reconnect"}<em>{nextJob?"Railway Story worker":"to create today’s plan"}</em></b></div>
+      <div><small>Next action</small><b>{nextJob?"Queued":"Start"}<em>{nextJob?"Home Mac Story agent":"today’s Story rotation"}</em></b></div>
     </section>
 
     <section className="instagram-connection">
       <div className="instagram-connection-icon"><Instagram/></div>
-      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{reconnectAttempt?.status==="waiting_for_approval"?"Approve the login in Instagram":reconnectAttempt?.status==="connecting"||reconnectAttempt?.status==="requested"?"Starting Instagram login…":connection?.settingsConfigured?"Session ready":"Reconnect to schedule today’s Stories"}</h3><p>Start here on iPhone, approve the Instagram alert, then return to this page. Today’s schedule is created only after login succeeds.</p></div>
-      <div className="instagram-connection-state"><ShieldCheck/><span><b>{reconnectAttempt?.status==="waiting_for_approval"?"Waiting for Allow":reconnectAttempt?.status==="connected"?"Approved":"Mobile reconnect"}</b><small>{reconnectAttempt?.status==="waiting_for_approval"?"Return here after approving":connection?.settingsConfigured?"Worker session saved":"No morning login until you start"}</small></span></div>
-      <div className="instagram-connection-actions"><button type="button" onClick={()=>void startMobileReconnect()} disabled={connecting}>{connecting?"Connecting…":"Start today’s reconnect"}</button>{reconnectAttempt?.status==="waiting_for_approval"&&<button type="button" onClick={()=>void confirmMobileApproval()}>I approved · continue</button>}{extensionReady&&<button type="button" onClick={connectInstagram} disabled={connecting}>Use browser session</button>}{extensionReady&&<button type="button" onClick={openInstagramLogin}>Open Instagram login</button>}</div>
+      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{reconnectAttempt?.status==="connecting"||reconnectAttempt?.status==="requested"?"Waiting for your home Mac…":connection?.settingsConfigured?"Device session saved":"Local verification required"}</h3><p>Your Mac validates one persistent device session over your home network. No browser cookie and no daily password login.</p></div>
+      <div className="instagram-connection-state"><ShieldCheck/><span><b>{reconnectAttempt?.status==="connected"?"Mac verified":"Local runner"}</b><small>{connection?.settingsConfigured?"Full device session saved":"Run one-time login on the Mac"}</small></span></div>
+      <div className="instagram-connection-actions"><button type="button" onClick={()=>void startLocalStories()} disabled={connecting}>{connecting?"Waiting for Mac…":"Start today’s Stories"}</button></div>
     </section>
 
     <section className="story-today">
       <div className="story-section-title"><div><span>Today’s batch</span><h3>Instagram Stories</h3></div><button type="button" onClick={()=>void refreshStories()}><RefreshCw/>Refresh</button></div>
-      {jobs.length?<div className="story-job-grid">{jobs.map((job,index)=><article key={job.id} className={`story-job ${job.status}`}><span>{String(index+1).padStart(2,"0")}</span><div><b>{job.drama_title}</b><small>{job.selection_source==="daily_post"?"Today’s Post":"Library rotation"}</small></div><time>{new Date(job.scheduled_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</time><em>{storyStatus(job)}</em>{job.error&&<p>{job.error}</p>}</article>)}</div>:<div className="story-empty-plan"><Clock3/><div><b>{loadingJobs?"Loading today’s plan…":"Reconnect to create today’s plan"}</b><p>After reconnecting, the first Story is scheduled in 10 minutes and the other four follow every two hours.</p></div></div>}
+      {jobs.length?<div className="story-job-grid">{jobs.map((job,index)=><article key={job.id} className={`story-job ${job.status}`}><span>{String(index+1).padStart(2,"0")}</span><div><b>{job.drama_title}</b><small>{job.selection_source==="daily_post"?"Today’s Post":"Library rotation"}</small></div><time>{new Date(job.scheduled_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</time><em>{storyStatus(job)}</em>{job.error&&<p>{job.error}</p>}</article>)}</div>:<div className="story-empty-plan"><Clock3/><div><b>{loadingJobs?"Loading today’s plan…":"Start today’s Story rotation"}</b><p>The home Mac verifies the saved session, then schedules the first Story in 10 minutes and the others every two hours.</p></div></div>}
     </section>
 
     <div className="poster-workspace">

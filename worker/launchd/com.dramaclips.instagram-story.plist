@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dramaclips.instagram-story</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ruoyali/Library/Application Support/DramaClips/agent/run.zsh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/ruoyali/Library/Logs/DramaClips/instagram-story.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ruoyali/Library/Logs/DramaClips/instagram-story-error.log</string>
+</dict>
+</plist>

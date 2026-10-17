@@ -131,7 +131,7 @@ def _link_matches(expected, actual):
     return set(parse_qsl(expected_url.query)).issubset(set(parse_qsl(actual_url.query)))
 
 
-def login_story_client(supabase, approval_waiter=None):
+def login_story_client(supabase, approval_waiter=None, allow_session_id=True):
     from instagrapi import Client
 
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
@@ -145,12 +145,12 @@ def login_story_client(supabase, approval_waiter=None):
                 client.login(username, password)
             else:
                 client.get_timeline_feed()
-        elif session_id := _session_id(supabase):
+        elif allow_session_id and (session_id := _session_id(supabase)):
             client.login_by_sessionid(session_id)
         elif username and password:
             client.login(username, password)
         else:
-            raise RuntimeError("Connect Instagram in Poster Publisher before starting the Story worker")
+            raise RuntimeError("No complete Instagram device session is saved")
     except Exception as error:
         if approval_waiter is None:
             raise

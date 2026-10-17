@@ -1,7 +1,6 @@
 import {NextRequest,NextResponse} from "next/server";
 import {z,ZodError} from "zod";
-import {confirmInstagramStoryReconnectApproval,createInstagramStoryReconnectAttempt,failInstagramStoryReconnectAttempt,getActiveInstagramStoryReconnectAttempt,getInstagramStoryReconnectAttempt} from "@/lib/admin/instagram-story-repository";
-import {triggerRailwayWorker} from "@/lib/admin/railway-worker-trigger";
+import {confirmInstagramStoryReconnectApproval,createInstagramStoryReconnectAttempt,getActiveInstagramStoryReconnectAttempt,getInstagramStoryReconnectAttempt} from "@/lib/admin/instagram-story-repository";
 
 const querySchema=z.object({id:z.string().uuid()});
 const approvalSchema=z.object({id:z.string().uuid(),approved:z.literal(true)});
@@ -22,12 +21,7 @@ export async function POST(){
     const existing=await getActiveInstagramStoryReconnectAttempt();
     if(existing)return NextResponse.json({attempt:existing,reused:true},{status:202});
     const attempt=await createInstagramStoryReconnectAttempt();
-    const workerTrigger=await triggerRailwayWorker("story");
-    if(workerTrigger.status==="failed"){
-      await failInstagramStoryReconnectAttempt(attempt.id,"Could not start the Instagram reconnect worker");
-      return NextResponse.json({message:"Could not start the Instagram reconnect worker"},{status:503});
-    }
-    return NextResponse.json({attempt,workerTrigger},{status:202});
+    return NextResponse.json({attempt,runner:"local"},{status:202});
   }catch(error){return NextResponse.json({message:error instanceof Error?error.message:"Could not start Instagram reconnect"},{status:503});}
 }
 

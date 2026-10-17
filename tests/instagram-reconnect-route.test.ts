@@ -1,31 +1,28 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
 import {NextRequest} from "next/server";
 
-const {getActive,createAttempt,failAttempt,getAttempt,confirmApproval,triggerWorker}=vi.hoisted(()=>({
-  getActive:vi.fn(),createAttempt:vi.fn(),failAttempt:vi.fn(),getAttempt:vi.fn(),confirmApproval:vi.fn(),triggerWorker:vi.fn(),
+const {getActive,createAttempt,getAttempt,confirmApproval}=vi.hoisted(()=>({
+  getActive:vi.fn(),createAttempt:vi.fn(),getAttempt:vi.fn(),confirmApproval:vi.fn(),
 }));
 vi.mock("@/lib/admin/instagram-story-repository",()=>({
   getActiveInstagramStoryReconnectAttempt:getActive,
   createInstagramStoryReconnectAttempt:createAttempt,
-  failInstagramStoryReconnectAttempt:failAttempt,
   getInstagramStoryReconnectAttempt:getAttempt,
   confirmInstagramStoryReconnectApproval:confirmApproval,
 }));
-vi.mock("@/lib/admin/railway-worker-trigger",()=>({triggerRailwayWorker:triggerWorker}));
 
 import {GET,PATCH,POST} from "@/app/api/admin/instagram-reconnect/route";
 
 const attempt={id:"11111111-1111-4111-8111-111111111111",status:"requested",requested_at:"2026-10-17T18:00:00Z",expires_at:"2026-10-17T18:05:00Z",updated_at:"2026-10-17T18:00:00Z"};
 
 describe("mobile Instagram reconnect route",()=>{
-  beforeEach(()=>{vi.clearAllMocks();getActive.mockResolvedValue(null);createAttempt.mockResolvedValue(attempt);triggerWorker.mockResolvedValue({status:"restarted",deploymentId:"deployment-1"});});
+  beforeEach(()=>{vi.clearAllMocks();getActive.mockResolvedValue(null);createAttempt.mockResolvedValue(attempt);});
 
-  it("queues one reconnect and starts the Story worker",async()=>{
+  it("queues one request for the home Mac agent",async()=>{
     const response=await POST();
     expect(response.status).toBe(202);
     expect(createAttempt).toHaveBeenCalledOnce();
-    expect(triggerWorker).toHaveBeenCalledWith("story");
-    await expect(response.json()).resolves.toMatchObject({attempt,workerTrigger:{status:"restarted"}});
+    await expect(response.json()).resolves.toMatchObject({attempt,runner:"local"});
   });
 
   it("reuses an active reconnect instead of sending another login",async()=>{
@@ -33,7 +30,6 @@ describe("mobile Instagram reconnect route",()=>{
     const response=await POST();
     expect(response.status).toBe(202);
     expect(createAttempt).not.toHaveBeenCalled();
-    expect(triggerWorker).not.toHaveBeenCalled();
   });
 
   it("records approval and exposes reconnect status",async()=>{
