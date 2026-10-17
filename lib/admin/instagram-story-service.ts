@@ -1,7 +1,7 @@
 import "server-only";
 import {listVizardSources} from "./repository";
 import {listPublishPackages} from "./publish-repository";
-import {createInstagramStoryJobs,listInstagramStoryJobs} from "./instagram-story-repository";
+import {createInstagramStoryJobs,listInstagramStoryJobs,updateInstagramStoryJobSchedule} from "./instagram-story-repository";
 import {pacificCartDates} from "@/lib/publish-cart-date";
 import {addPacificDays} from "@/lib/weekly-publish-plan";
 import {pacificLocalToIso} from "@/lib/publish-slots";
@@ -9,13 +9,21 @@ import {reelShortUrl} from "@/lib/instagram-story";
 
 export const DAILY_STORY_TARGET=5;
 export const DAILY_POST_STORY_TARGET=3;
-export const STORY_PUBLISH_TIMES=["09:30","11:30","13:30","15:30","17:30"] as const;
+export const STORY_FIRST_DELAY_MS=10*60*1000;
+export const STORY_INTERVAL_MS=2*60*60*1000;
 const STORY_COOLDOWN_MS=7*24*60*60*1000;
 
-export async function ensureDailyInstagramStoryPlan(now=new Date()){
+export async function createReconnectInstagramStoryPlan(now=new Date()){
   const date=pacificCartDates(now)[0];
-  const existing=await listInstagramStoryJobs({scheduleDate:date,limit:DAILY_STORY_TARGET});
-  if(existing.length)return existing.sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
+  const existing=await listInstagramStoryJobs({scheduleDate:date,limit:100});
+  const scheduled=existing.filter(job=>job.status==="scheduled").sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
+  const fixed=existing.filter(job=>job.status!=="scheduled");
+  const remaining=Math.max(0,DAILY_STORY_TARGET-fixed.length);
+  const slots=Array.from({length:remaining},(_,index)=>new Date(now.getTime()+STORY_FIRST_DELAY_MS+index*STORY_INTERVAL_MS).toISOString());
+  await Promise.all(scheduled.slice(0,remaining).map((job,index)=>updateInstagramStoryJobSchedule(job.id,slots[index])));
+  if(fixed.length+scheduled.length>=DAILY_STORY_TARGET){
+    return (await listInstagramStoryJobs({scheduleDate:date,limit:100})).sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
+  }
 
   const [sources,packages,history]=await Promise.all([listVizardSources(),listPublishPackages(),listInstagramStoryJobs({limit:1000})]);
   const eligible=sources.flatMap(source=>{
@@ -36,13 +44,21 @@ export async function ensureDailyInstagramStoryPlan(now=new Date()){
     const published=new Date(job.published_at).getTime();
     lastPublished.set(job.drama_slug,Math.max(lastPublished.get(job.drama_slug)||0,published));
   }
-  const selected=new Set(dailyPostSlugs);
+  const selected=new Set(existing.map(job=>job.drama_slug));
+  const availableDailyPostSlugs=dailyPostSlugs.filter(slug=>!selected.has(slug));
+  availableDailyPostSlugs.forEach(slug=>selected.add(slug));
   const library=eligible.filter(source=>!selected.has(source.slug)&&(now.getTime()-(lastPublished.get(source.slug)||0)>=STORY_COOLDOWN_MS))
     .sort((a,b)=>(lastPublished.get(a.slug)||0)-(lastPublished.get(b.slug)||0)||a.slug.localeCompare(b.slug));
-  const chosen=[...dailyPostSlugs.map(slug=>({source:bySlug.get(slug)!,selectionSource:"daily_post" as const})),...library.slice(0,DAILY_STORY_TARGET-dailyPostSlugs.length).map(source=>({source,selectionSource:"library" as const}))];
-  return createInstagramStoryJobs(chosen.map(({source,selectionSource},index)=>({
+  const needed=DAILY_STORY_TARGET-existing.length;
+  const chosen=[...availableDailyPostSlugs.map(slug=>({source:bySlug.get(slug)!,selectionSource:"daily_post" as const})),...library.map(source=>({source,selectionSource:"library" as const}))].slice(0,needed);
+  await createInstagramStoryJobs(chosen.map(({source,selectionSource},index)=>({
     schedule_date:date,drama_slug:source.slug,drama_title:source.title,image_url:source.coverUrl,
     content_code:source.promoCode||source.publicCode,target_url:source.targetUrl,selection_source:selectionSource,
-    scheduled_at:pacificLocalToIso(date,STORY_PUBLISH_TIMES[index]),
+    scheduled_at:slots[scheduled.length+index],
   })));
+  return (await listInstagramStoryJobs({scheduleDate:date,limit:100})).sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
+}
+
+export async function listDueInstagramStoryJobs(now=new Date()){
+  return listInstagramStoryJobs({status:"scheduled",dueBefore:now.toISOString(),limit:DAILY_STORY_TARGET});
 }

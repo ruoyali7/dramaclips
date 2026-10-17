@@ -1,16 +1,17 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
 
-const {getStatus,saveSessionId}=vi.hoisted(()=>({getStatus:vi.fn(),saveSessionId:vi.fn()}));
+const {getStatus,saveSessionId,createPlan}=vi.hoisted(()=>({getStatus:vi.fn(),saveSessionId:vi.fn(),createPlan:vi.fn()}));
 vi.mock("@/lib/admin/instagram-story-repository",()=>({
   getInstagramStoryConnectionStatus:getStatus,
   saveInstagramStorySessionId:saveSessionId,
 }));
+vi.mock("@/lib/admin/instagram-story-service",()=>({createReconnectInstagramStoryPlan:createPlan}));
 import {GET,POST} from "@/app/api/admin/instagram-session/route";
 
 function request(sessionId:unknown){return new Request("http://localhost/api/admin/instagram-session",{method:"POST",body:JSON.stringify({sessionId})});}
 
 describe("Instagram session admin route",()=>{
-  beforeEach(()=>{getStatus.mockReset();saveSessionId.mockReset();});
+  beforeEach(()=>{getStatus.mockReset();saveSessionId.mockReset();createPlan.mockReset();createPlan.mockResolvedValue([]);});
 
   it("stores a valid session without returning its value",async()=>{
     const sessionId="123456789%3Aauthenticated-instagram-session";
@@ -20,6 +21,7 @@ describe("Instagram session admin route",()=>{
     const body=await response.json();
     expect(response.status).toBe(200);
     expect(saveSessionId).toHaveBeenCalledWith(sessionId);
+    expect(createPlan).toHaveBeenCalledOnce();
     expect(JSON.stringify(body)).not.toContain(sessionId);
   });
 

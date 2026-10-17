@@ -45,7 +45,7 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
   const nextJob=jobs.find(job=>job.status==="scheduled");
   const eligibleCount=sources.filter(storyEligible).length;
 
-  async function refreshStories(){try{const response=await fetch("/api/admin/instagram-stories");if(!response.ok)throw new Error();const result=await response.json();setJobs((result.jobs||[]).sort((a:StoryJob,b:StoryJob)=>a.drama_title.localeCompare(b.drama_title)));}catch{}finally{setLoadingJobs(false)}}
+  async function refreshStories(){try{const response=await fetch("/api/admin/instagram-stories");if(!response.ok)throw new Error();const result=await response.json();setJobs((result.jobs||[]).sort((a:StoryJob,b:StoryJob)=>a.scheduled_at.localeCompare(b.scheduled_at)));}catch{}finally{setLoadingJobs(false)}}
   async function refreshConnection(){try{const response=await fetch("/api/admin/instagram-session");if(!response.ok)throw new Error();const result=await response.json();setConnection(result.connection);}catch{setConnection(null)}}
   useEffect(()=>{void refreshStories();const timer=window.setInterval(()=>void refreshStories(),15000);return()=>window.clearInterval(timer)},[]);
   useEffect(()=>{
@@ -55,7 +55,7 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
       if(event.data.type==="INSTAGRAM_LOGIN_OPEN_RESULT"&&!event.data.ok)setMessage({kind:"error",text:event.data.message||"Could not open Instagram login."});
       if(event.data.type==="INSTAGRAM_SESSION_CONNECT_RESULT"){
         setConnecting(false);
-        if(event.data.ok){void refreshConnection();setMessage({kind:"success",text:"Instagram session saved. The Story worker can now verify it."});}
+        if(event.data.ok){void refreshConnection();void refreshStories();setMessage({kind:"success",text:"Instagram reconnected. Five Stories are now scheduled from this time."});}
         else setMessage({kind:"error",text:event.data.message||"Could not connect Instagram."});
       }
     }
@@ -72,25 +72,25 @@ export function PosterPublisher({sources}:{sources:PosterSource[]}){
 
   if(!sources.length)return <section className="poster-empty"><h2>No published dramas</h2><p>Publish a drama before adding it to Story rotation.</p></section>;
   return <section className="poster-publisher" aria-labelledby="poster-publisher-title">
-    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>Five Stories spaced through the day · 3 current dramas + 2 library dramas</p></div><div className="story-auto-badge"><i/><span><b>Automatic</b><small>5 Stories / day</small></span></div></header>
+    <header className="poster-publisher-head"><div><span>Instagram automation</span><h2 id="poster-publisher-title">Story rotation</h2><p>Reconnect each day to schedule five Stories · today’s Posts first, then library</p></div><div className="story-auto-badge"><i/><span><b>Reconnect to start</b><small>5 Stories / day</small></span></div></header>
 
     <section className="story-overview">
       <div><small>Today</small><b>{published}<em>/ {plannedTotal} published</em></b></div>
-      <div><small>Timing</small><b>Spaced<em>9:30 AM–5:30 PM Pacific</em></b></div>
-      <div><small>Rotation</small><b>3 + 2<em>current + library</em></b></div>
-      <div><small>Next action</small><b>{nextJob?"Queued":"Tomorrow"}<em>{nextJob?"Railway Story worker":"plan automatically"}</em></b></div>
+      <div><small>Timing</small><b>Spaced<em>10 min after reconnect · every 2 hours</em></b></div>
+      <div><small>Rotation</small><b>Current first<em>then 7-day library rotation</em></b></div>
+      <div><small>Next action</small><b>{nextJob?"Queued":"Reconnect"}<em>{nextJob?"Railway Story worker":"to create today’s plan"}</em></b></div>
     </section>
 
     <section className="instagram-connection">
       <div className="instagram-connection-icon"><Instagram/></div>
-      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{connection?.settingsConfigured?"Connected":connection?.sessionIdConfigured?"Session saved · verification pending":"Sign in once to enable Story publishing"}</h3><p>Login happens on Instagram. After you return, the extension saves only the signed-in session; DramaClips never receives your password.</p></div>
+      <div className="instagram-connection-copy"><span>Instagram connection</span><h3>{connection?.settingsConfigured?"Connected":connection?.sessionIdConfigured?"Session saved · verification pending":"Reconnect to schedule today’s Stories"}</h3><p>Reconnect after Instagram approves the login. That moment starts today’s five-Story schedule; DramaClips never receives your password.</p></div>
       <div className="instagram-connection-state"><ShieldCheck/><span><b>{extensionReady?"Extension ready":"Extension update required"}</b><small>{connection?.settingsConfigured?"Worker session ready":connection?.sessionIdConfigured?"Ready for worker verification":"No Instagram session saved"}</small></span></div>
       <div className="instagram-connection-actions"><button type="button" onClick={openInstagramLogin} disabled={!extensionReady}>Open Instagram login</button><button type="button" onClick={connectInstagram} disabled={!extensionReady||connecting}>{connecting?"Connecting…":connection?.sessionIdConfigured||connection?.settingsConfigured?"Reconnect signed-in account":"Connect signed-in account"}</button></div>
     </section>
 
     <section className="story-today">
       <div className="story-section-title"><div><span>Today’s batch</span><h3>Instagram Stories</h3></div><button type="button" onClick={()=>void refreshStories()}><RefreshCw/>Refresh</button></div>
-      {jobs.length?<div className="story-job-grid">{jobs.map((job,index)=><article key={job.id} className={`story-job ${job.status}`}><span>{String(index+1).padStart(2,"0")}</span><div><b>{job.drama_title}</b><small>{job.selection_source==="daily_post"?"Today’s Post":"Library rotation"}</small></div><time>{new Date(job.scheduled_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</time><em>{storyStatus(job)}</em>{job.error&&<p>{job.error}</p>}</article>)}</div>:<div className="story-empty-plan"><Clock3/><div><b>{loadingJobs?"Loading today’s plan…":"Today’s plan has not run yet"}</b><p>The Story worker creates one morning batch automatically. No manual caption or scheduling is required.</p></div></div>}
+      {jobs.length?<div className="story-job-grid">{jobs.map((job,index)=><article key={job.id} className={`story-job ${job.status}`}><span>{String(index+1).padStart(2,"0")}</span><div><b>{job.drama_title}</b><small>{job.selection_source==="daily_post"?"Today’s Post":"Library rotation"}</small></div><time>{new Date(job.scheduled_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</time><em>{storyStatus(job)}</em>{job.error&&<p>{job.error}</p>}</article>)}</div>:<div className="story-empty-plan"><Clock3/><div><b>{loadingJobs?"Loading today’s plan…":"Reconnect to create today’s plan"}</b><p>After reconnecting, the first Story is scheduled in 10 minutes and the other four follow every two hours.</p></div></div>}
     </section>
 
     <div className="poster-workspace">

@@ -593,8 +593,8 @@ def main():
     story_client=login_story_client(supabase)
    else:
     planned=lease("/api/internal/instagram-story-worker/plan",{})
-    print(f"Instagram Story plan ready; jobs={planned.get('count',0)}",flush=True)
-    if planned.get("pendingCount",0):story_client=login_story_client(supabase)
+    print(f"Instagram Story jobs due now={planned.get('dueCount',0)}",flush=True)
+    if planned.get("dueCount",0):story_client=login_story_client(supabase)
   except Exception:
    traceback.print_exc()
    if WORKER_ONESHOT:return
