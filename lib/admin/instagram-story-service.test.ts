@@ -49,7 +49,7 @@ describe("daily Instagram Story planning",()=>{
     const jobs=await createReconnectInstagramStoryPlan(new Date("2026-10-14T19:00:00.000Z"));
 
     expect(updateInstagramStoryJobSchedule).toHaveBeenCalledTimes(5);
-    expect(updateInstagramStoryJobSchedule).toHaveBeenNthCalledWith(1,"job-0","2026-10-14T19:10:00.000Z");
+    expect(updateInstagramStoryJobSchedule).toHaveBeenNthCalledWith(1,"job-0","2026-10-14T19:10:00.000Z","2026-10-14T19:00:00.000Z");
     expect(createInstagramStoryJobs).not.toHaveBeenCalled();
     expect(jobs).toHaveLength(5);
   });
@@ -57,6 +57,6 @@ describe("daily Instagram Story planning",()=>{
   it("returns only scheduled jobs that are already due",async()=>{
     listInstagramStoryJobs.mockResolvedValue([{id:"due-job"}]);
     await expect(listDueInstagramStoryJobs(new Date("2026-10-14T20:00:00.000Z"))).resolves.toEqual([{id:"due-job"}]);
-    expect(listInstagramStoryJobs).toHaveBeenCalledWith({status:"scheduled",dueBefore:"2026-10-14T20:00:00.000Z",limit:5});
+    expect(listInstagramStoryJobs).toHaveBeenCalledWith({status:"scheduled",dueBefore:"2026-10-14T20:00:00.000Z",requireReconnect:true,limit:5});
   });
 });

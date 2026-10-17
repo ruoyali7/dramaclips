@@ -19,8 +19,9 @@ export async function createReconnectInstagramStoryPlan(now=new Date()){
   const scheduled=existing.filter(job=>job.status==="scheduled").sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
   const fixed=existing.filter(job=>job.status!=="scheduled");
   const remaining=Math.max(0,DAILY_STORY_TARGET-fixed.length);
+  const reconnectedAt=now.toISOString();
   const slots=Array.from({length:remaining},(_,index)=>new Date(now.getTime()+STORY_FIRST_DELAY_MS+index*STORY_INTERVAL_MS).toISOString());
-  await Promise.all(scheduled.slice(0,remaining).map((job,index)=>updateInstagramStoryJobSchedule(job.id,slots[index])));
+  await Promise.all(scheduled.slice(0,remaining).map((job,index)=>updateInstagramStoryJobSchedule(job.id,slots[index],reconnectedAt)));
   if(fixed.length+scheduled.length>=DAILY_STORY_TARGET){
     return (await listInstagramStoryJobs({scheduleDate:date,limit:100})).sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
   }
@@ -54,11 +55,11 @@ export async function createReconnectInstagramStoryPlan(now=new Date()){
   await createInstagramStoryJobs(chosen.map(({source,selectionSource},index)=>({
     schedule_date:date,drama_slug:source.slug,drama_title:source.title,image_url:source.coverUrl,
     content_code:source.promoCode||source.publicCode,target_url:source.targetUrl,selection_source:selectionSource,
-    scheduled_at:slots[scheduled.length+index],
+    scheduled_at:slots[scheduled.length+index],reconnected_at:reconnectedAt,
   })));
   return (await listInstagramStoryJobs({scheduleDate:date,limit:100})).sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
 }
 
 export async function listDueInstagramStoryJobs(now=new Date()){
-  return listInstagramStoryJobs({status:"scheduled",dueBefore:now.toISOString(),limit:DAILY_STORY_TARGET});
+  return listInstagramStoryJobs({status:"scheduled",dueBefore:now.toISOString(),requireReconnect:true,limit:DAILY_STORY_TARGET});
 }
