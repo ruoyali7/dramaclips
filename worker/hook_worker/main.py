@@ -12,13 +12,17 @@ from .telegram_notifications import notify_publish_failure,notify_scheduled_queu
 from .upload import is_transient_network_error,primary_publish_channel,publish_video_optimization_command,retry_upload,should_optimize_publish_video,video_upload_timeout
 from .instagram_story import StoryUploadStarted,login_story_client,publish_story
 from .meta_publisher import MetaApiError,MetaOutcomeUnknown,MetaPublisher,publish_provider
+from .mock_publisher import mock_platform_result
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
+SOCIAL_PUBLISH_MODE=RUNTIME["social_publish_mode"]
 ENABLE_HOOK_WORKER=os.getenv("ENABLE_HOOK_WORKER","false").lower() in ("1","true","yes","on")
 ENABLE_VIZARD_WORKER=os.getenv("ENABLE_VIZARD_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_PUBLISH_WORKER=os.getenv("ENABLE_PUBLISH_WORKER","true").lower() in ("1","true","yes","on")
 ENABLE_INSTAGRAM_STORY_WORKER=os.getenv("ENABLE_INSTAGRAM_STORY_WORKER","false").lower() in ("1","true","yes","on")
+ENABLE_YIXIAOER_ACCOUNT_SYNC=os.getenv("ENABLE_YIXIAOER_ACCOUNT_SYNC","true").lower() in ("1","true","yes","on") and SOCIAL_PUBLISH_MODE=="live"
+ENABLE_SCHEDULE_NOTIFICATIONS=os.getenv("ENABLE_SCHEDULE_NOTIFICATIONS","true").lower() in ("1","true","yes","on") and SOCIAL_PUBLISH_MODE=="live"
 INSTAGRAM_STORY_TEST_MODE=os.getenv("INSTAGRAM_STORY_TEST_MODE","false").lower() in ("1","true","yes","on")
 STORY_UPLOAD_DELAY_SECONDS=max(0,int(os.getenv("STORY_UPLOAD_DELAY_SECONDS","60")))
 WORKER_ONESHOT=RUNTIME["oneshot"];IDLE_POLL_SECONDS=RUNTIME["idle_poll_seconds"]
@@ -80,7 +84,7 @@ def hydrate_publish_job(row):
   identity=f"id=eq.{quote(str(row['hook_clip_id']),safe='')}" if row.get("hook_clip_id") else f"video_url=eq.{quote(str(row['video_url']),safe='')}"
   hook_rows=supabase(f"hook_clips?{identity}&select=cover_source_timestamp,source_ranges,rendered_ranges,duration_seconds&limit=1") or []
  sources=[pack.get("source") for pack in row.get("platforms") or []]
- uses_yixiaoer=any(publish_provider(source)=="yixiaoer" for source in sources if source in ("tiktok","instagram","youtube","facebook"))
+ uses_yixiaoer=SOCIAL_PUBLISH_MODE=="live" and any(publish_provider(source)=="yixiaoer" for source in sources if source in ("tiktok","instagram","youtube","facebook"))
  account_cache=supabase("yixiaoer_account_cache?id=eq.active&select=accounts&limit=1") or [] if uses_yixiaoer else []
  accounts=resolve_publish_accounts(job.get("yixiaoerAccounts") or {},account_cache[0].get("accounts",[]) if account_cache else []) if uses_yixiaoer else job.get("yixiaoerAccounts") or {}
  if uses_yixiaoer and accounts!=job.get("yixiaoerAccounts"):
@@ -342,7 +346,7 @@ def publish_update(job,status,progress,terminal=False,**extra):
    if state not in ("submitting","submitted","processing","published","failed","outcome_unknown"):continue
    account_id=str(detail.get("accountId") or (package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or detail.get("response") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
   if attempts:supabase("publish_platform_attempts?on_conflict=package_id,platform",method="POST",payload=attempts,prefer="resolution=merge-duplicates")
- if terminal and status in ("failed","outcome_unknown"):
+ if SOCIAL_PUBLISH_MODE=="live" and terminal and status in ("failed","outcome_unknown"):
   try:notify_publish_failure(job,status,results or {},extra.get("error"))
   except Exception:traceback.print_exc()
  return {"package":package}
@@ -510,6 +514,19 @@ def run_meta_platforms(job,packs,terminal):
   considered=job.get("_allPlatforms",[pack for pack in job["platforms"] if pack["source"]!="x" and not publish_platform_is_paused(pack["source"])])
   publish_update(job,final_publish_status(results,considered,job["yixiaoerAction"]),100,terminal=True,results=results)
 
+def run_mock_platforms(job,packs):
+ results=job.get("yixiaoerResults");results=results if isinstance(results,dict) else {};job["yixiaoerResults"]=results;control=results.get("_control") or {};retry_platforms=set(control.get("retryPlatforms",[]));reconcile_platforms=set(control.get("reconcilePlatforms",[]));eligible=[]
+ for pack in packs:
+  source=pack["source"]
+  if reconcile_platforms and source not in reconcile_platforms:continue
+  if not reconcile_platforms and not should_process_platform(source,results.get(source),job["yixiaoerAction"],retry_platforms):continue
+  eligible.append(pack)
+ for index,pack in enumerate(eligible):
+  source=pack["source"];prior=results.get(source) if isinstance(results.get(source),dict) else {}
+  results[source]=mock_platform_result(job,source,job["yixiaoerAction"],prior,os.environ)
+  publish_update(job,"publishing" if job["yixiaoerAction"]=="publish" else "validating",45+int((index+1)/max(1,len(eligible))*45),results=results)
+ publish_update(job,final_publish_status(results,job.get("_allPlatforms",packs),job["yixiaoerAction"]),100,terminal=True,results=results)
+
 def run_publish(job):
  paused={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])};results=job.get("yixiaoerResults");results=results if isinstance(results,dict) else {};job["yixiaoerResults"]=results
  for source in paused:
@@ -518,8 +535,14 @@ def run_publish(job):
  supported=[pack for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused and publish_platform_allowed(job.get("videoKind"),pack["source"])];job["_allPlatforms"]=supported
  control=results.get("_control") or {};targeted=set(control.get("reconcilePlatforms") or control.get("retryPlatforms") or [])
  active=[pack for pack in supported if not targeted or pack["source"] in targeted]
+ if SOCIAL_PUBLISH_MODE=="mock":
+  run_mock_platforms(job,active);return
  meta_packs=[pack for pack in active if job_publish_provider(job,pack["source"])=="meta"]
  yixiaoer_packs=[pack for pack in active if job_publish_provider(job,pack["source"])=="yixiaoer"]
+ if SOCIAL_PUBLISH_MODE=="test" and yixiaoer_packs:
+  for pack in yixiaoer_packs:
+   source=pack["source"];results[source]={"provider":"blocked","state":"failed","error":"Test mode allows only official Meta test accounts"}
+  yixiaoer_packs=[]
  if meta_packs:run_meta_platforms(job,meta_packs,not yixiaoer_packs)
  if yixiaoer_packs:
   yixiaoer_job={**job,"platforms":yixiaoer_packs,"_allPlatforms":supported}
@@ -656,7 +679,7 @@ def run_yixiaoer_publish(job):
  terminal_status=final_publish_status(results,job.get("_allPlatforms",[p for p in job["platforms"] if p["source"] in payloads]),action)
  publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
- print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} story_test_mode={INSTAGRAM_STORY_TEST_MODE} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
+ print(f"Worker starting; mode={RUNTIME['mode']} social_publish_mode={SOCIAL_PUBLISH_MODE} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} story_test_mode={INSTAGRAM_STORY_TEST_MODE} idle_poll={IDLE_POLL_SECONDS}s account_sync={ENABLE_YIXIAOER_ACCOUNT_SYNC} schedule_notification={ENABLE_SCHEDULE_NOTIFICATIONS}",flush=True)
  cleanup_worker_temps(0)
  if not WORKER_ONESHOT and ENABLE_VIZARD_WORKER:
   threading.Thread(target=vizard_loop,name="vizard-submission-worker",daemon=True).start()
@@ -678,11 +701,11 @@ def main():
    if WORKER_ONESHOT:return
  while True:
   try:
-   if time.time()>=next_account_sync:
+   if ENABLE_YIXIAOER_ACCOUNT_SYNC and time.time()>=next_account_sync:
     try:sync_yixiaoer_accounts();next_account_sync=time.time()+ACCOUNT_SYNC_INTERVAL_SECONDS
     except Exception:traceback.print_exc();next_account_sync=time.time()+60
    worked=False
-   if time.time()>=next_weekly_notification_check:
+   if ENABLE_SCHEDULE_NOTIFICATIONS and time.time()>=next_weekly_notification_check:
     try:
      if process_schedule_tail_notification():worked=True
      next_weekly_notification_check=time.time()+SCHEDULE_NOTIFICATION_INTERVAL_SECONDS

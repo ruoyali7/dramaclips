@@ -1,6 +1,6 @@
 import {describe,it,expect,vi,afterEach} from "vitest";
 vi.mock("server-only",()=>({}));
-vi.mock("@/lib/admin/supabase-config",()=>({getSupabaseConfig:()=>({configured:true,url:"https://supabase.test",key:"test"})}));
+vi.mock("@/lib/admin/supabase-config",()=>({getSupabaseConfig:()=>({configured:true,url:"https://supabase.test",key:"test"}),assertSafeDevelopmentPublishingDatabase:vi.fn()}));
 vi.mock("@/lib/admin/analytics-repository",()=>({createShortLink:vi.fn()}));
 vi.mock("@/lib/admin/hashtag-recommendation",()=>({recommendHashtags:vi.fn(()=>[])}));
 vi.mock("@/lib/admin/r2",()=>({listExpiredHookDrafts:vi.fn(async()=>[]),deleteExpiredHookDrafts:vi.fn()}));

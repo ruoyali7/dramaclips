@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
 
-const triggerRailwayWorker=vi.hoisted(()=>vi.fn());
-vi.mock("@/lib/admin/railway-worker-trigger",()=>({triggerRailwayWorker}));
+const createReconnectInstagramStoryPlan=vi.hoisted(()=>vi.fn());
+vi.mock("@/lib/admin/instagram-story-service",()=>({createReconnectInstagramStoryPlan}));
 
 import {GET} from "@/app/api/cron/instagram-stories/route";
 
@@ -12,14 +12,15 @@ describe("Instagram Story cron",()=>{
     vi.stubEnv("CRON_SECRET","cron-secret");
     const response=await GET(new Request("https://example.com/api/cron/instagram-stories") as never);
     expect(response.status).toBe(401);
-    expect(triggerRailwayWorker).not.toHaveBeenCalled();
+    expect(createReconnectInstagramStoryPlan).not.toHaveBeenCalled();
   });
 
-  it("starts only the dedicated Story worker",async()=>{
+  it("creates the daily reconnect plan",async()=>{
     vi.stubEnv("CRON_SECRET","cron-secret");
-    triggerRailwayWorker.mockResolvedValue({status:"restarted",deploymentId:"deployment-1"});
+    createReconnectInstagramStoryPlan.mockResolvedValue([{id:"job-1"}]);
     const response=await GET(new Request("https://example.com/api/cron/instagram-stories",{headers:{authorization:"Bearer cron-secret"}}) as never);
-    expect(response.status).toBe(202);
-    expect(triggerRailwayWorker).toHaveBeenCalledWith("story");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({jobs:[{id:"job-1"}],count:1});
+    expect(createReconnectInstagramStoryPlan).toHaveBeenCalledOnce();
   });
 });

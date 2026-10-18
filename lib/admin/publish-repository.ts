@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { getSupabaseConfig } from "./supabase-config";
+import { assertSafeDevelopmentPublishingDatabase, getSupabaseConfig } from "./supabase-config";
 import { createShortLink } from "./analytics-repository";
 import { recommendHashtags } from "./hashtag-recommendation";
 import { publishingProvider, type PublishingProvider } from "./publish-provider-config";
@@ -71,6 +71,7 @@ export class ExistingPublishPackageError extends Error {
 async function request(path: string, init: RequestInit = {}) {
   const config = getSupabaseConfig();
   if (!config.configured) throw new Error("Supabase is not configured");
+  if ((init.method || "GET").toUpperCase() !== "GET") assertSafeDevelopmentPublishingDatabase();
   const response = await fetch(`${config.url}/rest/v1/${path}`, {
     ...init,
     headers: {

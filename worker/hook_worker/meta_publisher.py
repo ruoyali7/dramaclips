@@ -28,11 +28,15 @@ def publish_provider(platform, environ=None):
 class MetaPublisher:
     def __init__(self, environ=None, session=None, sleep=None):
         values = environ if environ is not None else os.environ
+        test_mode = values.get("SOCIAL_PUBLISH_MODE", "live").strip().lower() == "test"
         self.version = values.get("META_GRAPH_API_VERSION", "").strip()
-        self.token = values.get("FACEBOOK_PAGE_ACCESS_TOKEN", "").strip()
-        self.instagram_user_id = values.get("INSTAGRAM_USER_ID", "").strip()
-        self.facebook_page_id = values.get("FACEBOOK_PAGE_ID", "").strip()
-        self.app_secret = values.get("META_APP_SECRET", "").strip()
+        prefix = "META_TEST_" if test_mode else ""
+        self.token = values.get(f"{prefix}PAGE_ACCESS_TOKEN", "").strip() if test_mode else values.get("FACEBOOK_PAGE_ACCESS_TOKEN", "").strip()
+        self.instagram_user_id = values.get(f"{prefix}INSTAGRAM_USER_ID", "").strip() if test_mode else values.get("INSTAGRAM_USER_ID", "").strip()
+        self.facebook_page_id = values.get(f"{prefix}FACEBOOK_PAGE_ID", "").strip() if test_mode else values.get("FACEBOOK_PAGE_ID", "").strip()
+        self.app_secret = values.get(f"{prefix}APP_SECRET", "").strip() if test_mode else values.get("META_APP_SECRET", "").strip()
+        self.test_mode = test_mode
+        self.allowed_account_ids = {item.strip() for item in values.get("META_TEST_ALLOWED_ACCOUNT_IDS", "").split(",") if item.strip()}
         self.graph_url = "https://graph.facebook.com"
         self.session = session or requests.Session()
         self.sleep = sleep or time.sleep
@@ -51,6 +55,9 @@ class MetaPublisher:
             missing.append("FACEBOOK_PAGE_ID")
         if missing:
             raise MetaApiError(f"Meta publishing is missing: {', '.join(missing)}")
+        account_id = self.instagram_user_id if platform == "instagram" else self.facebook_page_id
+        if self.test_mode and (not self.allowed_account_ids or account_id not in self.allowed_account_ids):
+            raise MetaApiError(f"Meta test account {account_id} is not in META_TEST_ALLOWED_ACCOUNT_IDS")
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"}

@@ -159,6 +159,36 @@ class MetaPublisherTests(unittest.TestCase):
             publisher.create_instagram_container("https://cdn.example/video.mp4", "Caption")
         session.request.assert_not_called()
 
+    def test_test_mode_uses_only_allowlisted_test_credentials(self):
+        session = MagicMock()
+        session.request.return_value = Response({"id": "test-ig", "username": "test"})
+        values = config(
+            SOCIAL_PUBLISH_MODE="test",
+            META_TEST_INSTAGRAM_USER_ID="test-ig",
+            META_TEST_FACEBOOK_PAGE_ID="test-page",
+            META_TEST_PAGE_ACCESS_TOKEN="test-token",
+            META_TEST_APP_SECRET="test-secret",
+            META_TEST_ALLOWED_ACCOUNT_IDS="test-ig,test-page",
+        )
+        publisher = MetaPublisher(values, session=session)
+        publisher.validate_access("instagram")
+        request = session.request.call_args
+        self.assertTrue(request.args[1].endswith("/test-ig"))
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer test-token")
+
+    def test_test_mode_rejects_non_allowlisted_account_before_network(self):
+        session = MagicMock()
+        values = config(
+            SOCIAL_PUBLISH_MODE="test",
+            META_TEST_INSTAGRAM_USER_ID="test-ig",
+            META_TEST_PAGE_ACCESS_TOKEN="test-token",
+            META_TEST_APP_SECRET="test-secret",
+            META_TEST_ALLOWED_ACCOUNT_IDS="different-account",
+        )
+        with self.assertRaisesRegex(MetaApiError, "not in META_TEST_ALLOWED_ACCOUNT_IDS"):
+            MetaPublisher(values, session=session).validate_access("instagram")
+        session.request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

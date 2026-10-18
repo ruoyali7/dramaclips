@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   officialPublishingAccount,
   publishingProvider,
+  requiresYixiaoerAccount,
   resolvePublishingAccountId,
 } from "@/lib/admin/publish-provider-config";
 
@@ -36,5 +37,18 @@ describe("publish provider configuration", () => {
 
   it("rejects unsupported provider values", () => {
     expect(() => publishingProvider("facebook", { FACEBOOK_PUBLISH_PROVIDER: "direct" })).toThrow("FACEBOOK_PUBLISH_PROVIDER must be yixiaoer or meta");
+  });
+
+  it("provides synthetic accounts without Yixiaoer in mock mode", () => {
+    const environment = { SOCIAL_PUBLISH_MODE: "mock" };
+    expect(officialPublishingAccount("youtube", environment)).toEqual(expect.objectContaining({ id: "mock-youtube" }));
+    expect(resolvePublishingAccountId("tiktok", undefined, environment)).toBe("mock-tiktok");
+    expect(requiresYixiaoerAccount("tiktok", environment)).toBe(false);
+  });
+
+  it("uses test-only Meta account ids in test mode", () => {
+    const environment = { SOCIAL_PUBLISH_MODE: "test", INSTAGRAM_PUBLISH_PROVIDER: "meta", META_TEST_INSTAGRAM_USER_ID: "test-ig", INSTAGRAM_USER_ID: "production-ig" };
+    expect(officialPublishingAccount("instagram", environment)?.id).toBe("test-ig");
+    expect(resolvePublishingAccountId("instagram", undefined, environment)).toBe("test-ig");
   });
 });
