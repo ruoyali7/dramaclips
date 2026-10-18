@@ -6,6 +6,8 @@ This workflow keeps `npm run dev` unchanged and does not deploy Railway or Verce
 
 Install Docker Desktop and the Supabase CLI, then from the repository root run:
 
+Open Docker Desktop once, accept its first-run prompts, and wait until the Docker Engine is running before starting Supabase.
+
 ```bash
 npm install
 python3 -m venv .venv-story
