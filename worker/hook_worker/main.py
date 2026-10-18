@@ -403,6 +403,9 @@ def provider_state(data):
  return "processing"
 def publish_platform_is_paused(source):
  return str(source or "").lower() in {item.strip().lower() for item in os.getenv("PAUSED_PUBLISH_PLATFORMS","").split(",") if item.strip()}
+def job_publish_provider(job,source):
+ control=(job.get("yixiaoerResults") or {}).get("_control") or {};pinned=(control.get("providers") or {}).get(source)
+ return publish_provider(source,{f"{source.upper()}_PUBLISH_PROVIDER":str(pinned)}) if pinned else publish_provider(source)
 def query_publish_status(job,source,request_id,heartbeat):
  try:
   details=yxer(job,["query","details",request_id],heartbeat)
@@ -467,7 +470,7 @@ def run_meta_platform(job,pack,results,heartbeat):
   media_id,response=publisher.publish_instagram_container(request_id);detail.update({"state":"published","stage":"published","platformPostId":media_id,"response":response,"error":None});return
  if detail.get("stage")=="publishing":
   status=publisher.facebook_reel_status(request_id);status_detail=status.get("status") or {};phase=(status_detail.get("publishing_phase") or {}).get("status");video_status=status_detail.get("video_status")
-  if str(phase or "").lower()=="complete":detail.update({"state":"published","stage":"published","platformPostId":request_id,"reconciliation":status,"error":None});results[source]=detail;return
+  if str(phase or "").lower()=="complete" or str(video_status or "").lower()=="published":detail.update({"state":"published","stage":"published","platformPostId":request_id,"reconciliation":status,"error":None});results[source]=detail;return
   if str(phase or "").lower() in ("error","failed") or str(video_status or "").lower() in ("error","failed"):raise MetaApiError(f"Facebook publishing failed for video {request_id}: {status_detail}")
   raise MetaOutcomeUnknown(f"Facebook publish outcome is ambiguous for video {request_id}; publishing status is {phase or 'unknown'}")
  if not request_id:
@@ -476,6 +479,7 @@ def run_meta_platform(job,pack,results,heartbeat):
  if detail.get("stage")=="started" and detail.get("state")=="outcome_unknown":
   status=publisher.facebook_reel_status(request_id);uploading=((status.get("status") or {}).get("uploading_phase") or {}).get("status")
   if str(uploading or "").lower()=="complete":detail.update({"state":"processing","stage":"uploaded","reconciliation":status})
+  elif str(uploading or "").lower() in ("error","failed"):detail.update({"state":"processing","error":None,"reconciliation":status})
   else:raise MetaOutcomeUnknown(f"Facebook upload outcome is ambiguous for video {request_id}; upload status is {uploading or 'unknown'}")
  if detail.get("stage")=="started":
   if not upload_url:raise MetaApiError(f"Facebook Reel {request_id} has no upload URL")
@@ -500,6 +504,7 @@ def run_meta_platforms(job,packs,terminal):
   except PublishCanceled:raise
   except MetaOutcomeUnknown as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"outcome_unknown","error":str(error)[:700]}
   except MetaApiError as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"failed","error":str(error)[:700]}
+  except Exception as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"failed","error":f"Unexpected Meta publisher error: {str(error)[:660]}"}
   publish_update(job,"publishing",45+int((index+1)/max(1,len(eligible))*45),results=results)
  if terminal:
   considered=job.get("_allPlatforms",[pack for pack in job["platforms"] if pack["source"]!="x" and not publish_platform_is_paused(pack["source"])])
@@ -513,8 +518,8 @@ def run_publish(job):
  supported=[pack for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused and publish_platform_allowed(job.get("videoKind"),pack["source"])];job["_allPlatforms"]=supported
  control=results.get("_control") or {};targeted=set(control.get("reconcilePlatforms") or control.get("retryPlatforms") or [])
  active=[pack for pack in supported if not targeted or pack["source"] in targeted]
- meta_packs=[pack for pack in active if publish_provider(pack["source"])=="meta"]
- yixiaoer_packs=[pack for pack in active if publish_provider(pack["source"])=="yixiaoer"]
+ meta_packs=[pack for pack in active if job_publish_provider(job,pack["source"])=="meta"]
+ yixiaoer_packs=[pack for pack in active if job_publish_provider(job,pack["source"])=="yixiaoer"]
  if meta_packs:run_meta_platforms(job,meta_packs,not yixiaoer_packs)
  if yixiaoer_packs:
   yixiaoer_job={**job,"platforms":yixiaoer_packs,"_allPlatforms":supported}

@@ -51,14 +51,23 @@ FACEBOOK_PUBLISH_PROVIDER=yixiaoer  # or meta
 
 The Publish Center account endpoint and cart scheduler use the same switches. When a platform is set to `meta`, the server exposes the configured official account as the only selectable account and replaces any client-supplied account ID with the server-side ID. Mixed packages remain supported: Instagram/Facebook can use Meta while TikTok/YouTube continue through Yixiaoer. Meta direct publishing does not support the existing Yixiaoer draft action, so that combination is rejected instead of pretending a draft was saved.
 
-Meta configuration (Railway server secrets only):
+Each queued package records a provider snapshot inside its existing `_control` result metadata. A later environment-variable change therefore affects newly queued work, not tasks that were already scheduled. Rescheduling preserves this snapshot and any platform-specific retry scope.
+
+Set the provider switches consistently in both the web control plane and the Railway worker before queueing a Meta test. The web app pins the provider at queue time; the worker executes that pinned route and holds the Meta credentials.
+
+Shared server-side account identifiers (web control plane and Railway worker):
+
+```env
+INSTAGRAM_USER_ID=
+FACEBOOK_PAGE_ID=
+```
+
+Railway worker secrets and API configuration:
 
 ```env
 META_APP_ID=
 META_APP_SECRET=
 META_GRAPH_API_VERSION=v24.0
-INSTAGRAM_USER_ID=
-FACEBOOK_PAGE_ID=
 FACEBOOK_PAGE_ACCESS_TOKEN=
 ```
 
@@ -77,6 +86,7 @@ The direct publishers reuse the existing R2 URL. The URL must be reachable by Me
 - The existing validation action performs a read-only account lookup; it never creates a media container or Reel.
 - POST requests are never automatically repeated after a network timeout. They become `outcome_unknown` because Meta may have accepted the operation.
 - Facebook ambiguous outcomes can be reconciled from the saved video status. Instagram ambiguous `media_publish` calls stay blocked unless the result can be verified; the worker does not create a second Reel.
+- A Facebook status of `video_status=published` is accepted even if the publishing phase is absent. A confirmed upload-phase failure retries the upload against the same saved video ID and upload URL; it does not initialize another Reel.
 - Confirmed API errors are recorded as a failed platform and do not stop the other platforms.
 - Facebook upload credentials are sent only to Meta's `rupload.facebook.com` host.
 

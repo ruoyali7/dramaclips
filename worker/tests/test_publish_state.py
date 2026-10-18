@@ -167,6 +167,43 @@ class PublishStateTests(unittest.TestCase):
         run_meta.assert_called_once_with(job, job["platforms"], True)
         run_yixiaoer.assert_not_called()
 
+    def test_queued_provider_snapshot_overrides_later_environment_change(self):
+        instagram = {"source": "instagram", "caption": "Caption"}
+        job = {
+            "platforms": [instagram],
+            "videoKind": "hook",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {"_control": {"providers": {"instagram": "meta"}}},
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "yixiaoer"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_called_once_with(job, [instagram], True)
+        run_yixiaoer.assert_not_called()
+
+    def test_queued_yixiaoer_snapshot_preserves_fallback_after_environment_change(self):
+        instagram = {"source": "instagram", "caption": "Caption"}
+        job = {
+            "platforms": [instagram],
+            "videoKind": "hook",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {"_control": {"providers": {"instagram": "yixiaoer"}}},
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_not_called()
+        routed_job = run_yixiaoer.call_args.args[0]
+        self.assertEqual(routed_job["platforms"], [instagram])
+
     def test_mixed_publish_routes_only_selected_platform_to_meta(self):
         instagram = {"source": "instagram", "caption": "Instagram"}
         youtube = {"source": "youtube", "caption": "YouTube"}
@@ -260,6 +297,98 @@ class PublishStateTests(unittest.TestCase):
         self.assertEqual(results["instagram"]["state"], "failed")
         self.assertEqual(results["facebook"]["state"], "published")
         self.assertEqual(update.call_args.args[1], "failed")
+
+    def test_unexpected_meta_platform_failure_does_not_stop_the_next_platform(self):
+        instagram = {"source": "instagram", "caption": "Instagram"}
+        facebook = {"source": "facebook", "caption": "Facebook"}
+        results = {}
+        job = {
+            "platforms": [instagram, facebook],
+            "_allPlatforms": [instagram, facebook],
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": results,
+        }
+
+        def publish(_job, pack, current, _heartbeat):
+            if pack["source"] == "instagram":
+                raise ValueError("malformed provider response")
+            current["facebook"] = {"provider": "meta", "state": "published"}
+
+        with (
+            patch.object(worker_main, "run_meta_platform", side_effect=publish) as run_platform,
+            patch.object(worker_main, "publish_update", return_value={"package": {}}),
+        ):
+            worker_main.run_meta_platforms(job, [instagram, facebook], True)
+
+        self.assertEqual(run_platform.call_count, 2)
+        self.assertEqual(results["instagram"]["state"], "failed")
+        self.assertIn("Unexpected Meta publisher error", results["instagram"]["error"])
+        self.assertEqual(results["facebook"]["state"], "published")
+
+    def test_facebook_reconciliation_accepts_published_video_status(self):
+        publisher = unittest.mock.MagicMock(
+            instagram_user_id="ig-1", facebook_page_id="page-1"
+        )
+        publisher.facebook_reel_status.return_value = {
+            "status": {"video_status": "published"}
+        }
+        results = {
+            "facebook": {
+                "provider": "meta",
+                "state": "outcome_unknown",
+                "stage": "publishing",
+                "providerRequestId": "video-1",
+            }
+        }
+        with patch.object(worker_main, "MetaPublisher", return_value=publisher):
+            worker_main.run_meta_platform(
+                {"yixiaoerAction": "publish", "dramaTitle": "Drama", "episodeNumber": 1},
+                {"source": "facebook", "caption": "Caption"},
+                results,
+                None,
+            )
+
+        self.assertEqual(results["facebook"]["state"], "published")
+        self.assertEqual(results["facebook"]["platformPostId"], "video-1")
+        publisher.finish_facebook_reel.assert_not_called()
+
+    def test_facebook_retries_same_upload_after_confirmed_upload_failure(self):
+        publisher = unittest.mock.MagicMock(
+            instagram_user_id="ig-1", facebook_page_id="page-1"
+        )
+        publisher.facebook_reel_status.return_value = {
+            "status": {"uploading_phase": {"status": "failed"}}
+        }
+        publisher.upload_facebook_reel.return_value = {"success": True}
+        publisher.finish_facebook_reel.return_value = {"success": True}
+        publisher.wait_for_facebook_reel.return_value = {
+            "status": {"publishing_phase": {"status": "complete"}}
+        }
+        results = {
+            "facebook": {
+                "provider": "meta",
+                "state": "outcome_unknown",
+                "stage": "started",
+                "providerRequestId": "video-1",
+                "uploadUrl": "https://rupload.facebook.com/video-1",
+            }
+        }
+        with (
+            patch.object(worker_main, "MetaPublisher", return_value=publisher),
+            patch.object(worker_main, "publish_update"),
+        ):
+            worker_main.run_meta_platform(
+                {"yixiaoerAction": "publish", "dramaTitle": "Drama", "episodeNumber": 1, "videoUrl": "https://cdn.example/video.mp4"},
+                {"source": "facebook", "caption": "Caption"},
+                results,
+                None,
+            )
+
+        publisher.start_facebook_reel.assert_not_called()
+        publisher.upload_facebook_reel.assert_called_once_with(
+            "https://rupload.facebook.com/video-1", "https://cdn.example/video.mp4"
+        )
+        self.assertEqual(results["facebook"]["state"], "published")
 
     def test_instagram_meta_flow_persists_container_before_publish(self):
         publisher = unittest.mock.MagicMock(

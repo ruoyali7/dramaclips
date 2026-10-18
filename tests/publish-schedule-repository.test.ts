@@ -16,7 +16,7 @@ const row={
 function response(value:unknown){return Promise.resolve(new Response(JSON.stringify(value),{status:200,headers:{"content-type":"application/json"}}));}
 
 describe("scheduled publish repository actions",()=>{
-  beforeEach(()=>vi.stubGlobal("fetch",vi.fn()));
+  beforeEach(()=>{vi.stubGlobal("fetch",vi.fn());delete process.env.INSTAGRAM_PUBLISH_PROVIDER;});
   it("preserves the selected retry platform when scheduling recovery",async()=>{
     const next=new Date(Date.now()+3600000).toISOString();
     const original={...row,video_kind:"original"};
@@ -25,9 +25,18 @@ describe("scheduled publish repository actions",()=>{
     expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body)).yixiaoer_results._control).toEqual({retryPlatforms:["instagram"]});
   });
 
+  it("pins the selected provider when a package is queued",async()=>{
+    process.env.INSTAGRAM_PUBLISH_PROVIDER="meta";
+    const next=new Date(Date.now()+3600000).toISOString();
+    const direct={...row,video_kind:"original",platforms:[{source:"instagram"}]};
+    vi.mocked(fetch).mockImplementationOnce(()=>response([direct])).mockImplementationOnce(()=>response([direct]));
+    await enqueueYixiaoerPackage(row.id,{action:"publish",accounts:{instagram:"ig"},scheduledAt:next});
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body)).yixiaoer_results._control).toEqual({providers:{instagram:"meta"}});
+  });
+
   it("reschedules only while the package is still unleased and clears a stale cancel request",async()=>{
     const next=new Date(Date.now()+3_600_000).toISOString();
-    const canceledRow={...row,yixiaoer_results:{...row.yixiaoer_results,_control:{cancelRequested:true,requestedAt:"2026-01-01T00:00:00.000Z"}}};
+    const canceledRow={...row,yixiaoer_results:{...row.yixiaoer_results,_control:{cancelRequested:true,requestedAt:"2026-01-01T00:00:00.000Z",providers:{instagram:"meta"},retryPlatforms:["instagram"]}}};
     vi.mocked(fetch).mockImplementationOnce(()=>response([canceledRow])).mockImplementationOnce(()=>response([{...canceledRow,scheduled_at:next}]));
     const result=await rescheduleYixiaoerPackage(row.id,next);
     expect(result.scheduledAt).toBe(next);
@@ -35,7 +44,7 @@ describe("scheduled publish repository actions",()=>{
     expect(String(url)).toContain("status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null");
     const body=JSON.parse(String(init?.body));
     expect(body).toMatchObject({scheduled_at:next,yixiaoer_results:{_operation:{stage:"awaiting_scheduled_time",scheduledAt:next}}});
-    expect(body.yixiaoer_results).not.toHaveProperty("_control");
+    expect(body.yixiaoer_results._control).toEqual({providers:{instagram:"meta"},retryPlatforms:["instagram"]});
   });
 
   it("cancels a waiting schedule with the same lease guard",async()=>{
