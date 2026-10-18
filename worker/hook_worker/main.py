@@ -453,7 +453,7 @@ def run_meta_platform(job,pack,results,heartbeat):
  source=pack["source"];publisher=MetaPublisher();publisher.validate(source);prior=results.get(source) if isinstance(results.get(source),dict) else {};action=job["yixiaoerAction"]
  account_id=publisher.instagram_user_id if source=="instagram" else publisher.facebook_page_id
  if action!="publish":
-  results[source]={"provider":"meta","state":"validated","accountId":account_id};return
+  results[source]={"provider":"meta","state":"validated","accountId":account_id,"response":publisher.validate_access(source)};return
  title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";caption=pack["caption"]
  request_id=prior.get("providerRequestId") if prior.get("provider")=="meta" else None;detail={**prior,"provider":"meta","accountId":account_id};results[source]=detail
  if source=="instagram":
@@ -485,7 +485,7 @@ def run_meta_platform(job,pack,results,heartbeat):
  status=publisher.wait_for_facebook_reel(request_id,heartbeat);detail.update({"state":"published","stage":"published","platformPostId":request_id,"reconciliation":status,"error":None})
 
 def run_meta_platforms(job,packs,terminal):
- results=job.get("yixiaoerResults") or {};job["yixiaoerResults"]=results;control=results.get("_control") or {};retry_platforms=set(control.get("retryPlatforms",[]));reconcile_platforms=set(control.get("reconcilePlatforms",[]));eligible=[]
+ results=job.get("yixiaoerResults");results=results if isinstance(results,dict) else {};job["yixiaoerResults"]=results;control=results.get("_control") or {};retry_platforms=set(control.get("retryPlatforms",[]));reconcile_platforms=set(control.get("reconcilePlatforms",[]));eligible=[]
  for pack in packs:
   source=pack["source"]
   if reconcile_platforms and source not in reconcile_platforms:continue
@@ -502,23 +502,25 @@ def run_meta_platforms(job,packs,terminal):
   except MetaApiError as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"failed","error":str(error)[:700]}
   publish_update(job,"publishing",45+int((index+1)/max(1,len(eligible))*45),results=results)
  if terminal:
-  considered=[pack for pack in job["platforms"] if pack["source"]!="x" and not publish_platform_is_paused(pack["source"])]
+  considered=job.get("_allPlatforms",[pack for pack in job["platforms"] if pack["source"]!="x" and not publish_platform_is_paused(pack["source"])])
   publish_update(job,final_publish_status(results,considered,job["yixiaoerAction"]),100,terminal=True,results=results)
 
 def run_publish(job):
- paused={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])};results=job.get("yixiaoerResults") or {};job["yixiaoerResults"]=results
+ paused={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])};results=job.get("yixiaoerResults");results=results if isinstance(results,dict) else {};job["yixiaoerResults"]=results
  for source in paused:
   prior=results.get(source) if isinstance(results.get(source),dict) else {}
   if prior.get("state")!="published":results[source]={**prior,"state":"paused","error":None,"reason":"Platform publishing is temporarily paused"}
- supported=[pack for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused and publish_platform_allowed(job.get("videoKind"),pack["source"])]
- meta_packs=[pack for pack in supported if publish_provider(pack["source"])=="meta"]
- yixiaoer_packs=[pack for pack in supported if publish_provider(pack["source"])=="yixiaoer"]
+ supported=[pack for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused and publish_platform_allowed(job.get("videoKind"),pack["source"])];job["_allPlatforms"]=supported
+ control=results.get("_control") or {};targeted=set(control.get("reconcilePlatforms") or control.get("retryPlatforms") or [])
+ active=[pack for pack in supported if not targeted or pack["source"] in targeted]
+ meta_packs=[pack for pack in active if publish_provider(pack["source"])=="meta"]
+ yixiaoer_packs=[pack for pack in active if publish_provider(pack["source"])=="yixiaoer"]
  if meta_packs:run_meta_platforms(job,meta_packs,not yixiaoer_packs)
  if yixiaoer_packs:
   yixiaoer_job={**job,"platforms":yixiaoer_packs,"_allPlatforms":supported}
-  control=dict(results.get("_control") or {})
-  if control.get("reconcilePlatforms"):control["reconcilePlatforms"]=[source for source in control["reconcilePlatforms"] if any(pack["source"]==source for pack in yixiaoer_packs)]
-  results["_control"]=control;yixiaoer_job["yixiaoerResults"]=results
+  yixiaoer_control=dict(control)
+  if yixiaoer_control.get("reconcilePlatforms"):yixiaoer_control["reconcilePlatforms"]=[source for source in yixiaoer_control["reconcilePlatforms"] if any(pack["source"]==source for pack in yixiaoer_packs)]
+  results["_control"]=yixiaoer_control;yixiaoer_job["yixiaoerResults"]=results
   run_yixiaoer_publish(yixiaoer_job)
  if not meta_packs and not yixiaoer_packs:publish_update(job,"ready" if job["yixiaoerAction"]!="publish" else "failed",100,terminal=True,results=results)
 

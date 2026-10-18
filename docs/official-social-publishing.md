@@ -68,12 +68,15 @@ The direct publishers reuse the existing R2 URL. The URL must be reachable by Me
 
 - A platform already marked `published` is skipped.
 - An explicit retry targets only the selected failed platform.
+- A retry or reconciliation does not enter the other provider pipeline or prepare unrelated media.
 - Instagram saves its container ID before polling or publishing.
 - Facebook saves its video ID and upload URL before transfer, then saves each stage before the next request.
 - Safe status GETs retry transient network and rate-limit responses up to three times.
+- The existing validation action performs a read-only account lookup; it never creates a media container or Reel.
 - POST requests are never automatically repeated after a network timeout. They become `outcome_unknown` because Meta may have accepted the operation.
 - Facebook ambiguous outcomes can be reconciled from the saved video status. Instagram ambiguous `media_publish` calls stay blocked unless the result can be verified; the worker does not create a second Reel.
 - Confirmed API errors are recorded as a failed platform and do not stop the other platforms.
+- Facebook upload credentials are sent only to Meta's `rupload.facebook.com` host.
 
 ## Meta setup
 

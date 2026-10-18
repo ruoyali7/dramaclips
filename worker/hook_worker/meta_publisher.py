@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -32,7 +33,7 @@ class MetaPublisher:
         self.instagram_user_id = values.get("INSTAGRAM_USER_ID", "").strip()
         self.facebook_page_id = values.get("FACEBOOK_PAGE_ID", "").strip()
         self.app_secret = values.get("META_APP_SECRET", "").strip()
-        self.graph_url = values.get("META_GRAPH_API_URL", "https://graph.facebook.com").rstrip("/")
+        self.graph_url = "https://graph.facebook.com"
         self.session = session or requests.Session()
         self.sleep = sleep or time.sleep
 
@@ -53,6 +54,16 @@ class MetaPublisher:
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"}
+
+    def validate_access(self, platform):
+        self.validate(platform)
+        account_id = self.instagram_user_id if platform == "instagram" else self.facebook_page_id
+        fields = "id,username" if platform == "instagram" else "id,name"
+        return self._request(
+            "GET",
+            f"{self.graph_url}/{self.version}/{account_id}",
+            params={"fields": fields},
+        )
 
     def _params(self, values=None):
         params = dict(values or {})
@@ -162,6 +173,8 @@ class MetaPublisher:
         return str(data["video_id"]), str(data["upload_url"]), data
 
     def upload_facebook_reel(self, upload_url, video_url):
+        if urlparse(upload_url).hostname != "rupload.facebook.com":
+            raise MetaApiError("Meta returned an invalid Facebook Reel upload URL")
         return self._request(
             "POST",
             upload_url,

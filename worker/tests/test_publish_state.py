@@ -176,9 +176,11 @@ class PublishStateTests(unittest.TestCase):
             "yixiaoerAction": "publish",
             "yixiaoerResults": {},
         }
+        def publish_meta(current_job, _packs, _terminal):
+            current_job["yixiaoerResults"]["instagram"] = {"state": "published"}
         with (
             patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
-            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_meta_platforms", side_effect=publish_meta) as run_meta,
             patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
         ):
             worker_main.run_publish(job)
@@ -187,6 +189,77 @@ class PublishStateTests(unittest.TestCase):
         routed_job = run_yixiaoer.call_args.args[0]
         self.assertEqual(routed_job["platforms"], [youtube])
         self.assertEqual(routed_job["_allPlatforms"], [instagram, youtube])
+        self.assertEqual(routed_job["yixiaoerResults"]["instagram"]["state"], "published")
+
+    def test_meta_retry_does_not_enter_yixiaoer_pipeline(self):
+        instagram = {"source": "instagram", "caption": "Instagram"}
+        facebook = {"source": "facebook", "caption": "Facebook"}
+        job = {
+            "platforms": [instagram, facebook],
+            "videoKind": "hook",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {
+                "_control": {"retryPlatforms": ["instagram"]},
+                "instagram": {"state": "failed"},
+                "facebook": {"state": "failed"},
+            },
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_called_once_with(job, [instagram], True)
+        run_yixiaoer.assert_not_called()
+
+    def test_disallowed_youtube_original_is_not_counted_in_meta_result(self):
+        instagram = {"source": "instagram", "caption": "Instagram"}
+        youtube = {"source": "youtube", "caption": "YouTube"}
+        job = {
+            "platforms": [instagram, youtube],
+            "videoKind": "original",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {},
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_called_once_with(job, [instagram], True)
+        self.assertEqual(job["_allPlatforms"], [instagram])
+        run_yixiaoer.assert_not_called()
+
+    def test_meta_platform_failure_does_not_stop_the_next_platform(self):
+        instagram = {"source": "instagram", "caption": "Instagram"}
+        facebook = {"source": "facebook", "caption": "Facebook"}
+        results = {}
+        job = {
+            "platforms": [instagram, facebook],
+            "_allPlatforms": [instagram, facebook],
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": results,
+        }
+
+        def publish(_job, pack, current, _heartbeat):
+            if pack["source"] == "instagram":
+                raise worker_main.MetaApiError("Instagram rejected the request")
+            current["facebook"] = {"provider": "meta", "state": "published"}
+
+        with (
+            patch.object(worker_main, "run_meta_platform", side_effect=publish) as run_platform,
+            patch.object(worker_main, "publish_update", return_value={"package": {}}) as update,
+        ):
+            worker_main.run_meta_platforms(job, [instagram, facebook], True)
+
+        self.assertEqual(run_platform.call_count, 2)
+        self.assertEqual(results["instagram"]["state"], "failed")
+        self.assertEqual(results["facebook"]["state"], "published")
+        self.assertEqual(update.call_args.args[1], "failed")
 
     def test_instagram_meta_flow_persists_container_before_publish(self):
         publisher = unittest.mock.MagicMock(

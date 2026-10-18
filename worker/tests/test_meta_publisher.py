@@ -45,6 +45,19 @@ class MetaPublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not available for youtube"):
             publish_provider("youtube", {"YOUTUBE_PUBLISH_PROVIDER": "meta"})
 
+    def test_validation_checks_the_configured_account_without_publishing(self):
+        session = MagicMock()
+        session.request.return_value = Response({"id": "ig-1", "username": "dramaclips"})
+        publisher = MetaPublisher(config(), session=session)
+
+        result = publisher.validate_access("instagram")
+
+        self.assertEqual(result["id"], "ig-1")
+        request = session.request.call_args
+        self.assertEqual(request.args[0], "GET")
+        self.assertTrue(request.args[1].endswith("/v24.0/ig-1"))
+        self.assertEqual(request.kwargs["params"]["fields"], "id,username")
+
     def test_instagram_reel_uses_r2_url_then_publishes_media_id(self):
         session = MagicMock()
         session.request.side_effect = [
@@ -68,6 +81,7 @@ class MetaPublisherTests(unittest.TestCase):
         self.assertEqual(create.kwargs["params"]["video_url"], "https://cdn.example/video.mp4")
         self.assertEqual(create.kwargs["headers"]["Authorization"], "Bearer page-token")
         self.assertNotIn("access_token", create.kwargs["params"])
+        self.assertEqual(len(create.kwargs["params"]["appsecret_proof"]), 64)
 
     def test_facebook_reel_uses_hosted_upload_and_waits_for_publish(self):
         session = MagicMock()
@@ -90,6 +104,16 @@ class MetaPublisherTests(unittest.TestCase):
         self.assertEqual(upload.kwargs["headers"]["Authorization"], "OAuth page-token")
         finish = session.request.call_args_list[2]
         self.assertEqual(finish.kwargs["params"]["video_state"], "PUBLISHED")
+
+    def test_facebook_upload_rejects_untrusted_upload_host(self):
+        session = MagicMock()
+        publisher = MetaPublisher(config(), session=session)
+
+        with self.assertRaisesRegex(MetaApiError, "invalid Facebook Reel upload URL"):
+            publisher.upload_facebook_reel(
+                "https://attacker.example/upload", "https://cdn.example/video.mp4"
+            )
+        session.request.assert_not_called()
 
     def test_post_timeout_is_ambiguous_and_not_retried(self):
         session = MagicMock()
