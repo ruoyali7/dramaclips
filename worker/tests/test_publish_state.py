@@ -150,6 +150,108 @@ class PublishStateTests(unittest.TestCase):
             self.assertTrue(worker_main.publish_platform_is_paused("instagram"))
             self.assertFalse(worker_main.publish_platform_is_paused("facebook"))
 
+    def test_meta_only_publish_skips_yixiaoer_pipeline(self):
+        job = {
+            "platforms": [{"source": "instagram", "caption": "Caption"}],
+            "videoKind": "hook",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {},
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_called_once_with(job, job["platforms"], True)
+        run_yixiaoer.assert_not_called()
+
+    def test_mixed_publish_routes_only_selected_platform_to_meta(self):
+        instagram = {"source": "instagram", "caption": "Instagram"}
+        youtube = {"source": "youtube", "caption": "YouTube"}
+        job = {
+            "platforms": [instagram, youtube],
+            "videoKind": "hook",
+            "yixiaoerAction": "publish",
+            "yixiaoerResults": {},
+        }
+        with (
+            patch.dict(worker_main.os.environ, {"INSTAGRAM_PUBLISH_PROVIDER": "meta"}),
+            patch.object(worker_main, "run_meta_platforms") as run_meta,
+            patch.object(worker_main, "run_yixiaoer_publish") as run_yixiaoer,
+        ):
+            worker_main.run_publish(job)
+
+        run_meta.assert_called_once_with(job, [instagram], False)
+        routed_job = run_yixiaoer.call_args.args[0]
+        self.assertEqual(routed_job["platforms"], [youtube])
+        self.assertEqual(routed_job["_allPlatforms"], [instagram, youtube])
+
+    def test_instagram_meta_flow_persists_container_before_publish(self):
+        publisher = unittest.mock.MagicMock(
+            instagram_user_id="ig-1", facebook_page_id="page-1"
+        )
+        publisher.create_instagram_container.return_value = (
+            "container-1",
+            {"id": "container-1"},
+        )
+        publisher.wait_for_instagram_container.return_value = {
+            "id": "container-1",
+            "status_code": "FINISHED",
+        }
+        publisher.publish_instagram_container.return_value = (
+            "media-1",
+            {"id": "media-1"},
+        )
+        job = {
+            "dramaTitle": "Drama",
+            "episodeNumber": 1,
+            "videoUrl": "https://cdn.example/video.mp4",
+            "yixiaoerAction": "publish",
+        }
+        results = {}
+        with (
+            patch.object(worker_main, "MetaPublisher", return_value=publisher),
+            patch.object(worker_main, "publish_update") as update,
+        ):
+            worker_main.run_meta_platform(
+                job, {"source": "instagram", "caption": "Caption"}, results, None
+            )
+
+        self.assertEqual(results["instagram"]["platformPostId"], "media-1")
+        self.assertEqual(results["instagram"]["state"], "published")
+        self.assertEqual(update.call_args_list[0].kwargs["results"]["instagram"]["providerRequestId"], "container-1")
+        publisher.publish_instagram_container.assert_called_once_with("container-1")
+
+    def test_ambiguous_instagram_publish_is_reconciled_not_reposted(self):
+        publisher = unittest.mock.MagicMock(
+            instagram_user_id="ig-1", facebook_page_id="page-1"
+        )
+        publisher.instagram_container_status.return_value = {
+            "id": "container-1",
+            "status_code": "FINISHED",
+        }
+        results = {
+            "instagram": {
+                "provider": "meta",
+                "state": "outcome_unknown",
+                "stage": "publishing",
+                "providerRequestId": "container-1",
+            }
+        }
+        with patch.object(worker_main, "MetaPublisher", return_value=publisher):
+            with self.assertRaises(worker_main.MetaOutcomeUnknown):
+                worker_main.run_meta_platform(
+                    {"yixiaoerAction": "publish", "dramaTitle": "Drama", "episodeNumber": 1},
+                    {"source": "instagram", "caption": "Caption"},
+                    results,
+                    None,
+                )
+
+        publisher.create_instagram_container.assert_not_called()
+        publisher.publish_instagram_container.assert_not_called()
+
     def test_instagram_timeout_without_a_record_stays_processing(self):
         details = {"tasks": [{
             "platformName": "Instagram",

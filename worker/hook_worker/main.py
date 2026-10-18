@@ -11,6 +11,7 @@ from .runtime_config import load_runtime_config
 from .telegram_notifications import notify_publish_failure,notify_scheduled_queue_nearly_finished
 from .upload import is_transient_network_error,primary_publish_channel,publish_video_optimization_command,retry_upload,should_optimize_publish_video,video_upload_timeout
 from .instagram_story import StoryUploadStarted,login_story_client,publish_story
+from .meta_publisher import MetaApiError,MetaOutcomeUnknown,MetaPublisher,publish_provider
 
 API=os.environ["CONTROL_PLANE_URL"].rstrip("/"); TOKEN=os.environ["HOOK_WORKER_TOKEN"]; WORKER=os.getenv("RAILWAY_SERVICE_ID","worker-local"); VIZARD_WORKER=f"{WORKER}-vizard"
 RUNTIME=load_runtime_config(os.environ);SUPABASE_URL=RUNTIME["supabase_url"];SUPABASE_KEY=RUNTIME["supabase_key"]
@@ -78,11 +79,13 @@ def hydrate_publish_job(row):
  if row.get("video_kind")=="hook":
   identity=f"id=eq.{quote(str(row['hook_clip_id']),safe='')}" if row.get("hook_clip_id") else f"video_url=eq.{quote(str(row['video_url']),safe='')}"
   hook_rows=supabase(f"hook_clips?{identity}&select=cover_source_timestamp,source_ranges,rendered_ranges,duration_seconds&limit=1") or []
- account_cache=supabase("yixiaoer_account_cache?id=eq.active&select=accounts&limit=1") or []
- accounts=resolve_publish_accounts(job.get("yixiaoerAccounts") or {},account_cache[0].get("accounts",[]) if account_cache else [])
- if accounts!=job.get("yixiaoerAccounts"):
+ sources=[pack.get("source") for pack in row.get("platforms") or []]
+ uses_yixiaoer=any(publish_provider(source)=="yixiaoer" for source in sources if source in ("tiktok","instagram","youtube","facebook"))
+ account_cache=supabase("yixiaoer_account_cache?id=eq.active&select=accounts&limit=1") or [] if uses_yixiaoer else []
+ accounts=resolve_publish_accounts(job.get("yixiaoerAccounts") or {},account_cache[0].get("accounts",[]) if account_cache else []) if uses_yixiaoer else job.get("yixiaoerAccounts") or {}
+ if uses_yixiaoer and accounts!=job.get("yixiaoerAccounts"):
   supabase(f"publish_packages?id=eq.{quote(str(row['id']),safe='')}",method="PATCH",payload={"yixiaoer_accounts":accounts},prefer="return=minimal")
- job.update({"apiKey":yixiaoer_worker_api_key(),"dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0,"yixiaoerAccounts":accounts})
+ job.update({"apiKey":yixiaoer_worker_api_key() if uses_yixiaoer else "","dramaTitle":str(dramas[0].get("title") if dramas else row["drama_slug"]),"coverTimestampSeconds":rendered_cover_timestamp(hook_rows[0]) if hook_rows else 0,"yixiaoerAccounts":accounts})
  return job
 def resolve_publish_accounts(selected,active):
  resolved=dict(selected);platform_names={"tiktok":"tiktok","instagram":"instagram","youtube":"youtube","facebook":"facebook"}
@@ -337,7 +340,7 @@ def publish_update(job,status,progress,terminal=False,**extra):
    if source=="x" or not isinstance(detail,dict):continue
    state=str(detail.get("state") or "")
    if state not in ("submitting","submitted","processing","published","failed","outcome_unknown"):continue
-   account_id=str((package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
+   account_id=str(detail.get("accountId") or (package.get("yixiaoerAccounts") or {}).get(source) or "");attempts.append({"package_id":job["id"],"platform":source,"account_id":account_id,"idempotency_key":hashlib.sha256(f"{job['id']}:{source}:{account_id}".encode()).hexdigest(),"state":state,"provider_request_id":detail.get("providerRequestId"),"platform_post_id":detail.get("platformPostId"),"provider_response":detail.get("reconciliation") or detail.get("publish") or detail.get("response") or {},"error_message":detail.get("error"),"submitted_at":now if state in ("submitted","processing","published") else None,"reconciled_at":now if state in ("published","failed") else None,"updated_at":now})
   if attempts:supabase("publish_platform_attempts?on_conflict=package_id,platform",method="POST",payload=attempts,prefer="resolution=merge-duplicates")
  if terminal and status in ("failed","outcome_unknown"):
   try:notify_publish_failure(job,status,results or {},extra.get("error"))
@@ -446,7 +449,80 @@ def remote_video_size(url):
    response.raise_for_status()
    return int(response.headers.get("content-length") or 0)
  except (requests.RequestException,ValueError):return 0
+def run_meta_platform(job,pack,results,heartbeat):
+ source=pack["source"];publisher=MetaPublisher();publisher.validate(source);prior=results.get(source) if isinstance(results.get(source),dict) else {};action=job["yixiaoerAction"]
+ account_id=publisher.instagram_user_id if source=="instagram" else publisher.facebook_page_id
+ if action!="publish":
+  results[source]={"provider":"meta","state":"validated","accountId":account_id};return
+ title=f"{job['dramaTitle']} · EP {job['episodeNumber']}";caption=pack["caption"]
+ request_id=prior.get("providerRequestId") if prior.get("provider")=="meta" else None;detail={**prior,"provider":"meta","accountId":account_id};results[source]=detail
+ if source=="instagram":
+  if detail.get("stage")=="publishing":
+   status=publisher.instagram_container_status(request_id)
+   if str(status.get("status_code") or "").upper() in ("ERROR","EXPIRED"):raise MetaApiError(f"Instagram publishing failed for container {request_id}: {status.get('status') or status.get('status_code')}")
+   raise MetaOutcomeUnknown(f"Instagram publish outcome is ambiguous for container {request_id}; container status is {status.get('status_code') or 'unknown'}")
+  if not request_id:
+   request_id,response=publisher.create_instagram_container(job["videoUrl"],caption);detail.update({"state":"processing","stage":"container_created","providerRequestId":request_id,"response":response});results[source]=detail;publish_update(job,"publishing",55,results=results)
+  status=publisher.wait_for_instagram_container(request_id,heartbeat);detail.update({"state":"submitting","stage":"publishing","reconciliation":status});publish_update(job,"publishing",85,results=results)
+  media_id,response=publisher.publish_instagram_container(request_id);detail.update({"state":"published","stage":"published","platformPostId":media_id,"response":response,"error":None});return
+ if detail.get("stage")=="publishing":
+  status=publisher.facebook_reel_status(request_id);status_detail=status.get("status") or {};phase=(status_detail.get("publishing_phase") or {}).get("status");video_status=status_detail.get("video_status")
+  if str(phase or "").lower()=="complete":detail.update({"state":"published","stage":"published","platformPostId":request_id,"reconciliation":status,"error":None});results[source]=detail;return
+  if str(phase or "").lower() in ("error","failed") or str(video_status or "").lower() in ("error","failed"):raise MetaApiError(f"Facebook publishing failed for video {request_id}: {status_detail}")
+  raise MetaOutcomeUnknown(f"Facebook publish outcome is ambiguous for video {request_id}; publishing status is {phase or 'unknown'}")
+ if not request_id:
+  request_id,upload_url,response=publisher.start_facebook_reel();detail.update({"state":"processing","stage":"started","providerRequestId":request_id,"uploadUrl":upload_url,"response":response});results[source]=detail;publish_update(job,"publishing",55,results=results)
+ else:upload_url=detail.get("uploadUrl")
+ if detail.get("stage")=="started" and detail.get("state")=="outcome_unknown":
+  status=publisher.facebook_reel_status(request_id);uploading=((status.get("status") or {}).get("uploading_phase") or {}).get("status")
+  if str(uploading or "").lower()=="complete":detail.update({"state":"processing","stage":"uploaded","reconciliation":status})
+  else:raise MetaOutcomeUnknown(f"Facebook upload outcome is ambiguous for video {request_id}; upload status is {uploading or 'unknown'}")
+ if detail.get("stage")=="started":
+  if not upload_url:raise MetaApiError(f"Facebook Reel {request_id} has no upload URL")
+  response=publisher.upload_facebook_reel(upload_url,job["videoUrl"]);detail.update({"state":"processing","stage":"uploaded","response":response});publish_update(job,"publishing",70,results=results)
+ detail.update({"state":"submitting","stage":"publishing"});publish_update(job,"publishing",85,results=results)
+ response=publisher.finish_facebook_reel(request_id,title,caption);detail["response"]=response
+ status=publisher.wait_for_facebook_reel(request_id,heartbeat);detail.update({"state":"published","stage":"published","platformPostId":request_id,"reconciliation":status,"error":None})
+
+def run_meta_platforms(job,packs,terminal):
+ results=job.get("yixiaoerResults") or {};job["yixiaoerResults"]=results;control=results.get("_control") or {};retry_platforms=set(control.get("retryPlatforms",[]));reconcile_platforms=set(control.get("reconcilePlatforms",[]));eligible=[]
+ for pack in packs:
+  source=pack["source"]
+  if reconcile_platforms and source not in reconcile_platforms:continue
+  if not reconcile_platforms and not should_process_platform(source,results.get(source),job["yixiaoerAction"],retry_platforms):continue
+  eligible.append(pack)
+ for index,pack in enumerate(eligible):
+  source=pack["source"]
+  def heartbeat():
+   if cancel_requested(publish_update(job,"reconciling" if reconcile_platforms else "publishing",45+int(index/max(1,len(eligible))*40),results={**results,"_operation":{"stage":"meta_platform","platform":source,"heartbeatAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}})):raise PublishCanceled("Canceled by user")
+   return False
+  try:run_meta_platform(job,pack,results,heartbeat)
+  except PublishCanceled:raise
+  except MetaOutcomeUnknown as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"outcome_unknown","error":str(error)[:700]}
+  except MetaApiError as error:results[source]={**(results.get(source) or {}),"provider":"meta","state":"failed","error":str(error)[:700]}
+  publish_update(job,"publishing",45+int((index+1)/max(1,len(eligible))*45),results=results)
+ if terminal:
+  considered=[pack for pack in job["platforms"] if pack["source"]!="x" and not publish_platform_is_paused(pack["source"])]
+  publish_update(job,final_publish_status(results,considered,job["yixiaoerAction"]),100,terminal=True,results=results)
+
 def run_publish(job):
+ paused={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])};results=job.get("yixiaoerResults") or {};job["yixiaoerResults"]=results
+ for source in paused:
+  prior=results.get(source) if isinstance(results.get(source),dict) else {}
+  if prior.get("state")!="published":results[source]={**prior,"state":"paused","error":None,"reason":"Platform publishing is temporarily paused"}
+ supported=[pack for pack in job["platforms"] if pack["source"] in ("tiktok","instagram","youtube","facebook") and pack["source"] not in paused and publish_platform_allowed(job.get("videoKind"),pack["source"])]
+ meta_packs=[pack for pack in supported if publish_provider(pack["source"])=="meta"]
+ yixiaoer_packs=[pack for pack in supported if publish_provider(pack["source"])=="yixiaoer"]
+ if meta_packs:run_meta_platforms(job,meta_packs,not yixiaoer_packs)
+ if yixiaoer_packs:
+  yixiaoer_job={**job,"platforms":yixiaoer_packs,"_allPlatforms":supported}
+  control=dict(results.get("_control") or {})
+  if control.get("reconcilePlatforms"):control["reconcilePlatforms"]=[source for source in control["reconcilePlatforms"] if any(pack["source"]==source for pack in yixiaoer_packs)]
+  results["_control"]=control;yixiaoer_job["yixiaoerResults"]=results
+  run_yixiaoer_publish(yixiaoer_job)
+ if not meta_packs and not yixiaoer_packs:publish_update(job,"ready" if job["yixiaoerAction"]!="publish" else "failed",100,terminal=True,results=results)
+
+def run_yixiaoer_publish(job):
  action=job["yixiaoerAction"];status="validating" if action=="validate" else "publishing";stored=job.get("yixiaoerVideo") or {};candidate_video=stored.get("video") or (stored if stored.get("key") else {});video=candidate_video if "publish-video-" in str(candidate_video.get("key") or "") else {};cover=stored.get("cover") if stored.get("coverPackageId")==job["id"] else {};results=job.get("yixiaoerResults") or {};control=results.get("_control") or {};local_video=None
  if control.get("cancelRequested"):raise PublishCanceled("Canceled by user")
  paused_sources={pack["source"] for pack in job["platforms"] if publish_platform_is_paused(pack["source"])}
@@ -500,7 +576,7 @@ def run_publish(job):
    try:reconcile_publish(job,source,request_id,results,assets,payloads,lambda: cancel_requested(publish_update(job,"reconciling",95,results=results)))
    except PublishOutcomeUnknown as error:
     results[source]["state"]="outcome_unknown";results[source]["error"]=str(error);publish_update(job,"outcome_unknown",100,terminal=True,video=assets,payloads=payloads,results=results,error=str(error));return
-  publish_update(job,"published" if all(isinstance(results.get(p["source"]),dict) and results[p["source"]].get("state")=="published" for p in job["platforms"] if p["source"] in payloads) else "failed",100,terminal=True,video=assets,payloads=payloads,results=results);return
+  publish_update(job,final_publish_status(results,job.get("_allPlatforms",job["platforms"]),action),100,terminal=True,video=assets,payloads=payloads,results=results);return
  retry_platforms=set(control.get("retryPlatforms",[]))
  pending=[p for p in job["platforms"] if p["source"] in payloads and should_process_platform(p["source"],results.get(p["source"]),action,retry_platforms)]
  for index,pack in enumerate(pending):
@@ -570,7 +646,7 @@ def run_publish(job):
   if draft_heartbeat():raise PublishCanceled("Canceled by user")
   response=yixer_draft(job,draft_payload,draft_heartbeat);results["_draft"]={"state":"saved","response":response,"savedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
   publish_update(job,"ready",100,terminal=True,video=assets,payloads=payloads,results=results);return
- terminal_status=final_publish_status(results,[p for p in job["platforms"] if p["source"] in payloads],action)
+ terminal_status=final_publish_status(results,job.get("_allPlatforms",[p for p in job["platforms"] if p["source"] in payloads]),action)
  publish_update(job,terminal_status,100,terminal=True,video=assets,payloads=payloads,results=results)
 def main():
  print(f"Worker starting; mode={RUNTIME['mode']} lease_backend={RUNTIME['lease_backend']} hook_worker={ENABLE_HOOK_WORKER} vizard_worker={ENABLE_VIZARD_WORKER} publish_worker={ENABLE_PUBLISH_WORKER} story_worker={ENABLE_INSTAGRAM_STORY_WORKER} story_test_mode={INSTAGRAM_STORY_TEST_MODE} idle_poll={IDLE_POLL_SECONDS}s account_sync={ACCOUNT_SYNC_INTERVAL_SECONDS}s schedule_notification={SCHEDULE_NOTIFICATION_INTERVAL_SECONDS}s",flush=True)
