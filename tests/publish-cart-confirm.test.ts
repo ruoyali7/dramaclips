@@ -24,7 +24,7 @@ const item = { id: "11111111-1111-4111-8111-111111111111", cartDate: "2026-09-08
 const request = () => new Request("http://localhost/api/admin/publish-cart/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cartDate: "2026-09-08", confirm: true }) }) as never;
 
 describe("publish cart confirmation", () => {
-  beforeEach(() => { vi.clearAllMocks(); slots.mockReturnValue(["2026-09-08T14:00:00.000Z"]); listItems.mockImplementation(async (_dates, statuses) => statuses?.includes("scheduled") ? [] : [item]); createPackage.mockResolvedValue({ id: "package-1", status: "ready" }); enqueue.mockResolvedValue({ id: "package-1", status: "scheduled" }); markScheduled.mockResolvedValue({}); });
+  beforeEach(() => { vi.clearAllMocks(); delete process.env.INSTAGRAM_PUBLISH_PROVIDER; delete process.env.FACEBOOK_PUBLISH_PROVIDER; delete process.env.INSTAGRAM_USER_ID; delete process.env.FACEBOOK_PAGE_ID; slots.mockReturnValue(["2026-09-08T14:00:00.000Z"]); listItems.mockImplementation(async (_dates, statuses) => statuses?.includes("scheduled") ? [] : [item]); createPackage.mockResolvedValue({ id: "package-1", status: "ready" }); enqueue.mockResolvedValue({ id: "package-1", status: "scheduled" }); markScheduled.mockResolvedValue({}); });
 
   it("creates and queues the cart in fixed order with all default platforms", async () => {
     const response = await POST(request());
@@ -40,6 +40,20 @@ describe("publish cart confirmation", () => {
     expect(response.status).toBe(201);
     expect(createPackage).toHaveBeenCalledWith(expect.objectContaining({ videoKind: "original", videoLabel: "Episode 2", hookClipId: undefined, platforms: ["tiktok", "instagram", "facebook"] }));
     expect(enqueue).toHaveBeenCalledWith("package-1", { action: "publish", accounts: { tiktok: "tt", instagram: "ig", facebook: "fb" }, scheduledAt: "2026-09-08T14:00:00.000Z" });
+  });
+
+  it("uses server-configured Meta account IDs for official Instagram and Facebook publishing", async () => {
+    process.env.INSTAGRAM_PUBLISH_PROVIDER = "meta";
+    process.env.FACEBOOK_PUBLISH_PROVIDER = "meta";
+    process.env.INSTAGRAM_USER_ID = "official-ig";
+    process.env.FACEBOOK_PAGE_ID = "official-fb";
+    const response = await POST(request());
+    expect(response.status).toBe(201);
+    expect(enqueue).toHaveBeenCalledWith("package-1", {
+      action: "publish",
+      accounts: { tiktok: "tt", instagram: "official-ig", youtube: "yt", facebook: "official-fb" },
+      scheduledAt: "2026-09-08T14:00:00.000Z",
+    });
   });
 
   it("does not enqueue an already scheduled idempotent cart package again", async () => {

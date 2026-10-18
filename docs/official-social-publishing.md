@@ -49,6 +49,8 @@ INSTAGRAM_PUBLISH_PROVIDER=yixiaoer # or meta
 FACEBOOK_PUBLISH_PROVIDER=yixiaoer  # or meta
 ```
 
+The Publish Center account endpoint and cart scheduler use the same switches. When a platform is set to `meta`, the server exposes the configured official account as the only selectable account and replaces any client-supplied account ID with the server-side ID. Mixed packages remain supported: Instagram/Facebook can use Meta while TikTok/YouTube continue through Yixiaoer. Meta direct publishing does not support the existing Yixiaoer draft action, so that combination is rejected instead of pretending a draft was saved.
+
 Meta configuration (Railway server secrets only):
 
 ```env

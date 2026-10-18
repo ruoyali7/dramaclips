@@ -234,10 +234,8 @@ function taskCanContinue(value: Package) {
 }
 export function PublishCenter({
   sources,
-  yixiaoerReady,
 }: {
   sources: Source[];
-  yixiaoerReady: boolean;
 }) {
   const [sourceId, setSourceId] = useState(sources[0]?.id || "");
   const source = sources.find((x) => x.id === sourceId);
@@ -411,8 +409,8 @@ export function PublishCenter({
     finally { setCartBusy(false); }
   }
   useEffect(() => {
-    if (yixiaoerReady) void loadAccounts(platforms, accountIds);
-  }, [yixiaoerReady, platforms]);
+    void loadAccounts(platforms, accountIds);
+  }, [platforms]);
   useEffect(() => setPreviewPacks([]), [sourceId, asset, kind, platforms, account, campaign]);
   useAdaptivePolling(Boolean(created?.yixiaoerAction), async () => {
     if (!created) return;
@@ -694,7 +692,7 @@ export function PublishCenter({
       return;
     }
     if (!allAccountsSelected) {
-      setError("Choose a Yixiaoer account for every selected publishing platform");
+      setError("Choose an account for every selected publishing platform");
       return;
     }
     setBusy(true);
@@ -747,7 +745,6 @@ export function PublishCenter({
     targetPlatforms = platforms,
     preferred: Record<string, string> = {},
   ) {
-    if (!yixiaoerReady) return;
     setConnectionBusy(true);
     try {
       const r = await fetch("/api/admin/yixiaoer/accounts");
@@ -838,7 +835,7 @@ export function PublishCenter({
     if (
       !item.yixiaoerAction ||
       !window.confirm(
-        "Stop the current Yixiaoer operation? Nothing will be published after the worker stops.",
+        "Stop the current publishing operation? Nothing will be published after the worker stops.",
       )
     )
       return;
@@ -905,7 +902,7 @@ export function PublishCenter({
     if(connectionBusy)return;
     const retryMode=platform==="all"?retryDeliveryMode:"now";
     const message = action === "reconcile"
-      ? `Query Yixiaoer for the latest ${platform} result before retrying?`
+      ? `Query the provider for the latest ${platform} result before retrying?`
       : `Retry ${platform==="all"?"unpublished platforms":platform}? Successful platforms will be kept.`;
     if (!window.confirm(message)) return;
     setConnectionBusy(true);
@@ -1295,7 +1292,7 @@ export function PublishCenter({
         </div>
         <details className="account-routing" onToggle={(event) => event.currentTarget.open && void loadCopyPreview()}>
           <summary><div><b>Publishing accounts & full captions</b><small>{selectedAccountCount}/{supportedAccountPlatforms.length} selected · emoji, Watch now link, search code, CTA and hashtags</small></div><span>{previewBusy ? "Generating…" : allAccountsSelected ? "Ready" : "Action required"}</span></summary>
-          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy || !yixiaoerReady}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => {const pack=previewPacks.find((item)=>item.source===p);return <section className="account-description" key={p}><label className="yixiaoer-account"><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label><label><b>{yNames[p]} full caption</b><textarea className="full-caption-preview" value={pack?.caption || ""} placeholder={previewBusy ? "Generating full caption…" : "Open again to generate preview"} onChange={(e) => setPreviewPacks((current) => current.map((item) => item.source===p ? {...item,caption:e.target.value} : item))} maxLength={10000}/><small>{pack ? `${pack.caption.length} characters · ${pack.url}` : "Includes the final tracking link, CTA, search code and hashtags."}</small></label></section>})}</div>
+          <div className="account-routing-body"><button onClick={() => void loadAccounts(platforms, accountIds)} disabled={connectionBusy}>{connectionBusy ? "Refreshing…" : "Refresh accounts"}</button>{supportedAccountPlatforms.map((p) => {const pack=previewPacks.find((item)=>item.source===p);return <section className="account-description" key={p}><label className="yixiaoer-account"><b>{yNames[p]} account</b><select value={accountIds[p] || ""} onChange={(e) => setAccountIds((x) => ({...x,[p]:e.target.value}))}><option value="">Choose account</option>{accounts.filter((a) => a.platform.toLowerCase() === yNames[p].toLowerCase()).map((a) => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label><label><b>{yNames[p]} full caption</b><textarea className="full-caption-preview" value={pack?.caption || ""} placeholder={previewBusy ? "Generating full caption…" : "Open again to generate preview"} onChange={(e) => setPreviewPacks((current) => current.map((item) => item.source===p ? {...item,caption:e.target.value} : item))} maxLength={10000}/><small>{pack ? `${pack.caption.length} characters · ${pack.url}` : "Includes the final tracking link, CTA, search code and hashtags."}</small></label></section>})}</div>
         </details>
         <button
           className="save-draft"
@@ -1341,7 +1338,7 @@ export function PublishCenter({
             <div className="publish-process">
               <div className="process-title">
                 <div>
-                  <span>Railway → Yixiaoer</span>
+                  <span>Railway publishing worker</span>
                   <b>
                     {activeStage}
                     {activeOperation?.platform

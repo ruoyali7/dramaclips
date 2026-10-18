@@ -469,7 +469,7 @@ export async function enqueueYixiaoerPackage(
 export async function requestCancelYixiaoerPackage(id: string) {
   const item = await getPublishPackage(id);
   if (!item) throw new Error("Publish package not found");
-  if (!item.yixiaoerAction) throw new Error("No Yixiaoer operation is running");
+  if (!item.yixiaoerAction) throw new Error("No publishing operation is running");
   const now = new Date().toISOString();
   if (item.status === "scheduled" && !item.yixiaoerLeaseOwner) {
     const {
