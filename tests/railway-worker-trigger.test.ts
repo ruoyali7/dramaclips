@@ -38,6 +38,15 @@ describe("Railway worker trigger",()=>{
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("never triggers the Railway publishing worker in local mock or test mode",async()=>{
+    configure();
+    vi.stubEnv("SOCIAL_PUBLISH_MODE","mock");
+    await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"disabled"});
+    vi.stubEnv("SOCIAL_PUBLISH_MODE","test");
+    await expect(triggerRailwayWorker("publish")).resolves.toEqual({status:"disabled"});
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns already_running for the latest active deployment",async()=>{
     configure();
     fetchMock.mockResolvedValueOnce(jsonResponse(deploymentResponse("RUNNING")));

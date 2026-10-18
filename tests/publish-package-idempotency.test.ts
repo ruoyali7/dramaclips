@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
 
 vi.mock("server-only",()=>({}));
-vi.mock("@/lib/admin/supabase-config",()=>({getSupabaseConfig:()=>({configured:true,url:"https://supabase.test",key:"test-key"})}));
+vi.mock("@/lib/admin/supabase-config",()=>({getSupabaseConfig:()=>({configured:true,url:"https://supabase.test",key:"test-key"}),assertSafeDevelopmentPublishingDatabase:vi.fn()}));
 vi.mock("@/lib/admin/analytics-repository",()=>({createShortLink:vi.fn()}));
 vi.mock("@/lib/admin/hashtag-recommendation",()=>({recommendHashtags:vi.fn(()=>[])}));
 

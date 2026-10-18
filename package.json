@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "worker:publish:local": "zsh worker/scripts/run-local-publish-worker.zsh",
+    "test:publishing": "vitest run tests/publish-provider-config.test.ts tests/supabase-config.test.ts tests/publish-package-idempotency.test.ts && CONTROL_PLANE_URL=http://127.0.0.1:3000 HOOK_WORKER_TOKEN=test-only PYTHONPATH=worker python3 -m unittest worker.tests.test_runtime_config worker.tests.test_mock_publisher worker.tests.test_meta_publisher worker.tests.test_publish_state"
   },
   "dependencies": {
     "@yixiaoermail/cli": "3.2.9",

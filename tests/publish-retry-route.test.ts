@@ -10,7 +10,7 @@ const failedUpload={id:"package-1",status:"failed",yixiaoerAction:null,platforms
 function request(body:unknown){return new Request("http://localhost/api",{method:"POST",body:JSON.stringify(body)});}
 
 describe("publish retry route",()=>{
-  beforeEach(()=>{enqueue.mockReset();getPackage.mockReset();});
+  beforeEach(()=>{enqueue.mockReset();getPackage.mockReset();delete process.env.INSTAGRAM_PUBLISH_PROVIDER;delete process.env.INSTAGRAM_USER_ID;});
   it("retries only the requested platform and blocks unknown outcomes",async()=>{
     const item={id:"package-1",status:"failed",platforms:[{source:"instagram"},{source:"facebook"}],yixiaoerResults:{instagram:{state:"failed"},facebook:{state:"failed"}}};
     getPackage.mockResolvedValue(item);enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
@@ -65,5 +65,27 @@ describe("publish retry route",()=>{
     expect(enqueue).toHaveBeenCalledWith("package-1",{
       action:"publish",accounts,control:{retryPlatforms:["facebook","youtube"]},scheduledAt:undefined,clearSchedule:true,
     });
+  });
+
+  it("resolves an official Meta account on the server",async()=>{
+    process.env.INSTAGRAM_PUBLISH_PROVIDER="meta";
+    process.env.INSTAGRAM_USER_ID="official-ig";
+    getPackage.mockResolvedValue({id:"package-1",status:"failed",yixiaoerAction:null,platforms:[{source:"instagram"}],yixiaoerResults:{instagram:{state:"failed"}}});
+    enqueue.mockResolvedValue({id:"package-1",status:"publishing"});
+    const response=await POST(request({action:"retry",deliveryMode:"now",accounts:{instagram:"client-value"}}) as never,context);
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith("package-1",{
+      action:"publish",accounts:{instagram:"official-ig"},control:{retryPlatforms:["instagram"]},scheduledAt:undefined,clearSchedule:true,
+    });
+  });
+
+  it("does not pretend an official Meta validation was saved as a draft",async()=>{
+    process.env.INSTAGRAM_PUBLISH_PROVIDER="meta";
+    process.env.INSTAGRAM_USER_ID="official-ig";
+    getPackage.mockResolvedValue({id:"package-1",status:"ready",yixiaoerAction:null,platforms:[{source:"instagram"}],yixiaoerResults:{}});
+    const response=await POST(request({action:"draft",accounts:{}}) as never,context);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({message:"Meta official publishing does not support saving drafts. Choose Publish now or Schedule instead."});
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

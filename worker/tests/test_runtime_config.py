@@ -43,6 +43,50 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config["account_sync_interval_seconds"], 21600)
         self.assertEqual(config["schedule_notification_interval_seconds"], 3600)
 
+    def test_mock_requires_a_safe_database(self):
+        with self.assertRaisesRegex(RuntimeError, "local Supabase"):
+            load_runtime_config({
+                "SOCIAL_PUBLISH_MODE": "mock",
+                "SUPABASE_URL": "https://production.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "secret",
+            })
+        config = load_runtime_config({
+            "SOCIAL_PUBLISH_MODE": "mock",
+            "SUPABASE_URL": "http://127.0.0.1:54321",
+            "SUPABASE_SERVICE_ROLE_KEY": "secret",
+        })
+        self.assertEqual(config["social_publish_mode"], "mock")
+
+    def test_test_mode_requires_explicit_real_publish_opt_in(self):
+        values = {
+            "SOCIAL_PUBLISH_MODE": "test",
+            "SUPABASE_URL": "http://localhost:54321",
+            "SUPABASE_SERVICE_ROLE_KEY": "secret",
+        }
+        with self.assertRaisesRegex(RuntimeError, "ALLOW_REAL_TEST_PUBLISH"):
+            load_runtime_config(values)
+        config = load_runtime_config({**values, "ALLOW_REAL_TEST_PUBLISH": "true"})
+        self.assertEqual(config["social_publish_mode"], "test")
+
+    def test_remote_development_database_must_match_allowlist(self):
+        config = load_runtime_config({
+            "SOCIAL_PUBLISH_MODE": "mock",
+            "SUPABASE_URL": "https://devref.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "secret",
+            "ALLOW_REMOTE_DEVELOPMENT_DB": "true",
+            "DEV_SUPABASE_PROJECT_REF": "devref",
+        })
+        self.assertEqual(config["lease_backend"], "supabase")
+
+    def test_production_rejects_non_live_modes(self):
+        with self.assertRaisesRegex(RuntimeError, "SOCIAL_PUBLISH_MODE=live"):
+            load_runtime_config({
+                "RAILWAY_ENVIRONMENT_NAME": "production",
+                "SOCIAL_PUBLISH_MODE": "mock",
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "secret",
+            })
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -96,6 +96,7 @@ async function request<T>(token: string, query: string, variables: Record<string
 }
 
 export async function triggerRailwayWorker(kind: RailwayWorkerKind): Promise<RailwayWorkerTriggerResult> {
+  if (kind === "publish" && ["mock", "test"].includes((process.env.SOCIAL_PUBLISH_MODE || "live").trim().toLowerCase())) return { status: "disabled" };
   const config = getConfig(kind);
   if (!config) return { status: "disabled" };
 

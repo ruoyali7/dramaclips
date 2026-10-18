@@ -4,6 +4,7 @@ import { futurePacificPublishSlots } from "@/lib/publish-slots";
 import { listPublishCartItems, markPublishCartItemScheduled } from "./publish-cart-repository";
 import { createPublishPackage, enqueueYixiaoerPackage, getPublishPackage, publishingPlatformsForVideoKind, type PublishingPlatform } from "./publish-repository";
 import { getCachedYixiaoerAccounts } from "./yixiaoer-account-cache";
+import { requiresYixiaoerAccount, resolvePublishingAccountId } from "./publish-provider-config";
 
 const platforms = ["tiktok", "instagram", "youtube", "facebook"] as PublishingPlatform[];
 const platformNames: Record<string, string> = { tiktok: "tiktok", instagram: "instagram", youtube: "youtube", facebook: "facebook" };
@@ -16,10 +17,11 @@ export async function schedulePublishCartDate(cartDate: string, siteUrl: string)
   const occupied = new Set(scheduledItems.map((item, index) => item.scheduledAt || scheduledPackages[index]?.scheduledAt).filter(Boolean));
   const slots = futurePacificPublishSlots(cartDate).filter((slot) => !occupied.has(slot)).slice(0, items.length);
   if (slots.length < items.length) throw new Error(`Only ${slots.length} unoccupied future publish slots remain for ${cartDate}`);
-  const cache = await getCachedYixiaoerAccounts();
-  if (!cache) throw new Error("Yixiaoer account cache is unavailable");
+  const needsYixiaoer = platforms.some((platform) => requiresYixiaoerAccount(platform));
+  const cache = needsYixiaoer ? await getCachedYixiaoerAccounts() : null;
+  if (needsYixiaoer && !cache) throw new Error("Yixiaoer account cache is unavailable");
   const availableAccounts = Object.fromEntries(platforms.map((platform) => {
-    const account = cache.accounts.find((item) => item.status === 1 && item.platform.toLowerCase() === platformNames[platform]);
+    const account = cache?.accounts.find((item) => item.status === 1 && item.platform.toLowerCase() === platformNames[platform]);
     return [platform, account?.id];
   }));
   const dramas = new Map<string, NonNullable<Awaited<ReturnType<typeof getDramaBySlug>>>>();
@@ -36,8 +38,7 @@ export async function schedulePublishCartDate(cartDate: string, siteUrl: string)
       const videoKind = item.assetSource === "episode" ? "original" : "hook";
       const itemPlatforms = publishingPlatformsForVideoKind(videoKind, platforms);
       const accounts = Object.fromEntries(itemPlatforms.map((platform) => {
-        const accountId = availableAccounts[platform];
-        if (!accountId) throw new Error(`No active default Yixiaoer account for ${platform}`);
+        const accountId = resolvePublishingAccountId(platform, availableAccounts[platform]);
         return [platform, accountId];
       }));
       const packageItem = await createPublishPackage({

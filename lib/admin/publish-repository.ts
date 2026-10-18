@@ -1,8 +1,9 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { getSupabaseConfig } from "./supabase-config";
+import { assertSafeDevelopmentPublishingDatabase, getSupabaseConfig } from "./supabase-config";
 import { createShortLink } from "./analytics-repository";
 import { recommendHashtags } from "./hashtag-recommendation";
+import { publishingProvider, type PublishingProvider } from "./publish-provider-config";
 
 export const publishingPlatforms = [
   "tiktok",
@@ -70,6 +71,7 @@ export class ExistingPublishPackageError extends Error {
 async function request(path: string, init: RequestInit = {}) {
   const config = getSupabaseConfig();
   if (!config.configured) throw new Error("Supabase is not configured");
+  if ((init.method || "GET").toUpperCase() !== "GET") assertSafeDevelopmentPublishingDatabase();
   const response = await fetch(`${config.url}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -400,6 +402,7 @@ export async function enqueueYixiaoerPackage(
       reconcilePlatforms?: string[];
       retryPlatforms?: string[];
       saveDraft?: boolean;
+      providers?: Partial<Record<PublishingPlatform, PublishingProvider>>;
     };
   },
 ) {
@@ -424,10 +427,20 @@ export async function enqueueYixiaoerPackage(
   const now = new Date().toISOString();
   const { _control: discardedControl, ...baseResults } = item.yixiaoerResults;
   void discardedControl;
+  const providers = Object.fromEntries(
+    item.platforms
+      .filter((pack) => pack.source !== "x")
+      .map((pack) => [pack.source, publishingProvider(pack.source)]),
+  ) as Partial<Record<PublishingPlatform, PublishingProvider>>;
+  const control = {
+    ...(input.control || {}),
+    ...(Object.keys(providers).length ? { providers } : {}),
+  };
+  const hasControl = Object.keys(control).length > 0;
   const results = scheduled
     ? {
         ...baseResults,
-        ...(input.control ? { _control: input.control } : {}),
+        ...(hasControl ? { _control: control } : {}),
         _operation: {
           stage: "awaiting_scheduled_time",
           scheduledAt: input.scheduledAt || item.scheduledAt,
@@ -435,8 +448,8 @@ export async function enqueueYixiaoerPackage(
           heartbeatAt: now,
         },
       }
-    : input.control
-      ? { ...baseResults, _control: input.control }
+    : hasControl
+      ? { ...baseResults, _control: control }
       : baseResults;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}`,
@@ -469,7 +482,7 @@ export async function enqueueYixiaoerPackage(
 export async function requestCancelYixiaoerPackage(id: string) {
   const item = await getPublishPackage(id);
   if (!item) throw new Error("Publish package not found");
-  if (!item.yixiaoerAction) throw new Error("No Yixiaoer operation is running");
+  if (!item.yixiaoerAction) throw new Error("No publishing operation is running");
   const now = new Date().toISOString();
   if (item.status === "scheduled" && !item.yixiaoerLeaseOwner) {
     const {
@@ -530,9 +543,11 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
   if (!Number.isFinite(scheduledTime.getTime()) || scheduledTime.getTime() <= Date.now())
     throw new Error("Choose a scheduled time in the future");
   const now = new Date().toISOString();
-  const { _control: discardedControl, ...rescheduledResults } =
-    item.yixiaoerResults;
-  void discardedControl;
+  const { _control: priorControl, ...rescheduledResults } = item.yixiaoerResults;
+  const { cancelRequested, requestedAt, ...preservedControl } =
+    (priorControl as Record<string, unknown> | undefined) || {};
+  void cancelRequested;
+  void requestedAt;
   const rows = (await request(
     `publish_packages?id=eq.${encodeURIComponent(id)}&status=eq.scheduled&yixiaoer_action=eq.publish&yixiaoer_lease_owner=is.null`,
     {
@@ -543,6 +558,7 @@ export async function rescheduleYixiaoerPackage(id: string, scheduledAt: string)
         yixiaoer_error: null,
         yixiaoer_results: {
           ...rescheduledResults,
+          ...(Object.keys(preservedControl).length ? { _control: preservedControl } : {}),
           _operation: {
             ...((item.yixiaoerResults?._operation as Record<string, unknown>) || {}),
             stage: "awaiting_scheduled_time",

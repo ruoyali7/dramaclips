@@ -11,7 +11,6 @@ import { PublishCenter } from "@/components/admin/publish-center";
 import { listVizardSources } from "@/lib/admin/repository";
 import { approveHookCandidate, listHookClips } from "@/lib/admin/hook-repository";
 import { listHookJobs } from "@/lib/admin/hook-job-repository";
-import { yixiaoerConfigured } from "@/lib/admin/yixiaoer";
 import { listVizardProjects } from "@/lib/admin/vizard-repository";
 import { listLibraryAssets } from "@/lib/admin/asset-library";
 import "../asset-library.css";
@@ -22,11 +21,10 @@ import "../operations-ux.css";
 
 export const dynamic = "force-dynamic";
 export default async function Page() {
-  const [base, initialHooks, hookJobs, yixiaoerReady, vizardProjects] = await Promise.all([
+  const [base, initialHooks, hookJobs, vizardProjects] = await Promise.all([
     listVizardSources(),
     listHookClips(),
     listHookJobs(undefined, 100),
-    yixiaoerConfigured(),
     listVizardProjects(),
   ]);
   const savedCandidateIds = new Set(initialHooks.map((hook) => hook.candidateId).filter(Boolean));
@@ -77,7 +75,7 @@ export default async function Page() {
           <h1>Publish Center</h1>
         </div>
       </div>
-      <PublishCenter sources={sources} yixiaoerReady={yixiaoerReady} />
+      <PublishCenter sources={sources} />
       <nav className="publish-operations" aria-label="Publishing operations">
         <span>Operations</span>
         <a href="https://vercel.com/drama-clips/dramaclips/logs" target="_blank" rel="noreferrer"><Activity /> Vercel logs <ExternalLink /></a>
