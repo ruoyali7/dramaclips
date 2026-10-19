@@ -41,9 +41,10 @@ export async function ensureDailyInstagramStoryPlan(now=new Date()){
     .sort((a,b)=>(lastPublished.get(a.slug)||0)-(lastPublished.get(b.slug)||0)||a.slug.localeCompare(b.slug));
   const chosen=[...dailyPostSlugs.map(slug=>({source:bySlug.get(slug)!,selectionSource:"daily_post" as const})),...library.slice(0,DAILY_STORY_TARGET-dailyPostSlugs.length).map(source=>({source,selectionSource:"library" as const}))];
   const batchTime=pacificLocalToIso(date,STORY_BATCH_TIME);
+  const reconnectedAt=now.toISOString();
   return createInstagramStoryJobs(chosen.map(({source,selectionSource})=>({
     schedule_date:date,drama_slug:source.slug,drama_title:source.title,image_url:source.coverUrl,
     content_code:source.promoCode||source.publicCode,target_url:source.targetUrl,selection_source:selectionSource,
-    scheduled_at:batchTime,
+    scheduled_at:batchTime,reconnected_at:reconnectedAt,
   })));
 }

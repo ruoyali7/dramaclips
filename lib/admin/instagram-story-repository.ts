@@ -12,6 +12,7 @@ export type InstagramStoryJob = {
   selection_source:"daily_post"|"library"|"manual";
   status:"scheduled"|"publishing"|"published"|"failed"|"outcome_unknown";
   scheduled_at:string;
+  reconnected_at?:string;
   started_at?:string;
   published_at?:string;
   story_result:Record<string,unknown>;

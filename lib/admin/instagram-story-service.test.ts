@@ -32,5 +32,6 @@ describe("daily Instagram Story planning",()=>{
     ]);
     expect(jobs.map((job:{drama_slug:string})=>job.drama_slug)).not.toContain("drama-4");
     expect(new Set(jobs.map((job:{scheduled_at:string})=>job.scheduled_at))).toEqual(new Set(["2026-10-14T15:30:00.000Z"]));
+    expect(new Set(jobs.map(job=>job.reconnected_at))).toEqual(new Set([now.toISOString()]));
   });
 });
