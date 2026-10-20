@@ -12,7 +12,6 @@ export function EpisodePlayer({drama,episodes,goHref}:{drama:PublicDrama;episode
   const [index,setIndex]=useState(0); const [ready,setReady]=useState(false); const [playing,setPlaying]=useState(false); const [muted,setMuted]=useState(true); const [progress,setProgress]=useState(0); const [ended,setEnded]=useState(false); const [copied,setCopied]=useState(false); const [videoStatus,setVideoStatus]=useState<"loading"|"ready"|"error">("loading");
   const episode=episodes[index];
 
-  useEffect(()=>{trackClientEvent("page_view",{dramaId:drama.id,dramaSlug:drama.slug});},[drama.id,drama.slug]);
   useEffect(()=>{
     try {
       const saved=JSON.parse(localStorage.getItem("dramaclips:last")||"null") as SavedProgress|null;

@@ -14,9 +14,10 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
    - Keep clipboard behavior best-effort and report success truthfully.
    - Treat one client outbound-intent event plus one server redirect event as the funnel boundary.
    - Verification: 146 tests, production build, typecheck, and `git diff --check` passed.
-3. **Mobile watch page and empty preview state — in progress**
+3. **Mobile watch page and empty preview state — complete**
    - Preserve player behavior while improving controls, end state, safe areas, watched markers, and zero-episode fallback.
-4. **Social landing resolution — pending**
+   - Verification: production build, typecheck, and `git diff --check` passed; full test suite remained at 146 passing tests from the preceding phase.
+4. **Social landing resolution — in progress**
    - Resolve valid identifiers directly to `/watch`; show an explicit search fallback for invalid identifiers without breaking old parameters.
 5. **Homepage discovery redesign — pending**
    - Remove unsupported labels, prioritize search/history/catalog, and keep real episode counts.
