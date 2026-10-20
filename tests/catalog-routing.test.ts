@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findExactDrama, requestedDramaIdentifier } from "@/lib/catalog-routing";
+import { findExactDrama, rankDramaMatches, requestedDramaIdentifier } from "@/lib/catalog-routing";
 import type { Drama } from "@/lib/types";
 
 const drama: Drama = {
@@ -32,5 +32,17 @@ describe("public drama routing", () => {
     expect(findExactDrama([drama], "public42")?.id).toBe("d1");
     expect(findExactDrama([drama], "3469908")?.id).toBe("d1");
     expect(findExactDrama([drama], "unknown")).toBeUndefined();
+  });
+
+  it("ranks exact codes before titles, partial titles, and tags", () => {
+    const titleMatch = { ...drama, id: "d2", slug: "code-love", publicCode: "P2", promoCode: "P2", title: "3469908 Love" };
+    const tagMatch = { ...drama, id: "d3", slug: "action", publicCode: "P3", promoCode: "P3", title: "Action Story", tags: ["billionaire"] };
+    expect(rankDramaMatches([titleMatch, drama], "3469908").map(item => item.id)).toEqual(["d1", "d2"]);
+    expect(rankDramaMatches([tagMatch, drama], "billionaire").map(item => item.id)).toEqual(["d1", "d3"]);
+  });
+
+  it("excludes unpublished dramas and limits suggestions", () => {
+    const paused = { ...drama, id: "paused", status: "paused" as const };
+    expect(rankDramaMatches([paused, drama], "secret", 1).map(item => item.id)).toEqual(["d1"]);
   });
 });

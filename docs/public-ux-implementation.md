@@ -23,9 +23,10 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 5. **Homepage discovery redesign — complete**
    - Remove unsupported labels, prioritize search/history/catalog, and keep real episode counts.
    - Reused the existing acquisition-first layout; removed the unsupported “Newly added” claim rather than rewriting the page.
-6. **Smart search — in progress**
+6. **Smart search — complete**
    - Add deterministic ranked matching, up to five accessible suggestions, and no per-keystroke database calls.
-7. **Multi-drama local history — pending**
+   - Verification: 9 focused search/routing/attribution tests, production build, typecheck, and `git diff --check` passed.
+7. **Multi-drama local history — in progress**
    - Add versioned, bounded storage with safe migration from `dramaclips:last` and guarded reads/writes.
    - Favorites remain deferred unless the core phases finish without added complexity.
 8. **Deterministic recommendations — pending**

@@ -5,20 +5,20 @@ import { ArrowRight, Play, Search } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { ContinueWatching } from "@/components/continue-watching";
 import { HomePageTracker } from "@/components/home-page-tracker";
+import { SearchBox } from "@/components/search-box";
 import { getCatalog } from "@/lib/catalog";
 import { toPublicDrama } from "@/lib/catalog-presentation";
-import { findExactDrama, requestedDramaIdentifier } from "@/lib/catalog-routing";
+import { findExactDrama, rankDramaMatches, requestedDramaIdentifier } from "@/lib/catalog-routing";
 import { trackingQuery } from "@/lib/tracking";
 
 export default async function Home({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   const query = await searchParams;
   const attribution = trackingQuery(query);
   const {dramas,episodes}=await getCatalog();
-  const attributionFields = Array.from(new URLSearchParams(attribution));
   const episodeCounts = new Map<string, number>();
   episodes.forEach(episode => episodeCounts.set(episode.dramaId, (episodeCounts.get(episode.dramaId) || 0) + 1));
-  const search = typeof query.q === "string" ? query.q.trim().toLowerCase() : "";
-  const match = search ? dramas.find(drama => drama.publicCode.toLowerCase() === search || drama.promoCode?.toLowerCase() === search || drama.slug === search) || dramas.find(drama => drama.title.toLowerCase().includes(search) || drama.tags.some(tag => tag.toLowerCase().includes(search))) : undefined;
+  const search = typeof query.q === "string" ? query.q.trim() : "";
+  const match = rankDramaMatches(dramas, search, 1)[0];
   if (match) redirect(`/watch/${match.slug}${attribution?`?${attribution}`:""}`);
   const requested = requestedDramaIdentifier(query);
   const requestedDrama = findExactDrama(dramas, requested);
@@ -43,7 +43,7 @@ export default async function Home({searchParams}:{searchParams:Promise<Record<s
       </div>
     </section>
     {requested&&!requestedDrama&&<aside className="dc-request-error" role="status"><strong>We couldn’t match that drama.</strong><span>Search by title or code, or browse the catalog below.</span></aside>}
-    <section className="dc-find" id="find-by-code"><div><strong>Find your drama</strong><span>Search by title or Dramora AI / ReelShort promotion code</span></div><form action="/"><Search/>{attributionFields.map(([name,value])=><input key={name} type="hidden" name={name} value={value}/>)}<input name="q" enterKeyHint="search" placeholder="Enter title or code" aria-label="Drama title or code" defaultValue={requested&&!requestedDrama?requested:undefined}/><button>Find</button></form>{search&&!match&&<small>No drama found for “{search}”. Check the title or code and try again.</small>}</section>
+    <section className="dc-find" id="find-by-code"><div><strong>Find your drama</strong><span>Search by title or Dramora AI / ReelShort promotion code</span></div><SearchBox dramas={dramas.map(toPublicDrama)} attribution={attribution} initialQuery={search||(requested&&!requestedDrama?requested:"")}/>{search&&!match&&<small>No drama found for “{search}”. Check the title or code and try again.</small>}</section>
     <section className="dc-trending" id="all-dramas"><div className="dc-section-head"><div><span>Browse the library</span><h2>All dramas</h2><p>Pick a story and watch the available free chapters here.</p></div><Link href="#find-by-code">Find by code <ArrowRight/></Link></div><div className="dc-poster-grid">{dramas.map((drama)=>{const count=episodeCounts.get(drama.id)||0;return <Link href={`/watch/${drama.slug}${attribution?`?${attribution}`:""}`} key={drama.id} className="dc-poster"><div><Image src={drama.coverUrl} alt="" fill sizes="(max-width:700px) 42vw, 220px"/><i><Play fill="currentColor"/></i><b>{count} free {count===1?"chapter":"chapters"}</b></div><small>Content Code · {drama.promoCode || drama.publicCode}{drama.tags[0]?` · ${drama.tags[0]}`:""}</small><strong>{drama.title}</strong></Link>})}</div></section>
     <section className="dc-explain"><h2>One tap back into the story.</h2><p>Dramora AI matches each social video to its exact series. Use a clip link for an instant match, revisit your last drama, or search by code when needed.</p></section>
     <footer className="dc-footer"><Brand dark href={`/${attribution?`?${attribution}`:""}`}/><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms & affiliate disclosure</Link></div><p>Dramora AI may earn a commission when you continue to a third-party app.</p></footer>
