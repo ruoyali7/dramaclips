@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listAssets: vi.fn(), listPackages: vi.fn(), listActive: vi.fn(), addItem: vi.fn(), scheduleDate: vi.fn(),
-  latestPlan: vi.fn(), createPlan: vi.fn(), updatePlan: vi.fn(),
+  validateConfiguration: vi.fn(), latestPlan: vi.fn(), createPlan: vi.fn(), updatePlan: vi.fn(),
 }));
 vi.mock("@/lib/admin/asset-library", () => ({ listLibraryAssets: mocks.listAssets }));
 vi.mock("@/lib/admin/publish-repository", () => ({ listPublishPackages: mocks.listPackages }));
 vi.mock("@/lib/admin/publish-cart-repository", () => ({ addPublishCartItem: mocks.addItem, listActivePublishCartItemsFrom: mocks.listActive }));
-vi.mock("@/lib/admin/publish-cart-scheduler", () => ({ schedulePublishCartDate: mocks.scheduleDate }));
+vi.mock("@/lib/admin/publish-cart-scheduler", () => ({ schedulePublishCartDate: mocks.scheduleDate, validatePublishCartConfiguration: mocks.validateConfiguration }));
 vi.mock("@/lib/admin/weekly-publish-repository", () => ({
   getLatestWeeklyPublishPlan: mocks.latestPlan, createWeeklyPublishPlan: mocks.createPlan, updateWeeklyPublishPlan: mocks.updatePlan,
 }));
@@ -33,6 +33,7 @@ function originals(count: number) {
 describe("weekly publish service", () => {
   beforeEach(() => {
     vi.clearAllMocks(); mocks.latestPlan.mockResolvedValue(null); mocks.listPackages.mockResolvedValue([]); mocks.listActive.mockResolvedValue([{ cartDate: "2026-09-30", assetId: "manual" }]);
+    mocks.validateConfiguration.mockResolvedValue(undefined);
     mocks.addItem.mockResolvedValue({});
     mocks.scheduleDate.mockImplementation(async (date) => ({ cartDate: date, packages: Array.from({ length: 10 }, (_, index) => ({ id: `${date}-${index}` })), failures: [] }));
     mocks.createPlan.mockImplementation(async (input) => ({ id: "plan-1", createdAt: "", ...input }));
@@ -52,8 +53,18 @@ describe("weekly publish service", () => {
     mocks.listAssets.mockResolvedValue(originals(70));
     const result = await scheduleNextPublishWeek("https://dramaclips.example", "schedule");
     expect(result.plan.status).toBe("scheduled");
+    expect(mocks.validateConfiguration).toHaveBeenCalledWith("original");
     expect(mocks.addItem).toHaveBeenCalledTimes(70);
     expect(mocks.scheduleDate).toHaveBeenCalledTimes(7);
     expect(mocks.scheduleDate.mock.calls.map((call) => call[0])).toEqual(["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"]);
+  });
+
+  it("validates publishing providers before creating a plan or adding Cart items", async () => {
+    mocks.listAssets.mockResolvedValue(originals(70));
+    mocks.validateConfiguration.mockRejectedValue(new Error("Configure INSTAGRAM_USER_ID for instagram"));
+    await expect(scheduleNextPublishWeek("https://dramaclips.example", "schedule")).rejects.toThrow("Configure INSTAGRAM_USER_ID for instagram");
+    expect(mocks.createPlan).not.toHaveBeenCalled();
+    expect(mocks.addItem).not.toHaveBeenCalled();
+    expect(mocks.scheduleDate).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 import "server-only";
 import { listLibraryAssets } from "./asset-library";
 import { addPublishCartItem, listActivePublishCartItemsFrom } from "./publish-cart-repository";
-import { schedulePublishCartDate } from "./publish-cart-scheduler";
+import { schedulePublishCartDate, validatePublishCartConfiguration } from "./publish-cart-scheduler";
 import { listPublishPackages } from "./publish-repository";
 import { createWeeklyPublishPlan, getLatestWeeklyPublishPlan, updateWeeklyPublishPlan } from "./weekly-publish-repository";
 import { pacificCartDates } from "@/lib/publish-cart-date";
@@ -45,12 +45,16 @@ export async function scheduleNextPublishWeek(siteUrl: string, action: "schedule
   const eligible = (await eligibleOriginalAssets()).filter((asset) => !activeAssetIds.has(asset.id));
   const available = eligible.length;
   const missing = Math.max(0, WEEKLY_PUBLISH_VIDEOS - available);
-  let run = action === "resume" && latest?.status === "paused"
-    ? await updateWeeklyPublishPlan(latest.id, { status: missing ? "paused" : "planning", startDate, endDate, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber, errorMessage: undefined })
-    : await createWeeklyPublishPlan({ status: missing ? "paused" : "planning", startDate, endDate, requiredVideos: WEEKLY_PUBLISH_VIDEOS, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber });
   if (missing) {
+    const run = action === "resume" && latest?.status === "paused"
+      ? await updateWeeklyPublishPlan(latest.id, { status: "paused", startDate, endDate, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber, errorMessage: undefined })
+      : await createWeeklyPublishPlan({ status: "paused", startDate, endDate, requiredVideos: WEEKLY_PUBLISH_VIDEOS, availableVideos: available, missingVideos: missing, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber });
     return { plan: run };
   }
+  await validatePublishCartConfiguration("original");
+  let run = action === "resume" && latest?.status === "paused"
+    ? await updateWeeklyPublishPlan(latest.id, { status: "planning", startDate, endDate, availableVideos: available, missingVideos: 0, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber, errorMessage: undefined })
+    : await createWeeklyPublishPlan({ status: "planning", startDate, endDate, requiredVideos: WEEKLY_PUBLISH_VIDEOS, availableVideos: available, missingVideos: 0, scheduledVideos: 0, nextDramaSlug: eligible[0]?.dramaSlug, nextEpisodeNumber: eligible[0]?.episodeNumber });
   const plan = buildWeeklyPlan(eligible, startDate);
   if (plan.length !== 7) throw new Error("Could not build a complete seven-day publish plan");
   let scheduledVideos = 0;

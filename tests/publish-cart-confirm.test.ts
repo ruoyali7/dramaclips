@@ -56,6 +56,15 @@ describe("publish cart confirmation", () => {
     });
   });
 
+  it("rejects missing official account configuration before creating any packages", async () => {
+    process.env.INSTAGRAM_PUBLISH_PROVIDER = "meta";
+    process.env.FACEBOOK_PUBLISH_PROVIDER = "meta";
+    const response = await POST(request());
+    await expect(response.json()).resolves.toEqual({ message: "Configure INSTAGRAM_USER_ID for instagram" });
+    expect(response.status).toBe(503);
+    expect(createPackage).not.toHaveBeenCalled();
+  });
+
   it("does not enqueue an already scheduled idempotent cart package again", async () => {
     createPackage.mockResolvedValue({ id: "package-1", status: "scheduled" });
     expect((await POST(request())).status).toBe(201);
