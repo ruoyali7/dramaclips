@@ -6,6 +6,7 @@ import { Brand } from "@/components/brand";
 import { ContinueWatching } from "@/components/continue-watching";
 import { HomePageTracker } from "@/components/home-page-tracker";
 import { getCatalog } from "@/lib/catalog";
+import { toPublicDrama } from "@/lib/catalog-presentation";
 import { trackingQuery } from "@/lib/tracking";
 
 export default async function Home({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
@@ -24,7 +25,7 @@ export default async function Home({searchParams}:{searchParams:Promise<Record<s
   return <main className="dc-home">
     <HomePageTracker/>
     <header className="dc-nav"><Brand dark href={`/${attribution?`?${attribution}`:""}`}/><nav><Link href={`/${attribution?`?${attribution}`:""}`}>Home</Link><Link href="#all-dramas">All dramas</Link><Link href="#find-by-code">Find by code</Link></nav><Link href="#find-by-code" aria-label="Find by code"><Search/></Link></header>
-    <ContinueWatching dramas={dramas} attribution={attribution}/>
+    <ContinueWatching dramas={dramas.map(toPublicDrama)} attribution={attribution}/>
     <section className="dc-hero">
       <Image src={hero.coverUrl} alt="" fill priority sizes="100vw" className="dc-hero-image"/>
       <div className="dc-gradient"/>

@@ -4,6 +4,8 @@ export type Drama = {
   routeSlug: string; promoCode?: string; contentPromotionUrl?: string; appPromotionUrl?: string; accent: string;
 };
 
+export type PublicDrama = Omit<Drama, "contentPromotionUrl" | "appPromotionUrl">;
+
 export type Episode = {
   id: string;
   dramaId: string;

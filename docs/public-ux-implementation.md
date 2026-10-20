@@ -8,12 +8,13 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 
 1. **Repository audit and baseline — complete**
    - Document routes, referral flow, event contract, mobile breakpoints, risks, and baseline checks.
-2. **Referral CTA consolidation — in progress**
+2. **Referral CTA consolidation — complete**
    - Route every public provider CTA through `/go/[slug]`.
    - Add one shared client-event helper and one shared affiliate CTA.
    - Keep clipboard behavior best-effort and report success truthfully.
    - Treat one client outbound-intent event plus one server redirect event as the funnel boundary.
-3. **Mobile watch page and empty preview state — pending**
+   - Verification: 146 tests, production build, typecheck, and `git diff --check` passed.
+3. **Mobile watch page and empty preview state — in progress**
    - Preserve player behavior while improving controls, end state, safe areas, watched markers, and zero-episode fallback.
 4. **Social landing resolution — pending**
    - Resolve valid identifiers directly to `/watch`; show an explicit search fallback for invalid identifiers without breaking old parameters.
