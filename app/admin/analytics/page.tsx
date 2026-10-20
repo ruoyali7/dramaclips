@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { getAnalyticsRange, type AnalyticsBreakdown, type AnalyticsRangeSummary } from "@/lib/admin/analytics-repository";
+import { getAnalyticsRange, type AnalyticsBreakdown, type AnalyticsFunnelBreakdown, type AnalyticsRangeSummary } from "@/lib/admin/analytics-repository";
+import { publicFunnelRates, type PublicFunnelCounts } from "@/lib/analytics-funnel";
 import { analyticsPeriods } from "@/lib/analytics-periods";
 import "./analytics.css";
 
@@ -17,6 +18,21 @@ function Metric({label,value,today,help,primary=false}:{label:string;value:numbe
 }
 function Breakdown({title,rows}:{title:string;rows:AnalyticsBreakdown[]}){
   return <section className="panel analytics-breakdown"><span>Conversion breakdown</span><h2>{title}</h2><div className="analytics-breakdown-head"><b>Name</b><b>Sessions</b><b>Code copies</b><b>RS redirects</b></div>{rows.length?rows.slice(0,12).map(([name,sessions,copies,redirects])=><div key={name}><b>{name}</b><span>{number(sessions)}</span><span>{number(copies)}</span><span>{number(redirects)}</span></div>):<p>No tracked activity in this period.</p>}</section>;
+}
+function FunnelBreakdown({title,rows}:{title:string;rows:AnalyticsFunnelBreakdown[]}){
+  return <section className="panel analytics-breakdown analytics-funnel-breakdown"><span>Unique browser sessions</span><h2>{title}</h2><div className="analytics-breakdown-head"><b>Name</b><b>Watch visits</b><b>Starts</b><b>Completions</b><b>Outbound</b></div>{rows.length?rows.slice(0,12).map(([name,visitors,starts,completions,outbound])=><div key={name}><b>{name}</b><span>{number(visitors)}</span><span>{number(starts)}</span><span>{number(completions)}</span><span>{number(outbound)}</span></div>):<p>No funnel activity in this period.</p>}</section>;
+}
+function PublicFunnel({counts}:{counts:PublicFunnelCounts}){
+ const rates=publicFunnelRates(counts);
+ const stages:[string,number,string][]=[
+  ["Landing visitors",counts.landingVisitors,"Home page sessions"],
+  ["Watch visitors",counts.watchVisitors,`${rates.landingToWatch}% of landing visitors`],
+  ["Preview starts",counts.previewStartVisitors,`${rates.watchStart}% of watch visitors`],
+  ["Preview completions",counts.previewCompleteVisitors,`${rates.previewCompletion}% of preview starters`],
+  ["Outbound intent",counts.outboundVisitors,`${rates.outboundCtr}% of watch visitors`],
+  ["Confirmed redirects",counts.confirmedRedirectVisitors,`${rates.confirmedRedirectRate}% of outbound intent`]
+ ];
+ return <section className="panel public-funnel"><span>Public conversion funnel</span><h2>Unique-session progression</h2><p>Outbound intent and confirmed redirects are first-party signals, not purchases or provider conversions.</p><div>{stages.map(([label,value,help])=><article key={label}><span>{label}</span><strong>{number(value)}</strong><small>{help}</small></article>)}</div></section>;
 }
 function Comparison({current,previous,days}:{current:AnalyticsRangeSummary;previous:AnalyticsRangeSummary;days:number}){
  const rows:[string,keyof AnalyticsRangeSummary][]=[["Code copies","promoCodeCopies"],["RS redirects","rsRedirects"],["Unique sessions","sessions"],["Preview starts","previewStarts"]];
@@ -44,11 +60,13 @@ export default async function Page({searchParams}:{searchParams:Promise<{days?:s
     <Metric label="Preview starts" value={current.previewStarts} today={today.previewStarts} help="first play per episode per page load"/>
     <Metric label="Preview completions" value={current.previewCompletions} today={today.previewCompletions} help="first completion per episode"/>
    </div>
+   <PublicFunnel counts={{landingVisitors:current.landingVisitors||0,watchVisitors:current.watchVisitors||0,previewStartVisitors:current.previewStartVisitors||0,previewCompleteVisitors:current.previewCompleteVisitors||0,outboundVisitors:current.outboundVisitors||0,confirmedRedirectVisitors:current.confirmedRedirectVisitors||0}}/>
    <div className="analytics-grid">
     <Comparison current={current} previous={previous} days={days}/>
     <section className="panel analytics-comparison"><span>Same elapsed time</span><h2>Today vs yesterday</h2>{([["Code copies","promoCodeCopies"],["RS redirects","rsRedirects"],["Unique sessions","sessions"]] as [string,keyof AnalyticsRangeSummary][]).map(([label,key])=><div key={key}><b>{label}</b><span><strong>{number(today[key] as number)}</strong><small>{delta(today[key] as number,yesterday[key] as number)}</small></span></div>)}</section>
    </div>
    <div className="analytics-grid"><Breakdown title="By drama" rows={current.byDrama}/><Breakdown title="By source" rows={current.bySource}/></div>
+   <div className="analytics-grid"><FunnelBreakdown title="Funnel by drama" rows={current.funnelByDrama||[]}/><FunnelBreakdown title="Funnel by source" rows={current.funnelBySource||[]}/></div>
    <section className="panel analytics-daily"><span>Daily intent</span><h2>Code copies and RS redirects</h2><div className="analytics-daily-head"><b>Date</b><b>Sessions</b><b>Copies</b><b>Redirects</b></div>{current.daily.map(([day,sessions,copies,redirects])=><div key={day}><time>{day}</time><span>{number(sessions)}</span><span>{number(copies)}</span><span>{number(redirects)}</span></div>)}</section>
    <section className="panel analytics-note"><b>Attribution limits</b><p>Facebook posts that link directly to ReelShort bypass DramaClips tracking. “Redirect success” only confirms that our redirect route responded; it is shown separately from RS outbound clicks and does not prove a conversion.</p><small>{number(current.redirectSuccesses)} server redirect responses in this period · {number(current.events)} total tracked events</small></section>
   </>:<section className="panel analytics-error"><span>Analytics unavailable</span><h2>Could not load the dashboard</h2><p>{/analytics_summary_v2|PGRST202|404/.test(error)?"Apply the latest Supabase Analytics migration, then retry.":"The Analytics service returned a temporary error. Your tracking data was not deleted."}</p><Link href={`/admin/analytics?days=${days}`}>Retry</Link><details><summary>Technical detail</summary><code>{error}</code></details></section>}

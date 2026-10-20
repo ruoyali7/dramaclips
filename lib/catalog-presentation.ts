@@ -1,3 +1,5 @@
+import type { Drama, PublicDrama } from "./types";
+
 export function summarizeDescription(description: string, maxLength = 150) {
   const clean = description.trim().replace(/\s+/g, " ");
   if (clean.length <= maxLength) return clean;
@@ -16,4 +18,9 @@ export function uniqueTags(tags: string[]) {
     seen.add(key);
     return true;
   });
+}
+
+export function toPublicDrama(drama: Drama): PublicDrama {
+  const { contentPromotionUrl: _contentPromotionUrl, appPromotionUrl: _appPromotionUrl, ...publicDrama } = drama;
+  return publicDrama;
 }

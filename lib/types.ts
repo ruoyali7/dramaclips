@@ -2,7 +2,10 @@ export type Drama = {
   id: string; slug: string; publicCode: string; title: string; hook: string;
   description: string; coverUrl: string; tags: string[]; status: "published" | "paused";
   routeSlug: string; promoCode?: string; contentPromotionUrl?: string; appPromotionUrl?: string; accent: string;
+  publishedAt?: string;
 };
+
+export type PublicDrama = Omit<Drama, "contentPromotionUrl" | "appPromotionUrl">;
 
 export type Episode = {
   id: string;
