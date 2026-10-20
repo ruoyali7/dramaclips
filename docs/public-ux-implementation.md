@@ -26,10 +26,12 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 6. **Smart search — complete**
    - Add deterministic ranked matching, up to five accessible suggestions, and no per-keystroke database calls.
    - Verification: 9 focused search/routing/attribution tests, production build, typecheck, and `git diff --check` passed.
-7. **Multi-drama local history — in progress**
+7. **Multi-drama local history — complete**
    - Add versioned, bounded storage with safe migration from `dramaclips:last` and guarded reads/writes.
    - Favorites remain deferred unless the core phases finish without added complexity.
-8. **Deterministic recommendations — pending**
+   - Favorites are deferred because they are optional and would add a separate interaction/storage surface.
+   - Verification: 5 focused migration/storage tests, production build, typecheck, and `git diff --check` passed.
+8. **Deterministic recommendations — in progress**
    - Rank published alternatives by shared tags with stable fallback ordering.
 9. **Public conversion funnel — pending**
    - Define documented denominators and expose visits, starts, completions, outbound intent, and confirmed redirects without calling them purchases.

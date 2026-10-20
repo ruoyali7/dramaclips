@@ -3,9 +3,8 @@ import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, LockKeyhole, Paus
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trackClientEvent } from "@/lib/client-events";
 import type { Episode, PublicDrama } from "@/lib/types";
+import { readWatchHistory, saveWatchProgress } from "@/lib/watch-history";
 import { AffiliateCta } from "./affiliate-cta";
-
-type SavedProgress = { slug?: string; episode?: number; positionSeconds?: number; at?: number };
 
 export function EpisodePlayer({drama,episodes,goHref}:{drama:PublicDrama;episodes:Episode[];goHref:string}) {
   const video=useRef<HTMLVideoElement>(null); const startedEpisodes=useRef(new Set<string>()); const completedEpisodes=useRef(new Set<string>()); const activeEpisode=useRef(episodes[0].episodeNumber); const resumeEpisode=useRef<number>(); const resumeTime=useRef(0); const lastProgressSave=useRef(0);
@@ -13,18 +12,16 @@ export function EpisodePlayer({drama,episodes,goHref}:{drama:PublicDrama;episode
   const episode=episodes[index];
 
   useEffect(()=>{
-    try {
-      const saved=JSON.parse(localStorage.getItem("dramaclips:last")||"null") as SavedProgress|null;
-      if(saved?.slug===drama.slug&&typeof saved.episode==="number"){
-        const savedIndex=episodes.findIndex(item=>item.episodeNumber===saved.episode);
-        if(savedIndex>=0){activeEpisode.current=saved.episode;setIndex(savedIndex);resumeEpisode.current=saved.episode;resumeTime.current=Math.max(0,saved.positionSeconds||0);}
-      }
-    } catch { /* Start from the first preview when saved state is invalid. */ }
+    const saved=readWatchHistory(localStorage).find(item=>item.slug===drama.slug);
+    if(saved&&typeof saved.episode==="number"){
+      const savedIndex=episodes.findIndex(item=>item.episodeNumber===saved.episode);
+      if(savedIndex>=0){activeEpisode.current=saved.episode;setIndex(savedIndex);resumeEpisode.current=saved.episode;resumeTime.current=Math.max(0,saved.positionSeconds||0);}
+    }
     setReady(true);
   },[drama.slug,episodes]);
 
   const saveProgress=useCallback((positionSeconds=0)=>{
-    localStorage.setItem("dramaclips:last",JSON.stringify({slug:drama.slug,episode:activeEpisode.current,positionSeconds,at:Date.now()}));
+    saveWatchProgress(localStorage,{slug:drama.slug,episode:activeEpisode.current,positionSeconds,at:Date.now()});
   },[drama.slug]);
   useEffect(()=>{
     setEnded(false);setProgress(0);setVideoStatus("loading");
