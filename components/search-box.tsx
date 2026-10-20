@@ -75,7 +75,7 @@ export function SearchBox({ dramas, attribution = "", initialQuery = "" }: { dra
         className={index === activeIndex ? "active" : ""}
         href={dramaHref(drama)}
         key={drama.id}
-      ><Image src={drama.coverUrl} alt="" width={42} height={56}/><span><strong>{drama.title}</strong><small>Code {drama.promoCode || drama.publicCode}</small></span></Link>):<div className="search-empty"><p>No matching drama found.</p><a href="#all-dramas" onMouseDown={event=>event.preventDefault()}>Browse all dramas</a></div>}
+      ><Image src={drama.coverUrl} alt="" width={42} height={56}/><span><strong>{drama.title}</strong><small>Code {drama.promoCode || drama.publicCode}</small></span></Link>):<div className="search-empty"><p>No matching drama found.</p><a href={`/browse${attribution ? `?${attribution}` : ""}`}>Browse all dramas</a></div>}
     </div>}
   </form>;
 }
