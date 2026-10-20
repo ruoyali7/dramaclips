@@ -17,9 +17,10 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 3. **Mobile watch page and empty preview state — complete**
    - Preserve player behavior while improving controls, end state, safe areas, watched markers, and zero-episode fallback.
    - Verification: production build, typecheck, and `git diff --check` passed; full test suite remained at 146 passing tests from the preceding phase.
-4. **Social landing resolution — in progress**
+4. **Social landing resolution — complete**
    - Resolve valid identifiers directly to `/watch`; show an explicit search fallback for invalid identifiers without breaking old parameters.
-5. **Homepage discovery redesign — pending**
+   - Verification: 7 focused routing/attribution tests, production build, typecheck, and `git diff --check` passed.
+5. **Homepage discovery redesign — in progress**
    - Remove unsupported labels, prioritize search/history/catalog, and keep real episode counts.
 6. **Smart search — pending**
    - Add deterministic ranked matching, up to five accessible suggestions, and no per-keystroke database calls.
