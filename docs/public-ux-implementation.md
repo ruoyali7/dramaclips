@@ -31,9 +31,10 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
    - Favorites remain deferred unless the core phases finish without added complexity.
    - Favorites are deferred because they are optional and would add a separate interaction/storage surface.
    - Verification: 5 focused migration/storage tests, production build, typecheck, and `git diff --check` passed.
-8. **Deterministic recommendations — in progress**
+8. **Deterministic recommendations — complete**
    - Rank published alternatives by shared tags with stable fallback ordering.
-9. **Public conversion funnel — pending**
+   - Verification: 2 focused ranking tests, production build, typecheck, and `git diff --check` passed.
+9. **Public conversion funnel — in progress**
    - Define documented denominators and expose visits, starts, completions, outbound intent, and confirmed redirects without calling them purchases.
 10. **Accessibility, performance, and regression QA — pending**
     - Verify keyboard names/states, 44px touch targets, reduced motion, responsive images, layout stability, and existing Admin/publishing tests.
