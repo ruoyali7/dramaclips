@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseCatalog, catalogGenres } from "@/lib/catalog-browse";
+import { browseCatalog, catalogGenres, nextCatalogCount } from "@/lib/catalog-browse";
 import type { Drama } from "@/lib/types";
 
 function drama(id: string, title: string, tags: string[], publishedAt?: string): Drama {
@@ -26,5 +26,10 @@ describe("catalog browsing", () => {
     expect(browseCatalog(dramas, "", "", "newest").map(item => item.id)).toEqual(["2", "3", "1"]);
     expect(browseCatalog(dramas, "", "", "title").map(item => item.id)).toEqual(["3", "2", "1"]);
     expect(dramas.map(item => item.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("expands the visible catalog without exceeding the result count", () => {
+    expect(nextCatalogCount(24, 80)).toBe(48);
+    expect(nextCatalogCount(72, 80)).toBe(80);
   });
 });

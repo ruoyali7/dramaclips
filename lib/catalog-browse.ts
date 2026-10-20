@@ -22,3 +22,7 @@ export function browseCatalog(dramas: Drama[], query: string, genre: string, sor
     Date.parse(right.publishedAt || "") - Date.parse(left.publishedAt || "") || left.title.localeCompare(right.title));
   return filtered;
 }
+
+export function nextCatalogCount(current: number, total: number, pageSize = 24) {
+  return Math.min(total, current + pageSize);
+}

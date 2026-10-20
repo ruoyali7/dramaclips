@@ -1,6 +1,7 @@
 import { NextRequest,NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { dramaUpdateSchema } from "@/lib/admin/drama-schema";
+import { DuplicatePromotionUrlError } from "@/lib/admin/promotion-url";
 import { deleteDrama,updateDrama,getDramaForEdit } from "@/lib/admin/repository";
 import { queueDramaEpisodes } from "@/lib/admin/queue-drama-episodes";
 
@@ -21,6 +22,7 @@ export async function PATCH(request:NextRequest,{params}:{params:Promise<{id:str
     return NextResponse.json({draft,vizard,queueEpisodeNumbers:added.map(episode=>episode.episodeNumber),changedEpisodes:changed.map(episode=>episode.episodeNumber)});
   }catch(error){
     if(error instanceof ZodError)return NextResponse.json({message:"Check the highlighted fields",fieldErrors:error.flatten().fieldErrors},{status:400});
+    if(error instanceof DuplicatePromotionUrlError)return NextResponse.json({code:"DUPLICATE_PROMOTION_URL",message:`This promotion URL is already used by “${error.dramaTitle}”.`,fieldErrors:{[error.field]:["This URL is already assigned to another drama."]}},{status:409});
     return NextResponse.json({message:"Could not update drama. Please retry."},{status:500});
   }
 }
