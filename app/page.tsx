@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, Flame, Play, Search } from "lucide-react";
+import { ArrowRight, Play, Search } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { ContinueWatching } from "@/components/continue-watching";
 import { HomePageTracker } from "@/components/home-page-tracker";
@@ -33,7 +33,7 @@ export default async function Home({searchParams}:{searchParams:Promise<Record<s
       <Image src={hero.coverUrl} alt="" fill priority sizes="100vw" className="dc-hero-image"/>
       <div className="dc-gradient"/>
       <div className="dc-hero-copy">
-        <span className="dc-badge"><Flame fill="currentColor"/> Newly added</span>
+        <span className="dc-badge"><Play fill="currentColor"/> Featured preview</span>
         <p className="dc-code">Content Code · {hero.promoCode || hero.publicCode}</p>
         <h1>{hero.title}</h1>
         <p className="dc-hook">{hero.hook}</p>

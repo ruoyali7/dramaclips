@@ -20,9 +20,10 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 4. **Social landing resolution — complete**
    - Resolve valid identifiers directly to `/watch`; show an explicit search fallback for invalid identifiers without breaking old parameters.
    - Verification: 7 focused routing/attribution tests, production build, typecheck, and `git diff --check` passed.
-5. **Homepage discovery redesign — in progress**
+5. **Homepage discovery redesign — complete**
    - Remove unsupported labels, prioritize search/history/catalog, and keep real episode counts.
-6. **Smart search — pending**
+   - Reused the existing acquisition-first layout; removed the unsupported “Newly added” claim rather than rewriting the page.
+6. **Smart search — in progress**
    - Add deterministic ranked matching, up to five accessible suggestions, and no per-keystroke database calls.
 7. **Multi-drama local history — pending**
    - Add versioned, bounded storage with safe migration from `dramaclips:last` and guarded reads/writes.
