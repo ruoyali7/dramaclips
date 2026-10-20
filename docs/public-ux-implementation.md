@@ -34,9 +34,12 @@ Each phase must pass focused tests plus `npm run typecheck` and `npm run build` 
 8. **Deterministic recommendations — complete**
    - Rank published alternatives by shared tags with stable fallback ordering.
    - Verification: 2 focused ranking tests, production build, typecheck, and `git diff --check` passed.
-9. **Public conversion funnel — in progress**
+9. **Public conversion funnel — complete in code; migration not applied**
    - Define documented denominators and expose visits, starts, completions, outbound intent, and confirmed redirects without calling them purchases.
-10. **Accessibility, performance, and regression QA — pending**
+   - Added distinct-session funnel stages and source/drama breakdowns while preserving existing analytics fields.
+   - `202610190001_public_conversion_funnel.sql` requires review and explicit deployment approval before the new dashboard fields contain data.
+   - Verification: 7 focused funnel/period/event tests, production build, typecheck, and `git diff --check` passed.
+10. **Accessibility, performance, and regression QA — in progress**
     - Verify keyboard names/states, 44px touch targets, reduced motion, responsive images, layout stability, and existing Admin/publishing tests.
 
 ## Commit strategy
