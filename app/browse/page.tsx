@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Search, SlidersHorizontal, X } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { CatalogPosterCard } from "@/components/catalog-poster-card";
+import { BrowseGrid } from "@/components/browse-grid";
 import { browseCatalog, catalogGenres, type CatalogSort } from "@/lib/catalog-browse";
 import { getCatalog } from "@/lib/catalog";
 import { toPublicDrama } from "@/lib/catalog-presentation";
@@ -35,15 +35,12 @@ export default async function BrowsePage({ searchParams }: { searchParams: Promi
   const genre = stringParam(params.genre);
   const requestedSort = stringParam(params.sort);
   const sort: CatalogSort = requestedSort === "newest" || requestedSort === "title" ? requestedSort : "featured";
-  const requestedPage = Number.parseInt(stringParam(params.page), 10);
-  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const { dramas, episodes } = await getCatalog();
   const episodeCounts = new Map<string, number>();
   episodes.forEach(episode => episodeCounts.set(episode.dramaId, (episodeCounts.get(episode.dramaId) || 0) + 1));
   const genres = catalogGenres(dramas);
   const results = browseCatalog(dramas, query, genre, sort);
-  const visible = results.slice(0, page * 24).map(toPublicDrama);
-  const hasMore = visible.length < results.length;
+  const items = results.map(drama => ({ drama: toPublicDrama(drama), episodeCount: episodeCounts.get(drama.id) || 0 }));
   const attributionFields = Array.from(new URLSearchParams(attribution));
 
   return <main className="browse-page">
@@ -70,9 +67,7 @@ export default async function BrowsePage({ searchParams }: { searchParams: Promi
 
       <div className="browse-result-head"><div><span>{results.length} {results.length === 1 ? "drama" : "dramas"}</span><h2>{genre || (query ? `Results for “${query}”` : "All dramas")}</h2></div>{(query || genre) && <Link href={browseUrl({ sort }, attribution)}>Clear filters <X/></Link>}</div>
 
-      {visible.length > 0 ? <div className="browse-grid">{visible.map(drama => <CatalogPosterCard key={drama.id} drama={drama} episodeCount={episodeCounts.get(drama.id) || 0} attribution={attribution}/>)}</div> : <div className="browse-empty"><Search/><h2>No dramas found</h2><p>Try a different title, code, or genre.</p><Link href={browseUrl({}, attribution)}>See the full library <ArrowRight/></Link></div>}
-
-      {hasMore && <Link className="browse-more" href={browseUrl({ q: query, genre, sort, page: page + 1 }, attribution)}>Load more dramas <ArrowRight/></Link>}
+      {items.length > 0 ? <BrowseGrid key={`${query}:${genre}:${sort}`} items={items} attribution={attribution}/> : <div className="browse-empty"><Search/><h2>No dramas found</h2><p>Try a different title, code, or genre.</p><Link href={browseUrl({}, attribution)}>See the full library <ArrowRight/></Link></div>}
     </section>
 
     <footer className="dc-footer"><Brand dark href={`/${attribution ? `?${attribution}` : ""}`}/><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms & affiliate disclosure</Link></div><p>Dramora AI may earn a commission when you continue to a third-party app.</p></footer>

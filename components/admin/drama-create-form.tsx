@@ -2,10 +2,12 @@
 
 import { CheckCircle2, CloudUpload, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { isReadyDramaVideo, nextEpisodeNumber } from "@/lib/drama-onboarding";
 
 type EpisodeRow = { episodeNumber: number; videoUrl: string; name?: string; progress?: number; status?: string };
 type EditableDrama = { id: string; title: string; slug: string; publicCode: string; promoCode: string; language: string; tags: string[]; description: string; coverUrl: string; episodes: Array<{episodeNumber:number;videoUrl:string}>; hasCpsUrl: boolean; hasAppCpsUrl: boolean };
+type PromotionUrlField = "cpsUrl" | "appCpsUrl";
 const initial: EpisodeRow[] = [1, 2, 3, 4, 5].map((episodeNumber) => ({ episodeNumber, videoUrl: "" }));
 const acceptedTypes = new Set(["video/mp4", "video/quicktime", "video/x-msvideo", "video/3gpp"]);
 
@@ -34,6 +36,7 @@ function uploadFile(file: File, uploadUrl: string, onProgress: (value: number) =
 }
 
 export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: { r2DashboardUrl: string; initialDrama?: EditableDrama; r2PublicBase?: string }) {
+  const router = useRouter();
   const [episodes, setEpisodes] = useState<EpisodeRow[]>(initialDrama?.episodes || initial);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -50,10 +53,13 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
   const [rsNotice, setRsNotice] = useState("");
   const [queueVizard, setQueueVizard] = useState(false);
   const [remoteLinks, setRemoteLinks] = useState("");
+  const [promotionChecks, setPromotionChecks] = useState<Record<PromotionUrlField, boolean>>({ cpsUrl: false, appCpsUrl: false });
   const slugRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const episodesRef = useRef(episodes);
+  const promotionCheckTimers = useRef<Partial<Record<PromotionUrlField, number>>>({});
+  const promotionCheckVersions = useRef<Record<PromotionUrlField, number>>({ cpsUrl: 0, appCpsUrl: 0 });
   episodesRef.current = episodes;
   const readyCount = episodes.filter(episode => isReadyDramaVideo(episode.videoUrl, r2PublicBase)).length;
   const fieldMessage = (name: string) => fieldErrors[name]?.length ? <small className="field-error" role="alert">{fieldErrors[name].join(" · ")}</small> : null;
@@ -63,6 +69,10 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
     const timer = window.setTimeout(() => {setRsImporting(false);setRsNotice("");setError("RS import timed out. Check the extension and try again.");}, 45000);
     return () => window.clearTimeout(timer);
   }, [rsImporting]);
+
+  useEffect(() => () => {
+    Object.values(promotionCheckTimers.current).forEach(timer => window.clearTimeout(timer));
+  }, []);
 
   useEffect(() => {
     function receive(event: MessageEvent) {
@@ -91,6 +101,8 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
         const field = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
         if (field && typeof value === "string" && value) field.value = value;
       }
+      if (typeof drama.cpsUrl === "string") queuePromotionUrlCheck("cpsUrl", drama.cpsUrl);
+      if (typeof drama.appCpsUrl === "string") queuePromotionUrlCheck("appCpsUrl", drama.appCpsUrl);
       const promoCode = formRef.current?.elements.namedItem("promoCode") as HTMLInputElement | null;
       if (promoCode && typeof (drama.promoCode || drama.publicCode) === "string") promoCode.value = String(drama.promoCode || drama.publicCode);
       const tags = formRef.current?.elements.namedItem("tags") as HTMLInputElement | null;
@@ -281,7 +293,7 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (uploading || saving || (!initialDrama && result)) return;
+    if (uploading || saving) return;
     if (readyCount !== episodes.length || coverFile || selectedFiles.length) {setError("Finish R2 uploads before publishing. Every episode must have a ready R2 URL.");setFieldErrors({episodes:["Transfer or upload every episode to R2 first."]});return;}
     setSaving(true);
     setError("");
@@ -308,8 +320,42 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
         return;
       }
       setResult({ ...json.draft, vizard: json.vizard, changedEpisodes: json.changedEpisodes, queueEpisodeNumbers: json.queueEpisodeNumbers });
+      if (!initialDrama) {
+        formRef.current?.reset();
+        setEpisodes(initial.map(episode => ({ ...episode })));
+        setSelectedFiles([]);
+        setCoverFile(null);
+        setCoverStatus("");
+        setCoverProgress(0);
+        setRsLink("");
+        setRsNotice("");
+        setRemoteLinks("");
+        setQueueVizard(false);
+        setFieldErrors({});
+        router.refresh();
+      }
     } catch (reason) {setError(reason instanceof Error ? `${reason.message}. If the result is uncertain, check Drama bundles before retrying.` : "Save failed. Please check Drama bundles before retrying.");}
     finally {setSaving(false);}
+  }
+
+  function queuePromotionUrlCheck(field: PromotionUrlField, value: string) {
+    window.clearTimeout(promotionCheckTimers.current[field]);
+    const version = ++promotionCheckVersions.current[field];
+    setFieldErrors(current => ({ ...current, [field]: [] }));
+    if (!value.trim()) { setPromotionChecks(current => ({ ...current, [field]: false })); return; }
+    setPromotionChecks(current => ({ ...current, [field]: true }));
+    promotionCheckTimers.current[field] = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/admin/dramas/promotion-url-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: value.trim(), excludeId: initialDrama?.id }) });
+        const json = await response.json();
+        if (version !== promotionCheckVersions.current[field]) return;
+        if (response.ok && json.exists) setFieldErrors(current => ({ ...current, [field]: [`Already used by “${json.dramaTitle}”. Paste a different URL.`] }));
+      } catch {
+        // Saving performs the same check server-side, so a transient preview failure is non-blocking.
+      } finally {
+        if (version === promotionCheckVersions.current[field]) setPromotionChecks(current => ({ ...current, [field]: false }));
+      }
+    }, 300);
   }
 
   async function retryQueue() {
@@ -345,10 +391,10 @@ export function DramaCreateForm({ r2DashboardUrl, initialDrama, r2PublicBase }: 
       </details>{fieldMessage("episodes")}<div className="episode-inputs">{episodes.map((episode, index) => <label key={episode.episodeNumber}><b>EP {episode.episodeNumber}</b><div className="episode-value"><input className={episode.status === "Ready" ? "ready-url" : ""} type="url" required disabled={uploading || saving} value={episode.videoUrl} placeholder={episode.name || "R2 HTTPS URL"} onChange={(event) => { const videoUrl=event.target.value; const ready=isReadyDramaVideo(videoUrl,r2PublicBase); patchEpisode(index,{videoUrl,status:ready?"Ready":isRemoteVideoUrl(videoUrl)?"Ready to transfer":"Needs R2 URL",progress:ready?100:0}); }} />{episode.status && <small><span>{episode.name}</span><strong>{episode.status === "Ready" ? "Ready · editable" : episode.status === "Uploading" ? `Uploading · ${episode.progress ?? 0}%` : episode.status}</strong></small>}{typeof episode.progress === "number" && <i className={episode.status?.toLowerCase()} style={{ width: `${episode.progress}%` }} />}</div>{episodes.length > 1 && !uploading && <button type="button" aria-label={`Remove episode ${episode.episodeNumber}`} onClick={() => removeEpisode(index)}><Trash2 /></button>}</label>)}</div>
       {!uploading && <button className="add-episode" type="button" onClick={() => setEpisodes((rows) => [...rows, { episodeNumber: nextEpisodeNumber(rows), videoUrl: "" }])} disabled={episodes.length >= 100}><Plus /> Add URL manually</button>}
     </section>
-    <section><span>03 · RS promotion links</span><p>Temporarily use the App Promotion Link: Full Watch copies the Content Code before opening ReelShort.</p><label className="sensitive-field"><b>Content promotion link (for future direct-to-drama use)</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>Original drama link. It remains saved and is not replaced by temporary mode.</small>{fieldMessage("cpsUrl")}</label><label className="sensitive-field"><b>App promotion link (current Full Watch destination)</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} /><small>After ReelShort opens, paste the automatically copied Content Code into the search bar.</small>{fieldMessage("appCpsUrl")}</label></section>
+    <section><span>03 · RS promotion links</span><p>Temporarily use the App Promotion Link: Full Watch copies the Content Code before opening ReelShort.</p><label className="sensitive-field"><b>Content promotion link (for future direct-to-drama use)</b><input name="cpsUrl" type="url" required={!initialDrama?.hasCpsUrl} placeholder={initialDrama?.hasCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} onChange={event => queuePromotionUrlCheck("cpsUrl", event.currentTarget.value)} /><small>Original drama link. It remains saved and is not replaced by temporary mode.</small>{fieldMessage("cpsUrl")}</label><label className="sensitive-field"><b>App promotion link (current Full Watch destination)</b><input name="appCpsUrl" type="url" required={!initialDrama?.hasAppCpsUrl} placeholder={initialDrama?.hasAppCpsUrl ? "Leave blank to keep the encrypted link" : "https://reelslink.com/cps/..."} onChange={event => queuePromotionUrlCheck("appCpsUrl", event.currentTarget.value)} /><small>After ReelShort opens, paste the automatically copied Content Code into the search bar.</small>{fieldMessage("appCpsUrl")}</label>{Object.values(promotionChecks).some(Boolean) && <small className="promotion-url-check">Checking promotion URL…</small>}</section>
     <section className="vizard-queue-choice"><span>04 · Vizard generation</span><label><input type="checkbox" checked={queueVizard} onChange={event=>setQueueVizard(event.target.checked)}/><div><b>Queue episodes for Vizard</b><small>Optional and off by default. Saving the drama will not use Vizard credits unless this is checked.</small></div></label></section>
     {error && <div className="form-error" role="alert">{error} <a href="/admin/dramas">Check Drama bundles</a></div>}
     {result && <div className="form-success"><CheckCircle2 /><div><b>{initialDrama ? "Changes saved" : "Published to catalog"}: {result.title}</b><span>{result.episodeCount} preview episodes saved.</span>{result.vizard && <span className={result.vizard.status==="failed"?"field-error":""}>{result.vizard.status==="queued" ? `Queue checked for ${result.vizard.requested} episodes · ${result.vizard.accepted} newly queued. Waiting for your approval in Hook Studio.` : result.vizard.status==="skipped" ? "Vizard was not queued." : result.vizard.message}</span>}{Boolean(result.changedEpisodes?.length)&&<span>Replaced video for EP {result.changedEpisodes!.join(", ")}. Existing hooks were kept; select these episodes in Hook Studio if you want to regenerate.</span>}<div className="onboarding-next-actions"><a href="/admin/hooks">View Hook Studio</a><a href={`/admin/dramas/${result.id}/edit`}>Edit saved drama</a>{result.vizard?.status==="failed"&&<button type="button" disabled={saving} onClick={()=>void retryQueue()}>Retry queueing only</button>}</div></div></div>}
-    <button className="save-draft" disabled={saving || uploading || rsImporting || Boolean(!initialDrama && result)}>{uploading ? "Finish R2 uploads first" : saving ? "Saving…" : !initialDrama && result ? "Drama saved · use the links above" : initialDrama ? queueVizard ? "Save changes & queue new episodes" : "Save changes without Vizard" : queueVizard ? "Publish drama & queue Vizard" : "Publish drama without Vizard"}</button>
+    <button className="save-draft" disabled={saving || uploading || rsImporting}>{uploading ? "Finish R2 uploads first" : saving ? "Saving…" : initialDrama ? queueVizard ? "Save changes & queue new episodes" : "Save changes without Vizard" : queueVizard ? "Publish drama & queue Vizard" : "Publish drama without Vizard"}</button>
   </form>;
 }

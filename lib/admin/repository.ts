@@ -6,6 +6,7 @@ export const getPublishedDramaDrafts=()=>repositoryMode()==="supabase"?remote.ge
 export const getDramaForEdit=(id:string)=>repositoryMode()==="supabase"?remote.getSupabaseDramaForEdit(id):local.getDramaForEdit(id);
 export const updateDrama=(id:string,input:import("./drama-schema").DramaUpdateInput)=>repositoryMode()==="supabase"?remote.updateSupabaseDrama(id,input):local.updateDrama(id,input);
 export const deleteDrama=(id:string)=>repositoryMode()==="supabase"?remote.deleteSupabaseDrama(id):local.deleteDrama(id);
+export const findPromotionUrlConflict=(url:string,excludeId?:string)=>repositoryMode()==="supabase"?remote.findPromotionUrlConflict(url,excludeId):local.findPromotionUrlConflict(url,excludeId);
 export async function listVizardSources(){
   const rows=await getPublishedDramaDrafts();
   return rows.map(row=>({id:row.id,title:row.title,slug:row.slug,publicCode:row.publicCode,promoCode:row.promoCode,language:row.language,tags:row.tags,description:row.description,coverUrl:row.coverUrl,publishedAt:row.publishedAt||row.createdAt,contentPromotionUrl:decryptSensitive(row.cpsUrlEncrypted),episodes:row.episodes.map(episode=>({episodeNumber:episode.episodeNumber,videoUrl:episode.videoUrl}))}));

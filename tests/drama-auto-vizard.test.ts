@@ -4,6 +4,7 @@ const {save,publish,enqueue}=vi.hoisted(()=>({save:vi.fn(),publish:vi.fn(),enque
 vi.mock("@/lib/admin/repository",()=>({saveDramaDraft:save,publishDramaDraft:publish}));
 vi.mock("@/lib/admin/vizard-repository",()=>({enqueueVizardSubmissions:enqueue}));
 import {POST} from "@/app/api/admin/dramas/route";
+import {DuplicatePromotionUrlError} from "@/lib/admin/promotion-url";
 
 const body={title:"Test Drama",slug:"test-drama",publicCode:"1234",promoCode:"1234",language:"en",tags:[],description:"A sufficiently long drama description.",coverUrl:"/cover.jpg",cpsUrl:"https://reelslink.com/cps/test",episodes:[{episodeNumber:1,videoUrl:"https://cdn.example.com/1.mp4"},{episodeNumber:2,videoUrl:"https://cdn.example.com/2.mp4"}]};
 const request=(queueVizard=true)=>new Request("http://localhost/api/admin/dramas",{method:"POST",body:JSON.stringify({...body,queueVizard})});
@@ -26,5 +27,11 @@ describe("Add Drama automatic Vizard production",()=>{
   it("publishes without queueing Vizard when the option is off",async()=>{
     const response=await POST(request(false) as never);const json=await response.json();
     expect(response.status).toBe(201);expect(enqueue).not.toHaveBeenCalled();expect(json.vizard).toEqual({status:"skipped",requested:2,accepted:0});
+  });
+
+  it("returns a field warning for a duplicate promotion URL",async()=>{
+    save.mockRejectedValue(new DuplicatePromotionUrlError("cpsUrl","Existing Drama"));
+    const response=await POST(request(false) as never);const json=await response.json();
+    expect(response.status).toBe(409);expect(json.fieldErrors.cpsUrl).toEqual(["This URL is already assigned to another drama."]);
   });
 });
