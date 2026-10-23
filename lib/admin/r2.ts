@@ -26,7 +26,7 @@ function cleanName(value: string) {
   return `${stem}${extension}`;
 }
 
-export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string; kind?: "episode" | "cover" | "social" | "hook-draft" }) {
+export function createR2Upload(input: { fileName: string; contentType: string; size: number; slug: string; kind?: "episode" | "cover" | "social" | "hook-draft"; stableId?: string }) {
   const kind = input.kind || "episode";
   if (kind === "cover") {
     if (!Number.isFinite(input.size) || input.size <= 0 || input.size > MAX_COVER_BYTES) throw new Error("Cover must be between 1 byte and 20 MB");
@@ -36,6 +36,7 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
     if (!VIDEO_TYPES.has(input.contentType)) throw new Error("Use MP4, MOV, AVI, or 3GP video files");
   }
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.slug)) throw new Error("Add a valid drama slug before uploading");
+  if (input.stableId && !/^[a-z0-9-]+$/.test(input.stableId)) throw new Error("Invalid stable upload ID");
 
   const accountId = required("R2_ACCOUNT_ID");
   const accessKey = required("R2_ACCESS_KEY_ID");
@@ -44,7 +45,8 @@ export function createR2Upload(input: { fileName: string; contentType: string; s
   const publicBase = required("R2_PUBLIC_BASE_URL").replace(/\/$/, "");
   const host = `${accountId}.r2.cloudflarestorage.com`;
   const folder = kind === "social" ? "social/" : kind === "hook-draft" ? "social/drafts/" : "";
-  const objectKey = `dramas/${input.slug}/${folder}${kind === "cover" ? "cover-" : ""}${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${cleanName(input.fileName)}`;
+  const objectId = input.stableId || `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const objectKey = `dramas/${input.slug}/${folder}${kind === "cover" ? "cover-" : ""}${objectId}-${cleanName(input.fileName)}`;
   const canonicalUri = `/${encode(bucket)}/${objectKey.split("/").map(encode).join("/")}`;
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
@@ -113,6 +115,12 @@ export async function deleteSocialVideo(objectKey:string){if(!objectKey.startsWi
 const REMOTE_VIDEO_HOSTS=new Set(["v-mps.crazymaplestudios.com","v-out.oss-accelerate.aliyuncs.com"]);
 export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeNumber:number}){
   const source=new URL(input.url);if(source.protocol!=="https:"||!REMOTE_VIDEO_HOSTS.has(source.hostname)||!source.pathname.toLowerCase().endsWith(".mp4"))throw new Error("Remote video URL is not allowed");
+  const sourceId=crypto.createHash("sha256").update(`${source.hostname.toLowerCase()}${source.pathname}`).digest("hex").slice(0,20);
+  const stableId=`remote-${String(input.episodeNumber).padStart(3,"0")}-${sourceId}`;
+  const prepared=createR2Upload({fileName:`${String(input.episodeNumber).padStart(3,"0")}.mp4`,contentType:"video/mp4",size:1,slug:input.slug,kind:"episode",stableId});
+  const existing=await signedR2Request("HEAD",prepared.objectKey);
+  if(existing.ok)return{publicUrl:prepared.publicUrl,size:Number(existing.headers.get("content-length")||0),reused:true};
+  if(existing.status!==404)throw new Error(`R2 lookup returned ${existing.status}`);
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5*60*1000);
   try{
     const response=await fetch(source,{redirect:"manual",signal:controller.signal,headers:{Accept:"video/mp4,application/octet-stream"}});
@@ -120,8 +128,7 @@ export async function copyRemoteVideoToR2(input:{url:string;slug:string;episodeN
     if(!response.ok||!response.body)throw new Error(`Remote video returned ${response.status}`);
     const type=(response.headers.get("content-type")||"application/octet-stream").split(";")[0].trim();if(!["video/mp4","application/octet-stream","binary/octet-stream"].includes(type))throw new Error(`Unexpected remote content type: ${type}`);
     const size=Number(response.headers.get("content-length"));if(!Number.isFinite(size)||size<=0||size>MAX_FILE_BYTES)throw new Error("Remote video has an invalid or oversized Content-Length");
-    const prepared=createR2Upload({fileName:`${String(input.episodeNumber).padStart(3,"0")}.mp4`,contentType:"video/mp4",size,slug:input.slug,kind:"episode"});
     const uploaded=await fetch(prepared.uploadUrl,{method:"PUT",headers:{"Content-Type":"video/mp4","Cache-Control":"public, max-age=31536000, immutable","Content-Length":String(size)},body:response.body,duplex:"half"} as RequestInit & {duplex:"half"});
-    if(!uploaded.ok)throw new Error(`R2 upload returned ${uploaded.status}`);return{publicUrl:prepared.publicUrl,size};
+    if(!uploaded.ok)throw new Error(`R2 upload returned ${uploaded.status}`);return{publicUrl:prepared.publicUrl,size,reused:false};
   }finally{clearTimeout(timeout)}
 }
